@@ -70,7 +70,14 @@
           }
         }
       ],
-      "envVariables": [],
+      "envVariables": [
+        {
+          "key": "UPDATE_CONDA_ENV",
+          "value": "false",
+          "description": "Set to 'true' to force run.sh to delete and recreate the conda environment under $WORK before running the analysis. Useful after bumping environment.yaml.",
+          "inputMode": "INCLUDE_ON_DEMAND"
+        }
+      ],
       "archiveFilter": {
         "includes": [],
         "excludes": [],

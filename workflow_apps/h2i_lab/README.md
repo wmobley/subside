@@ -42,12 +42,37 @@ For local runs, set `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` or use a stand
 
 [`walkthrough.ipynb`](walkthrough.ipynb) in this directory exercises the same code path as `run.sh` end-to-end (config → preflight → download → preview → archive) against real Earthdata. Use it to validate environment + credentials before building the container or submitting a Tapis job.
 
+## Runtime Conda Install (cookbook pattern)
+
+The Docker image is intentionally **thin** — `subside_analysis/` and `run.sh` are copied in, but no conda environment is baked in. On first invocation, `run.sh`:
+
+1. Downloads miniconda (py312) into `${ENV_INSTALL_DIR}/miniconda3` — on TACC this resolves to `$WORK/miniconda3`, locally it defaults to `/work/miniconda3`.
+2. Creates a conda env named `subside-h2i-opera` from `/tapis/environment.yaml` (override the env name via `CONDA_ENV_NAME`).
+3. Activates it and runs `python -m subside_analysis.h2i_lab.cli run …`.
+
+Subsequent runs detect the existing env and reuse it (no re-solve). To force a clean rebuild after bumping `environment.yaml`, set `UPDATE_CONDA_ENV=true` (exposed as a Tapis env variable in `app-cpu.json`).
+
+The first run pays a one-time ~5–10 min penalty for the conda solve + pip install of `disp-xr`/`opera-utils`. Image pulls become trivial.
+
 ## Build Sketch
 
 Build from the `subside/` directory so the Dockerfile can copy both `subside_analysis/` and this app directory:
 
 ```bash
 docker build -f workflow_apps/h2i_lab/Dockerfile -t subside-h2i-opera-analysis:dev .
+```
+
+Local smoke test (bind-mount a writable dir for the persistent conda install):
+
+```bash
+mkdir -p .docker-work
+docker run --rm \
+  -e ENV_INSTALL_DIR=/work \
+  -e EARTHDATA_USERNAME -e EARTHDATA_PASSWORD \
+  -v "$PWD/.docker-work:/work" \
+  -v "$PWD/workflow_apps/h2i_lab/run-config.example.json:/work/config/run-config.json:ro" \
+  -v "$PWD/sample_aoi.geojson:/work/config/aoi.geojson:ro" \
+  subside-h2i-opera-analysis:dev
 ```
 
 The `app-cpu.json` image tag is a placeholder and should be updated after the image is pushed.
