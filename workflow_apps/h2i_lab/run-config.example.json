@@ -1,0 +1,13 @@
+{
+  "start_date": "2024-01-01",
+  "end_date": "2025-01-01",
+  "aoi_geojson_path": "config/aoi.geojson",
+  "frame_ids": [],
+  "num_workers": 2,
+  "min_overlap_percent": 50,
+  "output_dir": "output",
+  "results_dir": "OPERA_L3_DISP-S1",
+  "require_products": true,
+  "preview_only": false
+}
+

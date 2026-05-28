@@ -1,0 +1,8 @@
+node_modules
+dist
+notebookExamples
+webpage_Examples
+**/__pycache__
+*.pyc
+.git
+

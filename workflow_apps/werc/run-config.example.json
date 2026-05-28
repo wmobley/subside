@@ -1,0 +1,17 @@
+{
+  "start_date": "2024-01-01",
+  "end_date": "2025-01-01",
+  "aoi_geojson_path": "config/aoi.geojson",
+  "frame_ids": [],
+  "num_workers": 2,
+  "min_overlap_percent": 50,
+  "output_dir": "output",
+  "results_dir": "OPERA_L3_DISP-S1",
+  "require_products": true,
+  "reference_mode": "auto",
+  "anchor_radius_m": 5000,
+  "n_reference_pixels": 25,
+  "anchor_dir": "output/anchors",
+  "displacement_geotiff_name": "opera_disp_s1_cumulative.tif",
+  "velocity_geotiff_name": "opera_disp_s1_velocity.tif"
+}

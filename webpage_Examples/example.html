@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SUBSIDE - Data Discovery Portal | TACC</title>
+    
+    <style>
+        /* TACC Core Styles Variables */
+        :root {
+            --tacc-primary-dark: #005f86;
+            --tacc-primary-x-dark: #004362;
+            --tacc-accent: #00a9b7;
+            --tacc-accent-dark: #008799;
+            --tacc-gray-light: #f8f9fa;
+            --tacc-gray-lighter: #e9ecef;
+            --tacc-text-dark: #333;
+            --tacc-text-medium: #666;
+            --tacc-text-light: #999;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--tacc-text-dark);
+            background: var(--tacc-gray-light);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        /* Header */
+        .header {
+            background: var(--tacc-primary-dark);
+            color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header-top {
+            background: var(--tacc-primary-x-dark);
+            padding: 8px 0;
+            font-size: 13px;
+        }
+        
+        .institution-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .institutions {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .institutions a {
+            color: rgba(255,255,255,0.8);
+            text-decoration: none;
+        }
+        
+        .institutions a:hover {
+            color: white;
+        }
+        
+        .header-main {
+            padding: 15px 0;
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .logo-badge {
+            background: white;
+            color: var(--tacc-primary-dark);
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 16px;
+        }
+        
+        .logo-text {
+            font-size: 20px;
+            font-weight: 300;
+        }
+        
+        .nav {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 25px;
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            padding: 5px 0;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .nav-links a:hover,
+        .nav-links a.active {
+            border-bottom-color: var(--tacc-accent);
+        }
+        
+        .mode-switcher {
+            display: inline-flex;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 2px;
+        }
+        
+        .mode-btn {
+            padding: 6px 14px;
+            border: none;
+            background: transparent;
+            color: rgba(255,255,255,0.8);
+            cursor: pointer;
+            font-size: 13px;
+            border-radius: 18px;
+            transition: all 0.2s;
+        }
+        
+        .mode-btn:hover {
+            color: white;
+        }
+        
+        .mode-btn.active {
+            background: var(--tacc-accent);
+            color: white;
+        }
+        
+        /* Hero */
+        .hero {
+            background: linear-gradient(135deg, var(--tacc-primary-dark), var(--tacc-accent));
+            color: white;
+            padding: 50px 0;
+            text-align: center;
+        }
+        
+        .hero h1 {
+            font-size: 32px;
+            font-weight: 300;
+            margin-bottom: 15px;
+        }
+        
+        .hero p {
+            font-size: 18px;
+            opacity: 0.95;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        
+        /* Search */
+        .search-section {
+            background: white;
+            padding: 25px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .search-wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .search-form {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .search-input {
+            flex: 1;
+            padding: 10px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 15px;
+        }
+        
+        .search-input:focus {
+            outline: none;
+            border-color: var(--tacc-accent);
+        }
+        
+        .search-btn {
+            padding: 10px 30px;
+            background: var(--tacc-accent);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .search-btn:hover {
+            background: var(--tacc-accent-dark);
+        }
+        
+        /* Stats */
+        .stats {
+            background: white;
+            padding: 30px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 20px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--tacc-accent);
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: var(--tacc-text-medium);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Main Content */
+        .main {
+            flex: 1;
+            padding: 40px 0;
+        }
+        
+        /* Cards */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+            border: 1px solid #e0e0e0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--tacc-accent);
+        }
+        
+        .card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        }
+        
+        .card-icon {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--tacc-accent), var(--tacc-accent-dark));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: white;
+        }
+        
+        .card h3 {
+            font-size: 20px;
+            margin-bottom: 10px;
+            color: var(--tacc-text-dark);
+        }
+        
+        .card p {
+            color: var(--tacc-text-medium);
+            margin-bottom: 20px;
+            font-size: 15px;
+        }
+        
+        .card-features {
+            list-style: none;
+            margin-bottom: 20px;
+        }
+        
+        .card-features li {
+            padding: 6px 0;
+            color: var(--tacc-text-medium);
+            font-size: 14px;
+            padding-left: 20px;
+            position: relative;
+        }
+        
+        .card-features li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: var(--tacc-accent);
+            font-weight: bold;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 8px 24px;
+            background: var(--tacc-accent);
+            color: white;
+            text-decoration: none;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            border: 2px solid var(--tacc-accent);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover {
+            background: var(--tacc-accent-dark);
+            border-color: var(--tacc-accent-dark);
+        }
+        
+        .btn-outline {
+            background: transparent;
+            color: var(--tacc-accent);
+        }
+        
+        .btn-outline:hover {
+            background: var(--tacc-accent);
+            color: white;
+        }
+        
+        /* Data Section */
+        .data-section {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+            margin-bottom: 30px;
+        }
+        
+        .tabs {
+            display: flex;
+            background: var(--tacc-gray-lighter);
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .tab {
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--tacc-text-medium);
+            border-bottom: 3px solid transparent;
+        }
+        
+        .tab:hover {
+            background: white;
+        }
+        
+        .tab.active {
+            background: white;
+            color: var(--tacc-accent);
+            border-bottom-color: var(--tacc-accent);
+            font-weight: 600;
+        }
+        
+        .tab-content {
+            padding: 25px;
+        }
+        
+        .dataset {
+            padding: 15px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .dataset:last-child {
+            border-bottom: none;
+        }
+        
+        .dataset h4 {
+            color: var(--tacc-primary-dark);
+            font-size: 16px;
+            margin-bottom: 5px;
+        }
+        
+        .dataset p {
+            color: var(--tacc-text-medium);
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        
+        .tags {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        
+        .tag {
+            padding: 3px 10px;
+            background: rgba(0, 169, 183, 0.1);
+            color: var(--tacc-accent);
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        /* Map */
+        .map-section {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        }
+        
+        .map-header {
+            padding: 15px 20px;
+            background: var(--tacc-gray-lighter);
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .map-header h3 {
+            font-size: 18px;
+            color: var(--tacc-text-dark);
+        }
+        
+        .map-tools {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .map-tool {
+            padding: 5px 12px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        
+        .map-tool:hover {
+            border-color: var(--tacc-accent);
+            color: var(--tacc-accent);
+        }
+        
+        .map-placeholder {
+            height: 400px;
+            background: #f0f0f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--tacc-text-light);
+        }
+        
+        /* Footer */
+        footer {
+            background: var(--tacc-primary-x-dark);
+            color: rgba(255,255,255,0.7);
+            padding: 40px 0 20px;
+            margin-top: 60px;
+        }
+        
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .footer-section h4 {
+            color: white;
+            font-size: 14px;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .footer-links {
+            list-style: none;
+        }
+        
+        .footer-links li {
+            margin-bottom: 8px;
+        }
+        
+        .footer-links a {
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 13px;
+        }
+        
+        .footer-links a:hover {
+            color: white;
+        }
+        
+        .footer-bottom {
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .nav-links { display: none; }
+            .hero h1 { font-size: 24px; }
+            .cards { grid-template-columns: 1fr; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .footer-content { grid-template-columns: 1fr; }
+            .institutions { flex-direction: column; gap: 5px; }
+            .header-content { flex-direction: column; }
+            .map-tools { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-top">
+            <div class="container">
+                <div class="institution-bar">
+                    <div class="institutions">
+                        <a href="#">UT Austin</a>
+                        <span style="opacity: 0.4;">|</span>
+                        <a href="#">TACC</a>
+                        <span style="opacity: 0.4;">|</span>
+                        <a href="#">TWDB</a>
+                    </div>
+                    <div style="font-size: 12px;">Contract #2300012717</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="header-main">
+            <div class="container">
+                <div class="header-content">
+                    <div class="logo">
+                        <span class="logo-badge">SUBSIDE</span>
+                        <span class="logo-text">Data Discovery Portal</span>
+                    </div>
+                    
+                    <nav class="nav">
+                        <ul class="nav-links">
+                            <li><a href="#" class="active">Home</a></li>
+                            <li><a href="#">Datasets</a></li>
+                            <li><a href="#">Maps</a></li>
+                            <li><a href="#">API</a></li>
+                            <li><a href="#">About</a></li>
+                        </ul>
+                        
+                        <div class="mode-switcher">
+                            <button class="mode-btn active" data-mode="public">Public</button>
+                            <button class="mode-btn" data-mode="professional">Professional</button>
+                            <button class="mode-btn" data-mode="technical">Technical</button>
+                        </div>
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <!-- Hero -->
+    <section class="hero">
+        <div class="container">
+            <h1 id="hero-title">Subsidence System for Insight and Data Exploration</h1>
+            <p id="hero-subtitle">Monitor land subsidence across Texas with GPS, InSAR, and groundwater data</p>
+        </div>
+    </section>
+    
+    <!-- Search -->
+    <section class="search-section">
+        <div class="container">
+            <div class="search-wrapper">
+                <form class="search-form" onsubmit="return false;">
+                    <input type="text" class="search-input" id="searchInput" placeholder="Search datasets or enter address...">
+                    <button type="submit" class="search-btn">Search</button>
+                </form>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Stats -->
+    <section class="stats">
+        <div class="container">
+            <div class="stats-grid" id="stats">
+                <div><div class="stat-value">847</div><div class="stat-label">GPS Stations</div></div>
+                <div><div class="stat-value">1.2 PB</div><div class="stat-label">Total Data</div></div>
+                <div><div class="stat-value">23</div><div class="stat-label">Counties</div></div>
+                <div><div class="stat-value">6-12</div><div class="stat-label">Day Updates</div></div>
+                <div><div class="stat-value">30+</div><div class="stat-label">Years Data</div></div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Main -->
+    <main class="main">
+        <div class="container">
+            <!-- Cards -->
+            <div class="cards" id="cards">
+                <div class="card" data-tier="public">
+                    <div class="card-icon">🏠</div>
+                    <h3>Public Access</h3>
+                    <p>Check subsidence risk for your property with simple tools and visualizations.</p>
+                    <ul class="card-features">
+                        <li>Property assessment</li>
+                        <li>Visual indicators</li>
+                        <li>Educational resources</li>
+                        <li>Reports</li>
+                    </ul>
+                    <button class="btn">Get Started</button>
+                </div>
+                
+                <div class="card" data-tier="professional">
+                    <div class="card-icon">💼</div>
+                    <h3>Professional Tools</h3>
+                    <p>Advanced dashboard for water managers with GIS and modeling capabilities.</p>
+                    <ul class="card-features">
+                        <li>GIS integration</li>
+                        <li>Scenario modeling</li>
+                        <li>Risk analysis</li>
+                        <li>Custom reports</li>
+                    </ul>
+                    <button class="btn btn-outline">Dashboard</button>
+                </div>
+                
+                <div class="card" data-tier="technical">
+                    <div class="card-icon">🔬</div>
+                    <h3>Research Portal</h3>
+                    <p>Full data access with APIs and cloud computing for researchers.</p>
+                    <ul class="card-features">
+                        <li>Raw data access</li>
+                        <li>RESTful APIs</li>
+                        <li>Jupyter notebooks</li>
+                        <li>Processing</li>
+                    </ul>
+                    <button class="btn btn-outline">View Docs</button>
+                </div>
+            </div>
+            
+            <!-- Data Section -->
+            <div class="data-section">
+                <div class="tabs" id="tabs">
+                    <button class="tab active">Recent</button>
+                    <button class="tab">Popular</button>
+                    <button class="tab">Organizations</button>
+                    <button class="tab">Tags</button>
+                </div>
+                <div class="tab-content" id="datasets">
+                    <div class="dataset">
+                        <h4>Harris-Galveston GPS Network</h4>
+                        <p>Continuous GPS monitoring from 250+ stations</p>
+                        <div class="tags">
+                            <span class="tag">GPS</span>
+                            <span class="tag">Real-time</span>
+                            <span class="tag">CSV</span>
+                        </div>
+                    </div>
+                    <div class="dataset">
+                        <h4>Sentinel-1 InSAR Time Series</h4>
+                        <p>Interferometric radar data with 6-12 day updates</p>
+                        <div class="tags">
+                            <span class="tag">InSAR</span>
+                            <span class="tag">Satellite</span>
+                            <span class="tag">GeoTIFF</span>
+                        </div>
+                    </div>
+                    <div class="dataset">
+                        <h4>Gulf Coast Aquifer Monitoring</h4>
+                        <p>Groundwater levels from monitoring wells</p>
+                        <div class="tags">
+                            <span class="tag">Groundwater</span>
+                            <span class="tag">Time-series</span>
+                            <span class="tag">JSON</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Map -->
+            <div class="map-section">
+                <div class="map-header">
+                    <h3>Interactive Map</h3>
+                    <div class="map-tools">
+                        <button class="map-tool">Zoom</button>
+                        <button class="map-tool">Layers</button>
+                        <button class="map-tool">Export</button>
+                    </div>
+                </div>
+                <div class="map-placeholder">🗺️ Map Loading...</div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>Data</h4>
+                    <ul class="footer-links">
+                        <li><a href="#">Browse</a></li>
+                        <li><a href="#">API</a></li>
+                        <li><a href="#">Download</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Tools</h4>
+                    <ul class="footer-links">
+                        <li><a href="#">Web Services</a></li>
+                        <li><a href="#">Jupyter</a></li>
+                        <li><a href="#">Processing</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul class="footer-links">
+                        <li><a href="#">Guide</a></li>
+                        <li><a href="#">Tutorials</a></li>
+                        <li><a href="#">Publications</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>About</h4>
+                    <ul class="footer-links">
+                        <li><a href="#">Team</a></li>
+                        <li><a href="#">Contact</a></li>
+                        <li><a href="#">Terms</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <div>© 2025 TACC</div>
+                <div>
+                    <a href="#" style="color: rgba(255,255,255,0.7); margin-left: 20px;">Privacy</a>
+                    <a href="#" style="color: rgba(255,255,255,0.7); margin-left: 20px;">Access</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+    
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        let currentMode = 'public';
+        
+        const configs = {
+            public: {
+                title: 'Check Your Property for Subsidence Risk',
+                subtitle: 'Easy tools for Texas residents to monitor ground movement',
+                search: 'Enter your property address...',
+                stats: [
+                    {v:'250K+',l:'Properties'},{v:'Low',l:'Avg Risk'},{v:'<1"',l:'Movement'},
+                    {v:'23',l:'Counties'},{v:'Daily',l:'Updates'}
+                ],
+                tabs: ['My Area','Learn','FAQ','Help'],
+                data: [
+                    {t:'Property Assessment',d:'Check your property',tags:['Simple','Property']},
+                    {t:'Education Center',d:'Learn about subsidence',tags:['Guide','FAQ']},
+                    {t:'Community Data',d:'Neighborhood info',tags:['Reports','Maps']}
+                ]
+            },
+            professional: {
+                title: 'Professional Subsidence Management',
+                subtitle: 'Tools for infrastructure and water management',
+                search: 'Search by region or infrastructure...',
+                stats: [
+                    {v:'847',l:'GPS Sites'},{v:'98%',l:'Coverage'},{v:'7',l:'Alerts'},
+                    {v:'<24h',l:'Latency'},{v:'15TB',l:'Monthly'}
+                ],
+                tabs: ['Monitoring','Analysis','Reports','Models'],
+                data: [
+                    {t:'Infrastructure Risk',d:'Real-time monitoring',tags:['GIS','Risk']},
+                    {t:'Regional Models',d:'Predictive analysis',tags:['Models','Planning']},
+                    {t:'Water Management',d:'Groundwater data',tags:['Aquifer','Analysis']}
+                ]
+            },
+            technical: {
+                title: 'Research Data Repository',
+                subtitle: 'Raw datasets and computational resources',
+                search: 'Query datasets...',
+                stats: [
+                    {v:'1.2PB',l:'Data'},{v:'45K+',l:'API/Day'},{v:'127',l:'Jobs'},
+                    {v:'342',l:'Users'},{v:'8ms',l:'Response'}
+                ],
+                tabs: ['Raw Data','Processing','API','Docs'],
+                data: [
+                    {t:'GPS Time Series',d:'Raw RINEX data',tags:['GPS','Raw']},
+                    {t:'Sentinel-1 SLC',d:'InSAR processing',tags:['InSAR','SLC']},
+                    {t:'Pipeline API',d:'Custom workflows',tags:['API','Cloud']}
+                ]
+            }
+        };
+        
+        function update(mode) {
+            currentMode = mode;
+            const c = configs[mode];
+            
+            document.getElementById('hero-title').textContent = c.title;
+            document.getElementById('hero-subtitle').textContent = c.subtitle;
+            document.getElementById('searchInput').placeholder = c.search;
+            
+            document.getElementById('stats').innerHTML = c.stats.map(s =>
+                `<div><div class="stat-value">${s.v}</div><div class="stat-label">${s.l}</div></div>`
+            ).join('');
+            
+            document.getElementById('tabs').innerHTML = c.tabs.map((t,i) =>
+                `<button class="tab ${i===0?'active':''}">${t}</button>`
+            ).join('');
+            
+            document.getElementById('datasets').innerHTML = c.data.map(d =>
+                `<div class="dataset"><h4>${d.t}</h4><p>${d.d}</p>
+                <div class="tags">${d.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div></div>`
+            ).join('');
+            
+            const cards = document.querySelectorAll('.card');
+            cards.forEach(c => c.style.display = 'block');
+            if(mode === 'public' && cards[2]) cards[2].style.display = 'none';
+            else if(mode === 'professional' && cards[0]) cards[0].style.display = 'none';
+            else if(mode === 'technical') {
+                if(cards[0]) cards[0].style.display = 'none';
+                if(cards[1]) cards[1].style.display = 'none';
+            }
+            
+            attachTabs();
+        }
+        
+        function attachTabs() {
+            document.querySelectorAll('.tab').forEach(t => {
+                t.onclick = function() {
+                    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+                    this.classList.add('active');
+                }
+            });
+        }
+        
+        document.querySelectorAll('.mode-btn').forEach(b => {
+            b.onclick = function() {
+                document.querySelectorAll('.mode-btn').forEach(x => x.classList.remove('active'));
+                this.classList.add('active');
+                update(this.dataset.mode);
+            }
+        });
+        
+        document.querySelector('.search-form').onsubmit = function(e) {
+            e.preventDefault();
+            const q = document.getElementById('searchInput').value;
+            if(q) alert(`Searching: ${q}\nMode: ${currentMode}`);
+            else alert('Enter a search term');
+        };
+        
+        document.querySelectorAll('.btn').forEach(b => {
+            b.onclick = function() {
+                const card = this.closest('.card');
+                if(card) alert(`Opening ${card.querySelector('h3').textContent}...`);
+            }
+        });
+        
+        update('public');
+        attachTabs();
+    });
+    </script>
+</body>
+</html>

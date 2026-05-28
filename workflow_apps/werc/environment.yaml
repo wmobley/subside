@@ -1,0 +1,36 @@
+name: subside-werc-opera
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - boto3
+  - botocore
+  - branca
+  - fiona
+  - folium
+  - fsspec
+  - gdal
+  - geopandas
+  - git
+  - h5netcdf
+  - h5py
+  - libgdal-netcdf
+  - localtileserver
+  - matplotlib
+  - mintpy
+  - netcdf4
+  - numpy<2
+  - pandas
+  - pillow
+  - pip
+  - pyproj
+  - rasterio
+  - requests
+  - rioxarray
+  - scipy
+  - shapely
+  - xarray
+  - zarr
+  - pip:
+      - git+https://github.com/opera-adt/disp-xr.git
+      - opera-utils
