@@ -3,44 +3,47 @@
 #
 # Flow: discover → download-opera → publish
 #
-# Tapis Workflows JSON/YAML schema (v3) is still evolving — verify each field
-# against the live tenant before registering:
-#   https://tapis.readthedocs.io/en/latest/technical/workflows.html
-#
-# Pipeline-level args (frame_ids / aoi / start_date / end_date) are passed
-# in at runPipeline time; tasks reference them via {{ args.<name> }}.
+# Both tapis_job tasks invoke the SAME monolithic Tapis app
+# `subside-h2i-opera-analysis`. They differ only in:
+#   - STAGE env var (dispatched in workflow_apps/h2i_lab/run.sh)
+#   - Resource overrides (cores / memory / maxMinutes)
+# Stage-specific Tapis app registrations are intentionally NOT used —
+# the apps catalog stays at two rows (one per image) instead of one per task.
 
 id: subside-h2i-opera
 type: workflow
 description: |
-  Discovery + download + preview pipeline for OPERA DISP-S1 over an AOI.
-  Pipeline A of two; companion pipeline subside-werc-opera adds the
+  Discovery + Earthdata download + preview + zip archive for OPERA DISP-S1
+  over an AOI. Companion pipeline `subside-werc-opera` adds the
   stack/reference/velocity/export stages on top.
 owner: ${apiUserId}
 group_id: subside-ops
 tenant_id: portals
 
-# Inputs the caller supplies when invoking the pipeline.
 params:
-  start_date:        {type: string, required: true}
-  end_date:          {type: string, required: true}
-  aoi_geojson_uri:   {type: string, required: true, description: "tapis:// URI to the AOI GeoJSON"}
+  start_date:          {type: string, required: true}
+  end_date:            {type: string, required: true}
+  aoi_geojson_uri:     {type: string, required: true, description: "tapis:// URI to the AOI GeoJSON"}
   earthdata_netrc_uri: {type: string, required: false, description: "Optional tapis:// URI to a protected .netrc"}
-  num_workers:       {type: integer, default: 4}
+  num_workers:         {type: integer, default: 4}
   min_overlap_percent: {type: number, default: 50.0}
-  allocation:        {type: string, required: true, description: "TACC allocation to charge"}
-  update_conda_env:  {type: string, default: "false"}
+  allocation:          {type: string, required: true, description: "TACC allocation to charge"}
+  update_conda_env:    {type: string, default: "false"}
 
 tasks:
 
   - id: discover
     type: tapis_job
     depends_on: []
-    description: Fast frame + product discovery; fails the pipeline if no products.
+    description: Fast frame + product discovery; fails the pipeline early if no products.
     tapis_job_def:
-      appId: subside-h2i-discover
+      appId: subside-h2i-opera-analysis      # same app as download-opera, smaller resources + STAGE=preflight
       appVersion: "0.1.0"
       name: subside-discover-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 2
+      memoryMB: 8000
+      maxMinutes: 30
       fileInputs:
         - name: run-config
           sourceUrl: "{{ workflow.inline_files.run_config_uri }}"
@@ -50,8 +53,8 @@ tasks:
           sourceUrl: "{{ args.earthdata_netrc_uri }}"
       parameterSet:
         envVariables:
-          - key: UPDATE_CONDA_ENV
-            value: "{{ args.update_conda_env }}"
+          - {key: STAGE, value: "preflight"}
+          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
         schedulerOptions:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
@@ -65,6 +68,10 @@ tasks:
       appId: subside-h2i-opera-analysis
       appVersion: "0.1.0"
       name: subside-download-opera-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 16
+      memoryMB: 128000
+      maxMinutes: 240
       fileInputs:
         - name: run-config
           sourceUrl: "{{ workflow.inline_files.run_config_uri }}"
@@ -74,21 +81,21 @@ tasks:
           sourceUrl: "{{ args.earthdata_netrc_uri }}"
       parameterSet:
         envVariables:
-          - key: UPDATE_CONDA_ENV
-            value: "{{ args.update_conda_env }}"
+          - {key: STAGE, value: "run"}
+          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
         schedulerOptions:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
 
   - id: publish
     type: function
-    runtime: python3.11
+    runtime: "python:3.11"
     depends_on:
       - id: download-opera
     description: |
       Stdlib-only Python. Reads preflight-manifest.json + run-manifest.json from
-      the download-opera archive and emits a unified subside-run-manifest.json the
-      UI can consume.
+      the download-opera archive and emits a unified subside-run-manifest.json
+      the UI can consume.
     inputs:
       preflight_manifest_uri: "{{ tasks.discover.outputs.archive }}/output/preflight-manifest.json"
       run_manifest_uri:       "{{ tasks.download-opera.outputs.archive }}/output/run-manifest.json"
@@ -97,8 +104,6 @@ tasks:
 
       def _load(uri):
           if uri.startswith("tapis://"):
-              # The function-task runtime is expected to expose a tapis-files
-              # mount or a fetch helper; falling back to urllib for local tests.
               raise RuntimeError("Configure tapis-files fetch in your workflows runner.")
           with urllib.request.urlopen(uri) as f:
               return json.load(f)
