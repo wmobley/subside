@@ -21,6 +21,12 @@ MINICONDA_INSTALLER_URL="${MINICONDA_INSTALLER_URL:-https://repo.anaconda.com/mi
 ENV_FILE="/tapis/environment.yaml"
 
 install_conda() {
+    # Treat a directory without conda.sh as a half-failed install from a
+    # previous run and wipe it before retrying.
+    if [ -d "${CONDA_DIR}" ] && [ ! -f "${CONDA_DIR}/etc/profile.d/conda.sh" ]; then
+        echo "Detected incomplete miniconda install at ${CONDA_DIR}; removing."
+        rm -rf "${CONDA_DIR}"
+    fi
     if [ ! -d "${CONDA_DIR}" ]; then
         echo "Installing miniconda into ${CONDA_DIR}..."
         mkdir -p "${CONDA_DIR}"

@@ -1,0 +1,23 @@
+{
+  "type": "FeatureCollection",
+  "name": "subside-sample-aoi-houston",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Houston-Galveston test AOI",
+        "purpose": "Local docker smoke test for SUBSIDE H2I + WERC pipelines"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-95.55, 29.55],
+          [-95.35, 29.55],
+          [-95.35, 29.75],
+          [-95.55, 29.75],
+          [-95.55, 29.55]
+        ]]
+      }
+    }
+  ]
+}

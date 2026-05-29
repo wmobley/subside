@@ -51,9 +51,17 @@ Reference modes:
 
 For local runs, set `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` or use a standard `.netrc` entry for `urs.earthdata.nasa.gov`. For production Tapis runs, prefer Tapis secrets/identity handling; the scaffold also supports staging a protected `.netrc` file input.
 
-## Local Walkthrough Notebook
+## Local Walkthrough
 
-[`walkthrough.ipynb`](walkthrough.ipynb) in this directory drives the full WERC pipeline cell-by-cell (config → H2I download → stack → quality + reference → velocity → export), then re-runs everything through `werc.runner.run` for Tapis-equivalence. Use it to validate environment + credentials before building the container or submitting a Tapis job.
+[`walkthrough.py`](walkthrough.py) in this directory drives the full WERC pipeline cell-by-cell (config → H2I download → stack → quality + reference → velocity → export), then re-runs everything through `werc.runner.run` for Tapis-equivalence. Use it to validate environment + credentials before building the container or submitting a Tapis job.
+
+Run end-to-end:
+
+```bash
+python workflow_apps/werc/walkthrough.py
+```
+
+Or step through cells in any editor that recognises `# %%` markers (VS Code, PyCharm, Cursor, Spyder).
 
 ## Runtime Conda Install (cookbook pattern)
 
@@ -75,17 +83,22 @@ Build from the `subside/` directory so the Dockerfile can copy both `subside_ana
 docker build -f workflow_apps/werc/Dockerfile -t subside-werc-opera-analysis:dev .
 ```
 
-Local smoke test (bind-mount a writable dir for the persistent conda install):
+Local smoke test (use a Docker **named volume** for the conda install — bind-mounting it from a macOS host fails with `[Errno 22]` on case-pair files like `ncurses` terminfo `2621A` / `2621a`; named volumes live inside the Linux VM and are case-sensitive):
 
 ```bash
 mkdir -p .docker-work
+docker volume create subside-conda-werc
+
 docker run --rm \
-  -e ENV_INSTALL_DIR=/work \
+  -e ENV_INSTALL_DIR=/opt/conda-root \
   -e EARTHDATA_USERNAME -e EARTHDATA_PASSWORD \
+  -v subside-conda-werc:/opt/conda-root \
   -v "$PWD/.docker-work:/work" \
   -v "$PWD/workflow_apps/werc/run-config.example.json:/work/config/run-config.json:ro" \
   -v "$PWD/sample_aoi.geojson:/work/config/aoi.geojson:ro" \
   subside-werc-opera-analysis:dev
 ```
+
+On TACC/Lustre this is a non-issue and `$WORK` is automatically used — the case-pair workaround is only for Docker on macOS.
 
 The `app-cpu.json` image tag is a placeholder and should be updated after the image is pushed.
