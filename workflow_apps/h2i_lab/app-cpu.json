@@ -1,6 +1,6 @@
 {
   "id": "subside-h2i-opera-analysis",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run the SUBSIDE H2I Lab OPERA DISP-S1 download/subset/preview analysis as a batch job.",
   "owner": "${apiUserId}",
   "enabled": true,
@@ -119,7 +119,7 @@
     "tags": []
   },
   "tags": [
-    "portalName: ALL",
+    "portalName: PTDATAX",
     "subside",
     "opera-disp-s1",
     "h2i-lab"

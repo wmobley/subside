@@ -2,18 +2,19 @@
 #   docker build -f workflow_apps/h2i_lab/Dockerfile -t subside-h2i-opera-analysis:dev .
 # The COPY paths below are relative to that context, not to this directory.
 #
-# The conda environment is NOT baked into this image. run.sh downloads
-# miniconda + materializes the env on first invocation under ENV_INSTALL_DIR
-# (defaults to $WORK on TACC, /work locally). Subsequent runs reuse it.
+# The conda environment IS baked into this image at build time via micromamba.
+# run.sh just activates it and runs — no runtime miniconda download, no
+# `conda env create` inside the job (which was taking tens of minutes on the
+# first invocation). Updating dependencies now means editing environment.yaml
+# and rebuilding the image (the env layer is cached unless that file changes).
 
-FROM ubuntu:22.04
+FROM mambaorg/micromamba:1.5.10
 
-ENV DEBIAN_FRONTEND=noninteractive
-
+# apt deps need root; the micromamba base runs as 'mambauser' by default.
+USER root
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         bash \
-        bzip2 \
         ca-certificates \
         curl \
         git \
@@ -27,12 +28,17 @@ ENV LC_ALL=en_US.UTF-8 \
     LANG=en_US.UTF-8 \
     LANGUAGE=en_US.UTF-8
 
-# Code + entrypoint. environment.yaml ships next to run.sh so the env
-# definition travels with the image even though it is materialized at runtime.
+# Solve + materialize the env at build time. chmod a+rX so the env stays
+# readable when Singularity runs the container as the invoking TACC user
+# (not the build-time mambauser).
+COPY workflow_apps/h2i_lab/environment.yaml /tmp/environment.yaml
+RUN micromamba create -y -n subside-h2i-opera -f /tmp/environment.yaml && \
+    micromamba clean --all --yes && \
+    chmod -R a+rX /opt/conda
+
+# Code + entrypoint.
 COPY subside_analysis /opt/subside/subside_analysis
 COPY workflow_apps/h2i_lab/run.sh /tapis/run.sh
-COPY workflow_apps/h2i_lab/environment.yaml /tapis/environment.yaml
-
 RUN chmod 755 /tapis/run.sh
 
 ENV PYTHONPATH=/opt/subside
