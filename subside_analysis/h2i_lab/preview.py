@@ -1,4 +1,9 @@
-"""Preview and archive helpers extracted from the H2I notebook."""
+"""Preview helpers extracted from the H2I notebook.
+
+The generic zip-archive helper ``archive_results`` lives in
+:mod:`subside_analysis.etl.archive` and is re-exported here for
+backward compatibility.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,8 @@ from io import BytesIO
 from pathlib import Path
 import base64
 import glob
-import shutil
+
+from subside_analysis.etl.archive import archive_results  # noqa: F401  re-exported
 
 
 def latest_netcdf(results_path: str | Path) -> Path:
@@ -115,12 +121,4 @@ def write_folium_preview(
     return output
 
 
-def archive_results(results_path: str | Path, archive_base_name: str | Path) -> Path:
-    """Zip the results directory and return the created archive path."""
-
-    results = Path(results_path)
-    archive_base = Path(archive_base_name)
-    archive_base.parent.mkdir(parents=True, exist_ok=True)
-    archive = shutil.make_archive(str(archive_base), "zip", results.parent, results.name)
-    return Path(archive)
 

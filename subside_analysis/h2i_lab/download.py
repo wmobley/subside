@@ -70,7 +70,7 @@ def process_file(url: str, bbox: list[int] | None, outdir: str | Path, username:
     import h5py
     import xarray as xr
 
-    from ._session import earthdata_session
+    from subside_analysis.etl.auth import earthdata_session
 
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)

@@ -130,7 +130,7 @@ def pixel_bbox_from_product_bytes(file_bytes: BytesIO, lonlat_bbox: dict[str, fl
 def fetch_product_bytes(url: str, username: str, password: str) -> BytesIO:
     """Fetch one product into memory for bbox and size estimation."""
 
-    from ._session import earthdata_session
+    from subside_analysis.etl.auth import earthdata_session
 
     session = earthdata_session(username, password)
     try:

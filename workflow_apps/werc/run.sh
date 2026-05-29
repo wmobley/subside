@@ -5,11 +5,18 @@
 # miniconda is installed at runtime under a persistent path, the conda
 # environment is created from environment.yaml on first invocation, and
 # subsequent runs reuse it. Set UPDATE_CONDA_ENV=true to force a rebuild.
+#
+# STAGE env var selects which CLI subcommand to invoke. Defaults to "run"
+# (full in-process pipeline) for backward compat with the
+# subside-werc-opera-analysis app. Per-stage Tapis Workflows tasks set
+# STAGE to one of: build-stack, compute-reference, estimate-velocity,
+# export-geotiffs. For the full-pipeline stages ("run" / "preflight") the
+# first two positional args are CONFIG_PATH + OUTPUT_DIR. For per-stage
+# invocations, all positional args pass through verbatim to the CLI.
 
 set -euo pipefail
 
-CONFIG_PATH="${1:-config/run-config.json}"
-OUTPUT_DIR="${2:-${_tapisExecSystemOutputDir:-output}}"
+STAGE="${STAGE:-run}"
 
 ENV_INSTALL_DIR="${ENV_INSTALL_DIR:-${WORK:-/work}}"
 CONDA_DIR="${ENV_INSTALL_DIR}/miniconda3"
@@ -69,12 +76,25 @@ if [ -f ".netrc" ]; then
     chmod 600 "${HOME}/.netrc"
 fi
 
-mkdir -p "${OUTPUT_DIR}"
-
 install_conda
 handle_installation
 conda activate "${CONDA_ENV_NAME}"
 
-python -m subside_analysis.werc.cli run \
-    --config "${CONFIG_PATH}" \
-    --output-dir "${OUTPUT_DIR}"
+case "${STAGE}" in
+    run|preflight)
+        CONFIG_PATH="${1:-config/run-config.json}"
+        OUTPUT_DIR="${2:-${_tapisExecSystemOutputDir:-output}}"
+        mkdir -p "${OUTPUT_DIR}"
+        python -m subside_analysis.werc.cli "${STAGE}" \
+            --config "${CONFIG_PATH}" \
+            --output-dir "${OUTPUT_DIR}"
+        ;;
+    build-stack|compute-reference|estimate-velocity|export-geotiffs)
+        python -m subside_analysis.werc.cli "${STAGE}" "$@"
+        ;;
+    *)
+        echo "Unknown STAGE: ${STAGE}" >&2
+        echo "Valid values: run, preflight, build-stack, compute-reference, estimate-velocity, export-geotiffs" >&2
+        exit 2
+        ;;
+esac

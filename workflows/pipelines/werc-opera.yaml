@@ -1,0 +1,211 @@
+---
+# Pipeline B: SUBSIDE WERC OPERA — full stack / reference / velocity / export.
+#
+# Flow: discover → analyze-h2i → build-stack → compute-reference → estimate-velocity → export-geotiffs → publish
+#
+# Tapis Workflows JSON/YAML schema (v3) is still evolving — verify each field
+# against the live tenant before registering:
+#   https://tapis.readthedocs.io/en/latest/technical/workflows.html
+#
+# Inter-task data passing: each tapis_job task's archive directory is the
+# `tapis://<archive_system>/<archive_dir>` referenced as a fileInput.sourceUrl
+# on the next task.
+
+id: subside-werc-opera
+type: workflow
+description: |
+  Full SUBSIDE WERC pipeline: discovers OPERA DISP-S1 products, downloads +
+  crops, builds the displacement stack, picks a reference (auto or manual),
+  estimates per-pixel velocity, and exports cumulative + velocity GeoTIFFs.
+owner: ${apiUserId}
+group_id: subside-ops
+tenant_id: portals
+
+params:
+  start_date:          {type: string, required: true}
+  end_date:            {type: string, required: true}
+  aoi_geojson_uri:     {type: string, required: true}
+  earthdata_netrc_uri: {type: string, required: false}
+  reference_mode:      {type: string, default: "auto", enum: [auto, manual, none]}
+  reference_lat:       {type: number, required: false}
+  reference_lon:       {type: number, required: false}
+  anchor_radius_m:     {type: integer, default: 5000}
+  n_reference_pixels:  {type: integer, default: 25}
+  num_workers:         {type: integer, default: 4}
+  min_overlap_percent: {type: number, default: 50.0}
+  allocation:          {type: string, required: true}
+  update_conda_env:    {type: string, default: "false"}
+
+tasks:
+
+  - id: discover
+    type: tapis_job
+    depends_on: []
+    description: Fast frame + product discovery; fails the pipeline if no products.
+    tapis_job_def:
+      appId: subside-h2i-discover
+      appVersion: "0.1.0"
+      name: subside-discover-{{ args.start_date }}-{{ args.end_date }}
+      fileInputs:
+        - name: run-config
+          sourceUrl: "{{ workflow.inline_files.run_config_uri }}"
+        - name: aoi-geojson
+          sourceUrl: "{{ args.aoi_geojson_uri }}"
+        - name: earthdata-netrc
+          sourceUrl: "{{ args.earthdata_netrc_uri }}"
+      parameterSet:
+        envVariables:
+          - key: UPDATE_CONDA_ENV
+            value: "{{ args.update_conda_env }}"
+        schedulerOptions:
+          - name: "TACC Allocation"
+            arg: "{{ args.allocation }}"
+
+  - id: analyze-h2i
+    type: tapis_job
+    depends_on:
+      - id: discover
+    description: Heavy NetCDF download + crop + preview + archive.
+    tapis_job_def:
+      appId: subside-h2i-opera-analysis
+      appVersion: "0.1.0"
+      name: subside-analyze-h2i-{{ args.start_date }}-{{ args.end_date }}
+      fileInputs:
+        - name: run-config
+          sourceUrl: "{{ workflow.inline_files.run_config_uri }}"
+        - name: aoi-geojson
+          sourceUrl: "{{ args.aoi_geojson_uri }}"
+        - name: earthdata-netrc
+          sourceUrl: "{{ args.earthdata_netrc_uri }}"
+      parameterSet:
+        envVariables:
+          - key: UPDATE_CONDA_ENV
+            value: "{{ args.update_conda_env }}"
+        schedulerOptions:
+          - name: "TACC Allocation"
+            arg: "{{ args.allocation }}"
+
+  - id: build-stack
+    type: tapis_job
+    depends_on:
+      - id: analyze-h2i
+    description: Combine per-product NetCDFs into one displacement stack NetCDF.
+    tapis_job_def:
+      appId: subside-werc-build-stack
+      appVersion: "0.1.0"
+      name: subside-build-stack-{{ args.start_date }}-{{ args.end_date }}
+      fileInputs:
+        - name: netcdf-source
+          sourceUrl: "{{ tasks.analyze-h2i.outputs.archive }}/output/OPERA_L3_DISP-S1"
+      parameterSet:
+        envVariables:
+          - key: UPDATE_CONDA_ENV
+            value: "{{ args.update_conda_env }}"
+        schedulerOptions:
+          - name: "TACC Allocation"
+            arg: "{{ args.allocation }}"
+
+  - id: compute-reference
+    type: tapis_job
+    depends_on:
+      - id: build-stack
+    description: Pick reference pixels (auto or manual); subtract offset from stack.
+    tapis_job_def:
+      appId: subside-werc-compute-reference
+      appVersion: "0.1.0"
+      name: subside-compute-reference-{{ args.start_date }}-{{ args.end_date }}
+      fileInputs:
+        - name: stack-input
+          sourceUrl: "{{ tasks.build-stack.outputs.archive }}/output/displacement_stack.nc"
+      parameterSet:
+        appArgs:
+          - name: "Reference mode"
+            arg: "{{ args.reference_mode }}"
+        envVariables:
+          - key: UPDATE_CONDA_ENV
+            value: "{{ args.update_conda_env }}"
+        schedulerOptions:
+          - name: "TACC Allocation"
+            arg: "{{ args.allocation }}"
+
+  - id: estimate-velocity
+    type: tapis_job
+    depends_on:
+      - id: compute-reference
+    description: Per-pixel linear-fit velocity from the referenced stack.
+    tapis_job_def:
+      appId: subside-werc-estimate-velocity
+      appVersion: "0.1.0"
+      name: subside-estimate-velocity-{{ args.start_date }}-{{ args.end_date }}
+      fileInputs:
+        - name: stack-input
+          sourceUrl: "{{ tasks.compute-reference.outputs.archive }}/output/displacement_stack_referenced.nc"
+      parameterSet:
+        envVariables:
+          - key: UPDATE_CONDA_ENV
+            value: "{{ args.update_conda_env }}"
+        schedulerOptions:
+          - name: "TACC Allocation"
+            arg: "{{ args.allocation }}"
+
+  - id: export-geotiffs
+    type: tapis_job
+    depends_on:
+      - id: estimate-velocity
+    description: Reproject + write cumulative displacement and velocity GeoTIFFs.
+    tapis_job_def:
+      appId: subside-werc-export-geotiffs
+      appVersion: "0.1.0"
+      name: subside-export-geotiffs-{{ args.start_date }}-{{ args.end_date }}
+      fileInputs:
+        - name: stack-input
+          sourceUrl: "{{ tasks.compute-reference.outputs.archive }}/output/displacement_stack_referenced.nc"
+        - name: velocity-input
+          sourceUrl: "{{ tasks.estimate-velocity.outputs.archive }}/output/velocity.nc"
+        - name: reference-summary
+          sourceUrl: "{{ tasks.compute-reference.outputs.archive }}/output/reference_summary.json"
+      parameterSet:
+        envVariables:
+          - key: UPDATE_CONDA_ENV
+            value: "{{ args.update_conda_env }}"
+        schedulerOptions:
+          - name: "TACC Allocation"
+            arg: "{{ args.allocation }}"
+
+  - id: publish
+    type: function
+    runtime: python3.11
+    depends_on:
+      - id: export-geotiffs
+    description: |
+      Stdlib-only Python. Reads every summary JSON from the per-stage archives
+      and emits a unified subside-run-manifest.json for the UI.
+    inputs:
+      preflight_manifest_uri:    "{{ tasks.discover.outputs.archive }}/output/preflight-manifest.json"
+      h2i_run_manifest_uri:      "{{ tasks.analyze-h2i.outputs.archive }}/output/run-manifest.json"
+      build_stack_summary_uri:   "{{ tasks.build-stack.outputs.archive }}/output/build_stack_summary.json"
+      reference_summary_uri:     "{{ tasks.compute-reference.outputs.archive }}/output/reference_summary.json"
+      velocity_summary_uri:      "{{ tasks.estimate-velocity.outputs.archive }}/output/velocity_summary.json"
+      export_summary_uri:        "{{ tasks.export-geotiffs.outputs.archive }}/output/export_summary.json"
+    code: |
+      import json, os, urllib.request
+
+      def _load(env_key):
+          uri = os.environ[env_key]
+          if uri.startswith("tapis://"):
+              raise RuntimeError("Configure tapis-files fetch in your workflows runner.")
+          with urllib.request.urlopen(uri) as f:
+              return json.load(f)
+
+      manifest = {
+          "pipeline": "subside-werc-opera",
+          "schema_version": "v0",
+          "preflight": _load("INPUTS_PREFLIGHT_MANIFEST_URI"),
+          "h2i": _load("INPUTS_H2I_RUN_MANIFEST_URI"),
+          "build_stack": _load("INPUTS_BUILD_STACK_SUMMARY_URI"),
+          "reference": _load("INPUTS_REFERENCE_SUMMARY_URI"),
+          "velocity": _load("INPUTS_VELOCITY_SUMMARY_URI"),
+          "export": _load("INPUTS_EXPORT_SUMMARY_URI"),
+      }
+      with open(os.environ["OUTPUT_DIR"] + "/subside-run-manifest.json", "w") as f:
+          json.dump(manifest, f, indent=2, sort_keys=True, default=str)

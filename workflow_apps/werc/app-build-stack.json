@@ -1,0 +1,69 @@
+{
+  "id": "subside-werc-build-stack",
+  "version": "0.1.0",
+  "description": "WERC stage 1: combine downloaded OPERA DISP-S1 NetCDFs into one displacement stack.",
+  "owner": "${apiUserId}",
+  "enabled": true,
+  "runtime": "SINGULARITY",
+  "runtimeVersion": null,
+  "runtimeOptions": ["SINGULARITY_RUN"],
+  "containerImage": "docker://ghcr.io/wmobley/subside-werc-opera-analysis:0.1.0",
+  "jobType": "BATCH",
+  "maxJobs": -1,
+  "maxJobsPerUser": -1,
+  "strictFileInputs": false,
+  "jobAttributes": {
+    "description": null,
+    "dynamicExecSystem": false,
+    "execSystemConstraints": null,
+    "execSystemId": "ls6",
+    "execSystemExecDir": "${JobWorkingDir}",
+    "execSystemInputDir": "${JobWorkingDir}",
+    "execSystemOutputDir": "${JobWorkingDir}/output",
+    "execSystemLogicalQueue": "vm-small",
+    "archiveSystemId": "cloud.data",
+    "archiveSystemDir": "HOST_EVAL($HOME)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}",
+    "archiveOnAppError": true,
+    "isMpi": false,
+    "mpiCmd": null,
+    "cmdPrefix": "mkdir -p $PWD/output $PWD/inputs;",
+    "parameterSet": {
+      "appArgs": [
+        {"name": "netcdf-dir flag", "inputMode": "FIXED", "arg": "--netcdf-dir", "notes": {"isHidden": true}},
+        {"name": "NetCDF directory", "inputMode": "INCLUDE_ON_DEMAND", "arg": "inputs/OPERA_L3_DISP-S1", "description": "Path inside the job working dir holding the DISP-S1 NetCDFs (typically staged from a previous analyze-h2i archive)."},
+        {"name": "output-stack flag", "inputMode": "FIXED", "arg": "--output-stack", "notes": {"isHidden": true}},
+        {"name": "Output stack path", "inputMode": "FIXED", "arg": "output/displacement_stack.nc"},
+        {"name": "output-products flag", "inputMode": "FIXED", "arg": "--output-products", "notes": {"isHidden": true}},
+        {"name": "Output products path", "inputMode": "FIXED", "arg": "output/disp_products.json"}
+      ],
+      "schedulerOptions": [
+        {"name": "TACC Scheduler Profile", "inputMode": "FIXED", "arg": "--tapis-profile tacc-apptainer", "notes": {"isHidden": true}},
+        {"name": "TACC Allocation", "inputMode": "INCLUDE_ON_DEMAND", "arg": null, "notes": {"isHidden": true}}
+      ],
+      "envVariables": [
+        {"key": "STAGE", "value": "build-stack", "inputMode": "FIXED"},
+        {"key": "UPDATE_CONDA_ENV", "value": "false", "inputMode": "INCLUDE_ON_DEMAND"}
+      ],
+      "archiveFilter": {"includes": [], "excludes": [], "includeLaunchFiles": true}
+    },
+    "fileInputs": [
+      {"name": "netcdf-source", "inputMode": "REQUIRED", "autoMountLocal": false, "sourceUrl": null, "targetPath": "inputs/OPERA_L3_DISP-S1", "description": "Directory of DISP-S1 NetCDFs. Workflow pipeline supplies a tapis:// URI pointing at the analyze-h2i task's archive output."}
+    ],
+    "fileInputArrays": [],
+    "nodeCount": 1,
+    "coresPerNode": 8,
+    "memoryMB": 32000,
+    "maxMinutes": 60,
+    "subscriptions": [],
+    "tags": []
+  },
+  "tags": ["portalName: ALL", "subside", "opera-disp-s1", "werc", "workflow-task"],
+  "notes": {
+    "label": "SUBSIDE WERC Build Stack",
+    "hideNodeCountAndCoresPerNode": true,
+    "isInteractive": false,
+    "icon": "satellite",
+    "category": "Data Processing",
+    "queueFilter": ["vm-small", "development"]
+  }
+}
