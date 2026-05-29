@@ -219,6 +219,8 @@ tasks:
   - id: publish
     type: function
     runtime: "python:3.11"
+    installer: pip          # required by the Tapis Workflows FunctionTask schema
+    packages: []            # stdlib-only; no third-party deps to install
     depends_on:
       - id: export-geotiffs
     description: |

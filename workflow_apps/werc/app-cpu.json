@@ -1,6 +1,6 @@
 {
   "id": "subside-werc-opera-analysis",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run the SUBSIDE WERC OPERA DISP-S1 stack/reference/velocity analysis as a batch job.",
   "owner": "${apiUserId}",
   "enabled": true,
@@ -87,8 +87,8 @@
     "fileInputs": [
       {
         "name": "run-config",
-        "description": "SUBSIDE WERC run configuration JSON.",
-        "inputMode": "REQUIRED",
+        "description": "SUBSIDE WERC run configuration JSON. OPTIONAL: the WERC stage subcommands (build-stack/compute-reference/estimate-velocity/export-geotiffs) are driven by env vars, not run-config, so the pipeline stage jobs don't supply one.",
+        "inputMode": "OPTIONAL",
         "autoMountLocal": true,
         "sourceUrl": null,
         "targetPath": "config/run-config.json"
@@ -119,7 +119,7 @@
     "tags": []
   },
   "tags": [
-    "portalName: ALL",
+    "portalName: PTDATAX",
     "subside",
     "opera-disp-s1",
     "werc"
