@@ -1,0 +1,15 @@
+# SUBSIDE API runtime deps.
+# Core API (login + runs submit/status/results) needs only these:
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30
+pydantic>=2
+tapipy
+pyyaml
+
+# Fast discovery endpoints (/aoi/frames, /products/search) additionally need
+# the geospatial stack the analysis uses. These are heavy; install them only
+# if you want discovery served in-process (or run the API inside a conda env
+# built from workflow_apps/h2i_lab/environment.yaml):
+#   geopandas  shapely  pyproj  fiona  pandas
+#   opera-utils
+#   git+https://github.com/opera-adt/disp-xr.git

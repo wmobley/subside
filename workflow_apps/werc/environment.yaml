@@ -28,6 +28,7 @@ dependencies:
   - rasterio
   - requests
   - rioxarray
+  - s3fs
   - scipy
   - shapely
   - xarray
