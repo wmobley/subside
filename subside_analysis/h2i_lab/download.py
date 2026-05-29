@@ -68,8 +68,9 @@ def process_file(url: str, bbox: list[int] | None, outdir: str | Path, username:
     """Download one DISP-S1 product and optionally crop it to a pixel bbox."""
 
     import h5py
-    import requests
     import xarray as xr
+
+    from ._session import earthdata_session
 
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -80,8 +81,7 @@ def process_file(url: str, bbox: list[int] | None, outdir: str | Path, username:
         print(f"Skipped (exists): {filename}")
         return outname
 
-    session = requests.Session()
-    session.auth = (username, password)
+    session = earthdata_session(username, password)
     try:
         with session.get(url, stream=True, timeout=600) as response:
             response.raise_for_status()

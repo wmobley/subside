@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.12
+  - aiohttp
   - boto3
   - botocore
   - branca
@@ -31,6 +32,9 @@ dependencies:
   - shapely
   - xarray
   - zarr
+  - aiohttp
+  - s3fs
   - pip:
       - git+https://github.com/opera-adt/disp-xr.git
       - opera-utils
+

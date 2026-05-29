@@ -130,10 +130,9 @@ def pixel_bbox_from_product_bytes(file_bytes: BytesIO, lonlat_bbox: dict[str, fl
 def fetch_product_bytes(url: str, username: str, password: str) -> BytesIO:
     """Fetch one product into memory for bbox and size estimation."""
 
-    import requests
+    from ._session import earthdata_session
 
-    session = requests.Session()
-    session.auth = (username, password)
+    session = earthdata_session(username, password)
     try:
         response = session.get(url, timeout=300)
         response.raise_for_status()
