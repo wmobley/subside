@@ -1,7 +1,7 @@
 ---
 # Pipeline B: SUBSIDE WERC OPERA — full stack / reference / velocity / export.
 #
-# Flow: discover → analyze-h2i → build-stack → compute-reference → estimate-velocity → export-geotiffs → publish
+# Flow: discover → download-opera → build-stack → compute-reference → estimate-velocity → export-geotiffs → publish
 #
 # Tapis Workflows JSON/YAML schema (v3) is still evolving — verify each field
 # against the live tenant before registering:
@@ -61,7 +61,7 @@ tasks:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
 
-  - id: analyze-h2i
+  - id: download-opera
     type: tapis_job
     depends_on:
       - id: discover
@@ -69,7 +69,7 @@ tasks:
     tapis_job_def:
       appId: subside-h2i-opera-analysis
       appVersion: "0.1.0"
-      name: subside-analyze-h2i-{{ args.start_date }}-{{ args.end_date }}
+      name: subside-download-opera-{{ args.start_date }}-{{ args.end_date }}
       fileInputs:
         - name: run-config
           sourceUrl: "{{ workflow.inline_files.run_config_uri }}"
@@ -88,7 +88,7 @@ tasks:
   - id: build-stack
     type: tapis_job
     depends_on:
-      - id: analyze-h2i
+      - id: download-opera
     description: Combine per-product NetCDFs into one displacement stack NetCDF.
     tapis_job_def:
       appId: subside-werc-build-stack
@@ -96,7 +96,7 @@ tasks:
       name: subside-build-stack-{{ args.start_date }}-{{ args.end_date }}
       fileInputs:
         - name: netcdf-source
-          sourceUrl: "{{ tasks.analyze-h2i.outputs.archive }}/output/OPERA_L3_DISP-S1"
+          sourceUrl: "{{ tasks.download-opera.outputs.archive }}/output/OPERA_L3_DISP-S1"
       parameterSet:
         envVariables:
           - key: UPDATE_CONDA_ENV
@@ -182,7 +182,7 @@ tasks:
       and emits a unified subside-run-manifest.json for the UI.
     inputs:
       preflight_manifest_uri:    "{{ tasks.discover.outputs.archive }}/output/preflight-manifest.json"
-      h2i_run_manifest_uri:      "{{ tasks.analyze-h2i.outputs.archive }}/output/run-manifest.json"
+      h2i_run_manifest_uri:      "{{ tasks.download-opera.outputs.archive }}/output/run-manifest.json"
       build_stack_summary_uri:   "{{ tasks.build-stack.outputs.archive }}/output/build_stack_summary.json"
       reference_summary_uri:     "{{ tasks.compute-reference.outputs.archive }}/output/reference_summary.json"
       velocity_summary_uri:      "{{ tasks.estimate-velocity.outputs.archive }}/output/velocity_summary.json"

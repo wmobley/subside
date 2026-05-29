@@ -74,13 +74,13 @@ Two pipelines, sharing the discovery / publish tasks:
 **Pipeline A: `subside-h2i-opera`** (download + preview only)
 
 ```
-  discover ──▶ analyze-h2i ──▶ publish
+  discover ──▶ download-opera ──▶ publish
 ```
 
 **Pipeline B: `subside-werc-opera`** (full stack / reference / velocity)
 
 ```
-  discover ──▶ analyze-h2i ──▶ build-stack ──▶ compute-reference ──▶ estimate-velocity ──▶ export-geotiffs ──▶ publish
+  discover ──▶ download-opera ──▶ build-stack ──▶ compute-reference ──▶ estimate-velocity ──▶ export-geotiffs ──▶ publish
 ```
 
 (Revised 2026-05-28 after Q3 answer — see "Resolved" section above.)
@@ -90,8 +90,8 @@ Two pipelines, sharing the discovery / publish tasks:
 | Task                  | Type        | What it does                                                                                                                                                                                                  | Tapis app / impl                                  |
 | --------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | `discover`            | `tapis_job` | `python -m subside_analysis.h2i_lab.cli preflight`. Fast (~30 s). Outputs `preflight-manifest.json` with frame_ids, product_count, warnings. Fails pipeline if `product_count == 0`.                          | `subside-h2i-discover` (`STAGE=preflight`)        |
-| `analyze-h2i`         | `tapis_job` | `python -m subside_analysis.h2i_lab.cli run`. Heavy: parallel Earthdata download + crop, preview, zip. Outputs `run-manifest.json` + NetCDFs + previews + archive.                                            | `subside-h2i-analyze` (`STAGE=run`)               |
-| `build-stack`         | `tapis_job` | `python -m subside_analysis.werc.cli build-stack`. Reads the per-product NetCDFs from `analyze-h2i`'s archive; writes one combined `displacement_stack.nc` + `disp_products.json`.                            | `subside-werc-build-stack`                        |
+| `download-opera`         | `tapis_job` | `python -m subside_analysis.h2i_lab.cli run`. Heavy: parallel Earthdata download + crop, preview, zip. Outputs `run-manifest.json` + NetCDFs + previews + archive.                                            | `subside-h2i-analyze` (`STAGE=run`)               |
+| `build-stack`         | `tapis_job` | `python -m subside_analysis.werc.cli build-stack`. Reads the per-product NetCDFs from `download-opera`'s archive; writes one combined `displacement_stack.nc` + `disp_products.json`.                            | `subside-werc-build-stack`                        |
 | `compute-reference`   | `tapis_job` | `python -m subside_analysis.werc.cli compute-reference`. Reads stack; auto- or manual-picks reference pixels; writes `displacement_stack_referenced.nc` + `reference_anchor_FRAME{ID}.json` + `reference_summary.json`. | `subside-werc-compute-reference`                  |
 | `estimate-velocity`   | `tapis_job` | `python -m subside_analysis.werc.cli estimate-velocity`. Reads referenced stack; linear fit; writes `velocity.nc` + `velocity_summary.json`.                                                                  | `subside-werc-estimate-velocity`                  |
 | `export-geotiffs`     | `tapis_job` | `python -m subside_analysis.werc.cli export-geotiffs`. Reads referenced stack + velocity; writes `opera_disp_s1_cumulative.tif` + `opera_disp_s1_velocity.tif` + `export_summary.json`.                       | `subside-werc-export-geotiffs`                    |
@@ -100,9 +100,9 @@ Two pipelines, sharing the discovery / publish tasks:
 ### Why split it this way
 
 - **`discover` is its own task** so the pipeline fails fast and cheaply if the AOI has no products. Without this, we'd burn a heavy queue slot just to discover "nothing to do."
-- **`analyze-h2i` and `analyze-werc` are separate tasks** so:
-  - The H2I-only pipeline (Pipeline A) can stop after `analyze-h2i` and ship preview/archive without paying for WERC.
-  - Failed WERC analysis can be retried against the same `analyze-h2i` output without re-downloading multi-GB NetCDFs (uses `skip_download=true`).
+- **`download-opera` and `analyze-werc` are separate tasks** so:
+  - The H2I-only pipeline (Pipeline A) can stop after `download-opera` and ship preview/archive without paying for WERC.
+  - Failed WERC analysis can be retried against the same `download-opera` output without re-downloading multi-GB NetCDFs (uses `skip_download=true`).
 - **`publish` is a `function` task** because it's pure JSON munging — no need to spin up a container.
 - **Heavy work stays as `tapis_job`** because of dependency weight (`disp-xr`, `rasterio`, `gdal`, etc.). Tapis function tasks run in the workflows runner environment, which we shouldn't bloat with conda envs.
 
@@ -192,14 +192,14 @@ flowchart TB
         subgraph PA["h2i-opera.yaml"]
             direction TB
             A1[discover]:::pipeline
-            A2[analyze-h2i]:::pipeline
+            A2[download-opera]:::pipeline
             A3[publish<br/>function task]:::pipeline
             A1 --> A2 --> A3
         end
         subgraph PB["werc-opera.yaml"]
             direction TB
             B1[discover]:::pipeline
-            B2[analyze-h2i]:::pipeline
+            B2[download-opera]:::pipeline
             B3[build-stack]:::pipeline
             B4[compute-reference]:::pipeline
             B5[estimate-velocity]:::pipeline

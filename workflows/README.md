@@ -48,13 +48,13 @@ The Tapis Dockerfiles `COPY subside_analysis /opt/subside/subside_analysis`, so 
 
 ### A. `subside-h2i-opera`
 ```
-discover ──▶ analyze-h2i ──▶ publish
+discover ──▶ download-opera ──▶ publish
 ```
 Discovery + Earthdata download + preview + zip archive. Ends with a unified `subside-run-manifest.json`.
 
 ### B. `subside-werc-opera`
 ```
-discover ──▶ analyze-h2i ──▶ build-stack ──▶ compute-reference ──▶ estimate-velocity ──▶ export-geotiffs ──▶ publish
+discover ──▶ download-opera ──▶ build-stack ──▶ compute-reference ──▶ estimate-velocity ──▶ export-geotiffs ──▶ publish
 ```
 Adds the WERC stack/reference/velocity/export stages on top of Pipeline A's first two steps. Each WERC stage is its own `tapis_job` task; the displacement stack is spilled to NetCDF on the archive between stages.
 
@@ -63,7 +63,7 @@ Adds the WERC stack/reference/velocity/export stages on top of Pipeline A's firs
 | App ID                                | Image                                                                 | STAGE env       | Used by                                                                                                |
 | ------------------------------------- | --------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------ |
 | `subside-h2i-discover`                | `ghcr.io/<owner>/subside-h2i-opera-analysis:0.1.0`                    | `preflight`     | `discover` task in both pipelines                                                                       |
-| `subside-h2i-opera-analysis`          | `ghcr.io/<owner>/subside-h2i-opera-analysis:0.1.0`                    | (default `run`) | `analyze-h2i` task in both pipelines; also the standalone monolithic app                                |
+| `subside-h2i-opera-analysis`          | `ghcr.io/<owner>/subside-h2i-opera-analysis:0.1.0`                    | (default `run`) | `download-opera` task in both pipelines; also the standalone monolithic app                                |
 | `subside-werc-build-stack`            | `ghcr.io/<owner>/subside-werc-opera-analysis:0.1.0`                   | `build-stack`   | Pipeline B                                                                                              |
 | `subside-werc-compute-reference`      | `ghcr.io/<owner>/subside-werc-opera-analysis:0.1.0`                   | `compute-reference` | Pipeline B                                                                                          |
 | `subside-werc-estimate-velocity`      | `ghcr.io/<owner>/subside-werc-opera-analysis:0.1.0`                   | `estimate-velocity` | Pipeline B                                                                                          |
