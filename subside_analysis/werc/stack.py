@@ -7,8 +7,9 @@ import warnings
 from pathlib import Path
 
 import pandas as pd
-import pyproj
 import xarray as xr
+
+from subside_analysis.etl.stack import stack_epsg  # noqa: F401  re-exported
 
 
 _FRAME_ID_PATTERN = re.compile(r"_F(\d{4,5})_")
@@ -38,10 +39,6 @@ def build_displacement_stack(disp_df: pd.DataFrame) -> xr.Dataset:
         stack_prod["displacement"] - stack_prod.isel(time=0).displacement
     )
     return stack_prod
-
-
-def stack_epsg(stack: xr.Dataset) -> int:
-    return pyproj.CRS(stack.spatial_ref.attrs["crs_wkt"]).to_epsg()
 
 
 def resolve_frame_id(disp_df: pd.DataFrame) -> int:

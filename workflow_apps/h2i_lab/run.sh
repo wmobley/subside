@@ -5,9 +5,15 @@
 # miniconda is installed at runtime under a persistent path, the conda
 # environment is created from environment.yaml on first invocation, and
 # subsequent runs reuse it. Set UPDATE_CONDA_ENV=true to force a rebuild.
+#
+# STAGE env var selects which CLI subcommand to invoke. Defaults to "run"
+# (full download + preview + archive) for backward compat. The
+# subside-h2i-discover Tapis app sets STAGE=preflight to perform only the
+# fast frame/product discovery step.
 
 set -euo pipefail
 
+STAGE="${STAGE:-run}"
 CONFIG_PATH="${1:-config/run-config.json}"
 OUTPUT_DIR="${2:-${_tapisExecSystemOutputDir:-output}}"
 
@@ -79,6 +85,15 @@ install_conda
 handle_installation
 conda activate "${CONDA_ENV_NAME}"
 
-python -m subside_analysis.h2i_lab.cli run \
-    --config "${CONFIG_PATH}" \
-    --output-dir "${OUTPUT_DIR}"
+case "${STAGE}" in
+    run|preflight)
+        python -m subside_analysis.h2i_lab.cli "${STAGE}" \
+            --config "${CONFIG_PATH}" \
+            --output-dir "${OUTPUT_DIR}"
+        ;;
+    *)
+        echo "Unknown STAGE: ${STAGE}" >&2
+        echo "Valid values: run, preflight" >&2
+        exit 2
+        ;;
+esac

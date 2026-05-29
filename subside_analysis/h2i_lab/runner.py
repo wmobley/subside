@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
+
+from subside_analysis.etl.auth import earthdata_credentials as _earthdata_credentials
+from subside_analysis.etl.manifest import write_json as _write_json
 
 from .aoi import (
     bbox_dict_from_list,
@@ -22,37 +24,8 @@ from .metadata import estimate_subset_size, fetch_product_bytes, pixel_bbox_from
 from .preview import archive_results, latest_netcdf, make_displacement_overlay_png, write_folium_preview
 
 
-def _write_json(path: str | Path, payload: dict[str, Any]) -> Path:
-    output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w") as stream:
-        json.dump(payload, stream, indent=2, sort_keys=True)
-    return output
-
-
 def _aoi_path(config: H2IRunConfig) -> str | None:
     return config.aoi_shapefile_path or config.aoi_geojson_path
-
-
-def _earthdata_credentials() -> tuple[str, str]:
-    username = os.environ.get("EARTHDATA_USERNAME", "").strip()
-    password = os.environ.get("EARTHDATA_PASSWORD", "").strip()
-    if username and password:
-        return username, password
-
-    from netrc import netrc
-
-    try:
-        auth = netrc().authenticators("urs.earthdata.nasa.gov")
-    except Exception as exc:
-        raise RuntimeError(
-            "Missing Earthdata credentials. Set EARTHDATA_USERNAME and EARTHDATA_PASSWORD "
-            "or stage a protected .netrc file for urs.earthdata.nasa.gov."
-        ) from exc
-    if not auth:
-        raise RuntimeError("No urs.earthdata.nasa.gov entry found in .netrc.")
-    username, _account, password = auth
-    return username, password
 
 
 def _config_bbox(config: H2IRunConfig) -> dict[str, float] | None:

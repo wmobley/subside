@@ -1,31 +1,23 @@
-"""AOI and OPERA frame/product discovery helpers from the H2I notebook."""
+"""OPERA frame index + ASF product search helpers.
+
+Generic AOI loading (``load_aoi``, ``bounds_from_aoi``) and bbox shape
+conversions live in :mod:`subside_analysis.etl.aoi` — they are re-exported
+here for backward compatibility with existing callers.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+
+from subside_analysis.etl.aoi import (  # noqa: F401  re-exported for back-compat
+    bbox_dict_from_bounds,
+    bbox_dict_from_list,
+    bbox_list_from_dict,
+    bounds_from_aoi,
+    load_aoi,
+)
 
 from .config import DEFAULT_FRAMES_INDEX_URL
-
-
-def bbox_dict_from_bounds(bounds: Any) -> dict[str, float]:
-    """Return notebook-compatible bbox fields from geospatial bounds."""
-
-    minx, miny, maxx, maxy = [float(value) for value in bounds]
-    return {"lon_min": minx, "lon_max": maxx, "lat_min": miny, "lat_max": maxy}
-
-
-def bbox_list_from_dict(bbox: dict[str, float]) -> list[float]:
-    """Return [lon_min, lat_min, lon_max, lat_max]."""
-
-    return [bbox["lon_min"], bbox["lat_min"], bbox["lon_max"], bbox["lat_max"]]
-
-
-def bbox_dict_from_list(bbox: list[float]) -> dict[str, float]:
-    """Return bbox fields from [lon_min, lat_min, lon_max, lat_max]."""
-
-    lon_min, lat_min, lon_max, lat_max = [float(value) for value in bbox]
-    return {"lon_min": lon_min, "lon_max": lon_max, "lat_min": lat_min, "lat_max": lat_max}
 
 
 def download_frames_index(output_path: str | Path, url: str = DEFAULT_FRAMES_INDEX_URL) -> Path:
@@ -39,21 +31,6 @@ def download_frames_index(output_path: str | Path, url: str = DEFAULT_FRAMES_IND
     response.raise_for_status()
     output.write_bytes(response.content)
     return output
-
-
-def load_aoi(path: str | Path):
-    """Load an AOI file with GeoPandas."""
-
-    import geopandas as gpd
-
-    return gpd.read_file(path)
-
-
-def bounds_from_aoi(path: str | Path) -> dict[str, float]:
-    """Return lon/lat bbox fields from an AOI file."""
-
-    gdf = load_aoi(path).to_crs("EPSG:4326")
-    return bbox_dict_from_bounds(gdf.total_bounds)
 
 
 def find_intersecting_frames(
