@@ -19,19 +19,14 @@ subside/
 │   └── werc/                            # OPERA WERC stack/ref/velocity composition
 ├── workflow_apps/
 │   ├── h2i_lab/
-│   │   ├── app-cpu.json                 # subside-h2i-opera-analysis     (monolithic)
-│   │   ├── app-discover.json            # subside-h2i-discover           (STAGE=preflight)
-│   │   ├── Dockerfile                   # shared by both h2i apps
-│   │   ├── run.sh                       # dispatches by STAGE env var
+│   │   ├── app-cpu.json                 # subside-h2i-opera-analysis  (used by discover + download-opera tasks)
+│   │   ├── Dockerfile
+│   │   ├── run.sh                       # dispatches CLI subcommand by STAGE env var
 │   │   └── environment.yaml
 │   └── werc/
-│       ├── app-cpu.json                 # subside-werc-opera-analysis    (monolithic)
-│       ├── app-build-stack.json
-│       ├── app-compute-reference.json
-│       ├── app-estimate-velocity.json
-│       ├── app-export-geotiffs.json
+│       ├── app-cpu.json                 # subside-werc-opera-analysis (used by all 4 WERC stage tasks)
 │       ├── Dockerfile
-│       ├── run.sh                       # dispatches by STAGE env var
+│       ├── run.sh                       # dispatches CLI subcommand by STAGE env var; per-stage paths come from env vars
 │       └── environment.yaml
 └── workflows/
     ├── DESIGN.md                        # design log (decisions, why, open questions)

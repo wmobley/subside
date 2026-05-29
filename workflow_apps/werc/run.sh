@@ -89,8 +89,40 @@ case "${STAGE}" in
             --config "${CONFIG_PATH}" \
             --output-dir "${OUTPUT_DIR}"
         ;;
-    build-stack|compute-reference|estimate-velocity|export-geotiffs)
-        python -m subside_analysis.werc.cli "${STAGE}" "$@"
+    build-stack)
+        # Per-stage inputs come from envVariables on the Workflows task so
+        # the monolithic app's FIXED appArgs don't bleed in as positional args.
+        python -m subside_analysis.werc.cli build-stack \
+            --netcdf-dir       "${NETCDF_DIR:?STAGE=build-stack requires NETCDF_DIR}" \
+            --output-stack     "${OUTPUT_STACK:?STAGE=build-stack requires OUTPUT_STACK}" \
+            --output-products  "${OUTPUT_PRODUCTS:?STAGE=build-stack requires OUTPUT_PRODUCTS}"
+        ;;
+    compute-reference)
+        python -m subside_analysis.werc.cli compute-reference \
+            --stack              "${STACK_INPUT:?STAGE=compute-reference requires STACK_INPUT}" \
+            --output-stack       "${OUTPUT_STACK:?STAGE=compute-reference requires OUTPUT_STACK}" \
+            --output-summary     "${OUTPUT_SUMMARY:?STAGE=compute-reference requires OUTPUT_SUMMARY}" \
+            --mode               "${REFERENCE_MODE:-auto}" \
+            --anchor-dir         "${ANCHOR_DIR:?STAGE=compute-reference requires ANCHOR_DIR}" \
+            --anchor-radius-m    "${ANCHOR_RADIUS_M:-5000}" \
+            --n-reference-pixels "${N_REFERENCE_PIXELS:-25}" \
+            ${REFERENCE_LAT:+--reference-lat "${REFERENCE_LAT}"} \
+            ${REFERENCE_LON:+--reference-lon "${REFERENCE_LON}"}
+        ;;
+    estimate-velocity)
+        python -m subside_analysis.werc.cli estimate-velocity \
+            --stack            "${STACK_INPUT:?STAGE=estimate-velocity requires STACK_INPUT}" \
+            --output-velocity  "${OUTPUT_VELOCITY:?STAGE=estimate-velocity requires OUTPUT_VELOCITY}" \
+            --output-summary   "${OUTPUT_SUMMARY:?STAGE=estimate-velocity requires OUTPUT_SUMMARY}"
+        ;;
+    export-geotiffs)
+        python -m subside_analysis.werc.cli export-geotiffs \
+            --stack      "${STACK_INPUT:?STAGE=export-geotiffs requires STACK_INPUT}" \
+            --velocity   "${VELOCITY_INPUT:?STAGE=export-geotiffs requires VELOCITY_INPUT}" \
+            --output-dir "${OUTPUT_DIR_PATH:?STAGE=export-geotiffs requires OUTPUT_DIR_PATH}" \
+            ${REFERENCE_SUMMARY:+--reference-summary       "${REFERENCE_SUMMARY}"} \
+            ${DISPLACEMENT_GEOTIFF_NAME:+--displacement-geotiff-name "${DISPLACEMENT_GEOTIFF_NAME}"} \
+            ${VELOCITY_GEOTIFF_NAME:+--velocity-geotiff-name "${VELOCITY_GEOTIFF_NAME}"}
         ;;
     *)
         echo "Unknown STAGE: ${STAGE}" >&2

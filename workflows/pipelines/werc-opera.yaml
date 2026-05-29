@@ -3,13 +3,11 @@
 #
 # Flow: discover → download-opera → build-stack → compute-reference → estimate-velocity → export-geotiffs → publish
 #
-# Tapis Workflows JSON/YAML schema (v3) is still evolving — verify each field
-# against the live tenant before registering:
-#   https://tapis.readthedocs.io/en/latest/technical/workflows.html
-#
-# Inter-task data passing: each tapis_job task's archive directory is the
-# `tapis://<archive_system>/<archive_dir>` referenced as a fileInput.sourceUrl
-# on the next task.
+# All tapis_job tasks invoke one of the TWO monolithic Tapis apps:
+#   - subside-h2i-opera-analysis  (discover, download-opera; STAGE env var)
+#   - subside-werc-opera-analysis (4 WERC stages; STAGE env var + path env vars)
+# Stage-specific Tapis app registrations are intentionally NOT used — the
+# pipeline supplies per-task STAGE / paths / resources via task overrides.
 
 id: subside-werc-opera
 type: workflow
@@ -41,11 +39,15 @@ tasks:
   - id: discover
     type: tapis_job
     depends_on: []
-    description: Fast frame + product discovery; fails the pipeline if no products.
+    description: Fast frame + product discovery; fails the pipeline early if no products.
     tapis_job_def:
-      appId: subside-h2i-discover
+      appId: subside-h2i-opera-analysis
       appVersion: "0.1.0"
       name: subside-discover-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 2
+      memoryMB: 8000
+      maxMinutes: 30
       fileInputs:
         - name: run-config
           sourceUrl: "{{ workflow.inline_files.run_config_uri }}"
@@ -55,8 +57,8 @@ tasks:
           sourceUrl: "{{ args.earthdata_netrc_uri }}"
       parameterSet:
         envVariables:
-          - key: UPDATE_CONDA_ENV
-            value: "{{ args.update_conda_env }}"
+          - {key: STAGE, value: "preflight"}
+          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
         schedulerOptions:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
@@ -70,6 +72,10 @@ tasks:
       appId: subside-h2i-opera-analysis
       appVersion: "0.1.0"
       name: subside-download-opera-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 16
+      memoryMB: 128000
+      maxMinutes: 240
       fileInputs:
         - name: run-config
           sourceUrl: "{{ workflow.inline_files.run_config_uri }}"
@@ -79,8 +85,8 @@ tasks:
           sourceUrl: "{{ args.earthdata_netrc_uri }}"
       parameterSet:
         envVariables:
-          - key: UPDATE_CONDA_ENV
-            value: "{{ args.update_conda_env }}"
+          - {key: STAGE, value: "run"}
+          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
         schedulerOptions:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
@@ -91,16 +97,24 @@ tasks:
       - id: download-opera
     description: Combine per-product NetCDFs into one displacement stack NetCDF.
     tapis_job_def:
-      appId: subside-werc-build-stack
+      appId: subside-werc-opera-analysis
       appVersion: "0.1.0"
       name: subside-build-stack-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 8
+      memoryMB: 32000
+      maxMinutes: 60
       fileInputs:
         - name: netcdf-source
           sourceUrl: "{{ tasks.download-opera.outputs.archive }}/output/OPERA_L3_DISP-S1"
+          targetPath: "inputs/OPERA_L3_DISP-S1"
       parameterSet:
         envVariables:
-          - key: UPDATE_CONDA_ENV
-            value: "{{ args.update_conda_env }}"
+          - {key: STAGE,            value: "build-stack"}
+          - {key: NETCDF_DIR,       value: "inputs/OPERA_L3_DISP-S1"}
+          - {key: OUTPUT_STACK,     value: "output/displacement_stack.nc"}
+          - {key: OUTPUT_PRODUCTS,  value: "output/disp_products.json"}
+          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
         schedulerOptions:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
@@ -111,19 +125,30 @@ tasks:
       - id: build-stack
     description: Pick reference pixels (auto or manual); subtract offset from stack.
     tapis_job_def:
-      appId: subside-werc-compute-reference
+      appId: subside-werc-opera-analysis
       appVersion: "0.1.0"
       name: subside-compute-reference-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 8
+      memoryMB: 32000
+      maxMinutes: 60
       fileInputs:
         - name: stack-input
           sourceUrl: "{{ tasks.build-stack.outputs.archive }}/output/displacement_stack.nc"
+          targetPath: "inputs/displacement_stack.nc"
       parameterSet:
-        appArgs:
-          - name: "Reference mode"
-            arg: "{{ args.reference_mode }}"
         envVariables:
-          - key: UPDATE_CONDA_ENV
-            value: "{{ args.update_conda_env }}"
+          - {key: STAGE,              value: "compute-reference"}
+          - {key: STACK_INPUT,        value: "inputs/displacement_stack.nc"}
+          - {key: OUTPUT_STACK,       value: "output/displacement_stack_referenced.nc"}
+          - {key: OUTPUT_SUMMARY,     value: "output/reference_summary.json"}
+          - {key: REFERENCE_MODE,     value: "{{ args.reference_mode }}"}
+          - {key: ANCHOR_DIR,         value: "output/anchors"}
+          - {key: ANCHOR_RADIUS_M,    value: "{{ args.anchor_radius_m }}"}
+          - {key: N_REFERENCE_PIXELS, value: "{{ args.n_reference_pixels }}"}
+          - {key: REFERENCE_LAT,      value: "{{ args.reference_lat }}"}
+          - {key: REFERENCE_LON,      value: "{{ args.reference_lon }}"}
+          - {key: UPDATE_CONDA_ENV,   value: "{{ args.update_conda_env }}"}
         schedulerOptions:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
@@ -134,16 +159,24 @@ tasks:
       - id: compute-reference
     description: Per-pixel linear-fit velocity from the referenced stack.
     tapis_job_def:
-      appId: subside-werc-estimate-velocity
+      appId: subside-werc-opera-analysis
       appVersion: "0.1.0"
       name: subside-estimate-velocity-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 8
+      memoryMB: 32000
+      maxMinutes: 60
       fileInputs:
         - name: stack-input
           sourceUrl: "{{ tasks.compute-reference.outputs.archive }}/output/displacement_stack_referenced.nc"
+          targetPath: "inputs/displacement_stack_referenced.nc"
       parameterSet:
         envVariables:
-          - key: UPDATE_CONDA_ENV
-            value: "{{ args.update_conda_env }}"
+          - {key: STAGE,            value: "estimate-velocity"}
+          - {key: STACK_INPUT,      value: "inputs/displacement_stack_referenced.nc"}
+          - {key: OUTPUT_VELOCITY,  value: "output/velocity.nc"}
+          - {key: OUTPUT_SUMMARY,   value: "output/velocity_summary.json"}
+          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
         schedulerOptions:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
@@ -154,27 +187,38 @@ tasks:
       - id: estimate-velocity
     description: Reproject + write cumulative displacement and velocity GeoTIFFs.
     tapis_job_def:
-      appId: subside-werc-export-geotiffs
+      appId: subside-werc-opera-analysis
       appVersion: "0.1.0"
       name: subside-export-geotiffs-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 4
+      memoryMB: 16000
+      maxMinutes: 30
       fileInputs:
         - name: stack-input
           sourceUrl: "{{ tasks.compute-reference.outputs.archive }}/output/displacement_stack_referenced.nc"
+          targetPath: "inputs/displacement_stack_referenced.nc"
         - name: velocity-input
           sourceUrl: "{{ tasks.estimate-velocity.outputs.archive }}/output/velocity.nc"
+          targetPath: "inputs/velocity.nc"
         - name: reference-summary
           sourceUrl: "{{ tasks.compute-reference.outputs.archive }}/output/reference_summary.json"
+          targetPath: "inputs/reference_summary.json"
       parameterSet:
         envVariables:
-          - key: UPDATE_CONDA_ENV
-            value: "{{ args.update_conda_env }}"
+          - {key: STAGE,             value: "export-geotiffs"}
+          - {key: STACK_INPUT,       value: "inputs/displacement_stack_referenced.nc"}
+          - {key: VELOCITY_INPUT,    value: "inputs/velocity.nc"}
+          - {key: OUTPUT_DIR_PATH,   value: "output"}
+          - {key: REFERENCE_SUMMARY, value: "inputs/reference_summary.json"}
+          - {key: UPDATE_CONDA_ENV,  value: "{{ args.update_conda_env }}"}
         schedulerOptions:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
 
   - id: publish
     type: function
-    runtime: python3.11
+    runtime: "python:3.11"
     depends_on:
       - id: export-geotiffs
     description: |
@@ -183,7 +227,6 @@ tasks:
     inputs:
       preflight_manifest_uri:    "{{ tasks.discover.outputs.archive }}/output/preflight-manifest.json"
       h2i_run_manifest_uri:      "{{ tasks.download-opera.outputs.archive }}/output/run-manifest.json"
-      build_stack_summary_uri:   "{{ tasks.build-stack.outputs.archive }}/output/build_stack_summary.json"
       reference_summary_uri:     "{{ tasks.compute-reference.outputs.archive }}/output/reference_summary.json"
       velocity_summary_uri:      "{{ tasks.estimate-velocity.outputs.archive }}/output/velocity_summary.json"
       export_summary_uri:        "{{ tasks.export-geotiffs.outputs.archive }}/output/export_summary.json"
@@ -202,7 +245,6 @@ tasks:
           "schema_version": "v0",
           "preflight": _load("INPUTS_PREFLIGHT_MANIFEST_URI"),
           "h2i": _load("INPUTS_H2I_RUN_MANIFEST_URI"),
-          "build_stack": _load("INPUTS_BUILD_STACK_SUMMARY_URI"),
           "reference": _load("INPUTS_REFERENCE_SUMMARY_URI"),
           "velocity": _load("INPUTS_VELOCITY_SUMMARY_URI"),
           "export": _load("INPUTS_EXPORT_SUMMARY_URI"),
