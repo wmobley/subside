@@ -91,37 +91,48 @@ Reference: https://tapis.readthedocs.io/en/latest/technical/workflows.html
 - [ ] Implement workflow registration.
   - Explanation: The backend should check whether the pipeline exists in the selected group and create it if missing. This should follow the existing `flopy-interactive` workflow gateway pattern.
 
-- [ ] Implement run submission.
+- [x] Implement run submission.
   - Explanation: The backend should call Tapis `runPipeline` or submit the registered Tapis app/job, then return a normalized `runId`, `pipelineId`, `groupId`, and initial status to the UI.
+  - Resolved 2026-05-29: `api/manager.submit_run` stages inputs + submits the single monolithic `run` job **as the user** (Tapis Jobs, not `runPipeline`, since the `workflows` restricted service is blocked — see `memory`/orchestrate.py). `POST /api/subside/runs` returns `runId` (job uuid) + normalized status. Non-blocking.
 
-- [ ] Implement run status normalization.
+- [x] Implement run status normalization.
   - Explanation: The UI should see stable states such as `queued`, `running`, `completed`, `failed`, and `cancelled`, regardless of the exact Tapis status payload.
+  - Resolved 2026-05-29: `api/manager.normalize_status` maps the 13 Tapis job statuses → queued/running/completed/failed/cancelled (unknown fallback). Served by `GET /api/subside/runs/{runId}`.
 
-- [ ] Implement result discovery from Tapis outputs.
+- [x] Implement result discovery from Tapis outputs.
   - Explanation: On completion, the backend should resolve archive/files output locations and return the `run-manifest.json` plus artifact URLs or file handles usable by the UI.
+  - Resolved 2026-05-29: `api/manager.get_results` resolves the finished job's archive, lists artifacts (with Tapis Files content URLs), and fetches the run manifest (werc-run-manifest.json / run-manifest.json). Served by `GET /api/subside/runs/{runId}/results`.
 
 ## API Facade
 
-- [ ] Add `POST /api/subside/aoi/frames`.
-  - Explanation: Fast interactive endpoint for finding OPERA frames intersecting the selected AOI. This should not be a long-running workflow run.
+> FastAPI facade landed 2026-05-29 under `subside/api/` (see `api/README.md`).
+> Auth is token pass-through (`X-Tapis-Token`), the API acts as the user.
 
-- [ ] Add `POST /api/subside/products/search`.
+- [x] Add `POST /api/subside/aoi/frames`.
+  - Explanation: Fast interactive endpoint for finding OPERA frames intersecting the selected AOI. This should not be a long-running workflow run.
+  - Resolved 2026-05-29: `api/discovery.find_frames` (in-process, `require_products=False` → geopandas only). Returns 503 if geopandas is absent.
+
+- [x] Add `POST /api/subside/products/search`.
   - Explanation: Fast preflight endpoint for searching available OPERA DISP-S1 products for frame/date/AOI inputs.
+  - Resolved 2026-05-29: `api/discovery.search_products`. Needs `disp_xr`; returns 503 if absent.
 
 - [ ] Add `POST /api/subside/runs/estimate`.
   - Explanation: Estimate product count, approximate download size, expected output count, and whether the selected time range is scientifically weak.
 
 - [ ] Add `POST /api/subside/workflow/register`.
-  - Explanation: Portal wrapper around Tapis group/archive/pipeline setup.
+  - Explanation: Portal wrapper around Tapis group/archive/pipeline setup. (Moot while the `workflows` restricted service is blocked; the API submits Jobs directly instead.)
 
-- [ ] Add `POST /api/subside/runs`.
+- [x] Add `POST /api/subside/runs`.
   - Explanation: Portal wrapper around Tapis workflow or job submission.
+  - Resolved 2026-05-29: submits the monolithic `run` job as the user; returns `runId`.
 
-- [ ] Add `GET /api/subside/runs/:runId`.
+- [x] Add `GET /api/subside/runs/:runId`.
   - Explanation: Portal wrapper around Tapis run/job status with normalized status for React.
+  - Resolved 2026-05-29.
 
-- [ ] Add `GET /api/subside/runs/:runId/results`.
+- [x] Add `GET /api/subside/runs/:runId/results`.
   - Explanation: Portal wrapper around Tapis archive/files lookup and result manifest retrieval.
+  - Resolved 2026-05-29.
 
 ## UI Work
 
