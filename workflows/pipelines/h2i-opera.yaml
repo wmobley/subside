@@ -1,7 +1,7 @@
 ---
 # Pipeline A: SUBSIDE H2I OPERA — discovery + download + preview only.
 #
-# Flow: discover → analyze-h2i → publish
+# Flow: discover → download-opera → publish
 #
 # Tapis Workflows JSON/YAML schema (v3) is still evolving — verify each field
 # against the live tenant before registering:
@@ -56,7 +56,7 @@ tasks:
           - name: "TACC Allocation"
             arg: "{{ args.allocation }}"
 
-  - id: analyze-h2i
+  - id: download-opera
     type: tapis_job
     depends_on:
       - id: discover
@@ -64,7 +64,7 @@ tasks:
     tapis_job_def:
       appId: subside-h2i-opera-analysis
       appVersion: "0.1.0"
-      name: subside-analyze-h2i-{{ args.start_date }}-{{ args.end_date }}
+      name: subside-download-opera-{{ args.start_date }}-{{ args.end_date }}
       fileInputs:
         - name: run-config
           sourceUrl: "{{ workflow.inline_files.run_config_uri }}"
@@ -84,14 +84,14 @@ tasks:
     type: function
     runtime: python3.11
     depends_on:
-      - id: analyze-h2i
+      - id: download-opera
     description: |
       Stdlib-only Python. Reads preflight-manifest.json + run-manifest.json from
-      the analyze-h2i archive and emits a unified subside-run-manifest.json the
+      the download-opera archive and emits a unified subside-run-manifest.json the
       UI can consume.
     inputs:
       preflight_manifest_uri: "{{ tasks.discover.outputs.archive }}/output/preflight-manifest.json"
-      run_manifest_uri:       "{{ tasks.analyze-h2i.outputs.archive }}/output/run-manifest.json"
+      run_manifest_uri:       "{{ tasks.download-opera.outputs.archive }}/output/run-manifest.json"
     code: |
       import json, os, urllib.request
 
