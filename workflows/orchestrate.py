@@ -99,12 +99,14 @@ def _alloc_arg(allocation: str) -> str:
 # --------------------------------------------------------------------------- #
 # Input staging                                                               #
 # --------------------------------------------------------------------------- #
-def _build_run_config() -> dict:
-    """The run-config.json the h2i app's CLI consumes (H2IRunConfig schema).
+def _build_run_config(pipeline_key: str) -> dict:
+    """The run-config.json the app's CLI consumes.
 
     Paths are relative to the job working dir, matching the app's fileInput
-    targetPaths (aoi mounts at config/aoi.geojson, outputs go to output/)."""
-    return {
+    targetPaths (aoi mounts at config/aoi.geojson, outputs go to output/).
+    h2i uses H2IRunConfig fields; werc adds the reference/anchor fields on top
+    (WercRunConfig.from_dict accepts the flat h2i fields + werc fields)."""
+    cfg = {
         "start_date": smoke_test.TEST_DATA["start_date"],
         "end_date": smoke_test.TEST_DATA["end_date"],
         "aoi_geojson_path": "config/aoi.geojson",
@@ -115,6 +117,15 @@ def _build_run_config() -> dict:
         "require_products": True,
         "preview_only": False,
     }
+    if pipeline_key == "werc":
+        cfg.update({
+            "reference_mode": smoke_test.TEST_DATA["reference_mode"],
+            "anchor_radius_m": 5000,
+            "n_reference_pixels": 25,
+            "anchor_dir": "output/anchors",
+            "skip_download": False,
+        })
+    return cfg
 
 
 def _stage(client, args: argparse.Namespace) -> dict:
@@ -128,7 +139,7 @@ def _stage(client, args: argparse.Namespace) -> dict:
         "aoi_geojson_uri": f"tapis://{args.staging_system}/{base}/aoi.geojson",
         "earthdata_netrc_uri": "",
     }
-    run_config = _build_run_config()
+    run_config = _build_run_config(args.pipeline)
 
     if args.dry_run:
         print(f"[dry-run] would mkdir tapis://{args.staging_system}/{base}")
@@ -322,20 +333,24 @@ def _run_publish(client, task: dict, ctx: dict, args: argparse.Namespace) -> str
         return "dry-run"
 
     fetched = {key: _fetch_json(client, uri) for key, uri in inputs.items()}
-    preflight = fetched.get("preflight_manifest_uri") or {}
-    run_manifest = fetched.get("run_manifest_uri") or fetched.get("h2i_run_manifest_uri") or {}
 
-    warnings = list(preflight.get("warnings", [])) + list(run_manifest.get("warnings", []))
-    unified = {
-        "pipeline": ctx["pipeline_id"],
-        "schema_version": "v0",
-        "frame_ids": preflight.get("frame_ids", []),
-        "product_count": preflight.get("product_count", 0),
-        "warnings": warnings,
-        "artifacts": run_manifest.get("artifacts", {}),
-        "config": run_manifest.get("config", {}),
-        "inputs_fetched": {k: (v is not None) for k, v in fetched.items()},
-    }
+    werc_manifest = fetched.get("werc_run_manifest_uri")
+    if werc_manifest is not None:
+        # werc's run job already wrote a unified manifest; just re-stamp it.
+        unified = {"pipeline": ctx["pipeline_id"], "schema_version": "v0", **werc_manifest}
+    else:
+        preflight = fetched.get("preflight_manifest_uri") or {}
+        run_manifest = fetched.get("run_manifest_uri") or fetched.get("h2i_run_manifest_uri") or {}
+        unified = {
+            "pipeline": ctx["pipeline_id"],
+            "schema_version": "v0",
+            "frame_ids": preflight.get("frame_ids", []),
+            "product_count": preflight.get("product_count", 0),
+            "warnings": list(preflight.get("warnings", [])) + list(run_manifest.get("warnings", [])),
+            "artifacts": run_manifest.get("artifacts", {}),
+            "config": run_manifest.get("config", {}),
+        }
+    unified["inputs_fetched"] = {k: (v is not None) for k, v in fetched.items()}
     LOCAL_OUT.mkdir(parents=True, exist_ok=True)
     out_file = LOCAL_OUT / f"{ctx['pipeline_id']}-run-manifest.json"
     out_file.write_text(json.dumps(unified, indent=2, sort_keys=True, default=str))

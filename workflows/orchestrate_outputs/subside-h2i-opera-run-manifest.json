@@ -1,0 +1,38 @@
+{
+  "artifacts": {
+    "archive_zip": "/scratch/06659/wmobley/tapis/be3de967-925b-426e-a984-e9c1c08df8e0-007/output/OPERA_L3_DISP-S1.zip",
+    "display_range": {
+      "vmax": 0.06496887207031232,
+      "vmin": -0.009546279907226562
+    },
+    "downloaded_files": [
+      "output/OPERA_L3_DISP-S1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240816T002700Z_v1.0_20260306T000831Z.nc",
+      "output/OPERA_L3_DISP-S1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240828T002700Z_v1.0_20260306T000831Z.nc"
+    ],
+    "overlay_png": "output/disp_overlay.png",
+    "preview_html": "output/OPERA_L3_DISP-S1/Example_Map.html",
+    "results_dir": "output/OPERA_L3_DISP-S1"
+  },
+  "config": {
+    "bbox": null,
+    "end_date": "2024-09-01",
+    "frame_ids": [],
+    "min_overlap_percent": 50.0,
+    "num_workers": 2,
+    "preview_only": false,
+    "start_date": "2024-06-01"
+  },
+  "frame_ids": [
+    8882,
+    38238,
+    38239
+  ],
+  "inputs_fetched": {
+    "preflight_manifest_uri": true,
+    "run_manifest_uri": true
+  },
+  "pipeline": "subside-h2i-opera",
+  "product_count": 2,
+  "schema_version": "v0",
+  "warnings": []
+}

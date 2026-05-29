@@ -1,21 +1,19 @@
 ---
-# Pipeline A: SUBSIDE H2I OPERA — discovery + download + preview only.
+# Pipeline A: SUBSIDE H2I OPERA — discover + download + preview in ONE job.
 #
-# Flow: discover → download-opera → publish
-#
-# Both tapis_job tasks invoke the SAME monolithic Tapis app
-# `subside-h2i-opera-analysis`. They differ only in:
-#   - STAGE env var (dispatched in workflow_apps/h2i_lab/run.sh)
-#   - Resource overrides (cores / memory / maxMinutes)
-# Stage-specific Tapis app registrations are intentionally NOT used —
-# the apps catalog stays at two rows (one per image) instead of one per task.
+# Collapsed from the old discover/download split into a single monolithic
+# `run` task. `STAGE=run` (subside_analysis.h2i_lab.cli run) already calls
+# preflight() internally before downloading, so the single job writes BOTH
+# preflight-manifest.json and run-manifest.json to its archive — the discover
+# gate added a second job for no extra information.
 
 id: subside-h2i-opera
 type: workflow
 description: |
   Discovery + Earthdata download + preview + zip archive for OPERA DISP-S1
-  over an AOI. Companion pipeline `subside-werc-opera` adds the
-  stack/reference/velocity/export stages on top.
+  over an AOI, as a single self-contained Tapis job. Companion pipeline
+  `subside-werc-opera` is the same shape but continues through the
+  stack/reference/velocity/export analysis.
 owner: ${apiUserId}
 group_id: subside-ops
 tenant_id: portals
@@ -32,42 +30,14 @@ params:
 
 tasks:
 
-  - id: discover
+  - id: run
     type: tapis_job
     depends_on: []
-    description: Fast frame + product discovery; fails the pipeline early if no products.
-    tapis_job_def:
-      appId: subside-h2i-opera-analysis      # same app as download-opera, smaller resources + STAGE=preflight
-      appVersion: "0.1.0"
-      name: subside-discover-{{ args.start_date }}-{{ args.end_date }}
-      nodeCount: 1
-      coresPerNode: 2
-      memoryMB: 8000
-      maxMinutes: 30
-      fileInputs:
-        - name: run-config
-          sourceUrl: "{{ workflow.inline_files.run_config_uri }}"
-        - name: aoi-geojson
-          sourceUrl: "{{ args.aoi_geojson_uri }}"
-        - name: earthdata-netrc
-          sourceUrl: "{{ args.earthdata_netrc_uri }}"
-      parameterSet:
-        envVariables:
-          - {key: STAGE, value: "preflight"}
-          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
-        schedulerOptions:
-          - name: "TACC Allocation"
-            arg: "{{ args.allocation }}"
-
-  - id: download-opera
-    type: tapis_job
-    depends_on:
-      - id: discover
-    description: Heavy NetCDF download + crop + preview + archive.
+    description: Discover + download + crop + preview + archive, all in one job (STAGE=run).
     tapis_job_def:
       appId: subside-h2i-opera-analysis
-      appVersion: "0.1.0"
-      name: subside-download-opera-{{ args.start_date }}-{{ args.end_date }}
+      appVersion: "0.1.1"
+      name: subside-h2i-opera-{{ args.start_date }}-{{ args.end_date }}
       nodeCount: 1
       coresPerNode: 16
       memoryMB: 128000
@@ -93,14 +63,14 @@ tasks:
     installer: pip          # required by the Tapis Workflows FunctionTask schema
     packages: []            # stdlib-only; no third-party deps to install
     depends_on:
-      - id: download-opera
+      - id: run
     description: |
       Stdlib-only Python. Reads preflight-manifest.json + run-manifest.json from
-      the download-opera archive and emits a unified subside-run-manifest.json
-      the UI can consume.
+      the single run job's archive and emits a unified subside-run-manifest.json
+      the UI can consume. (Under the manager this runs locally via the Files API.)
     inputs:
-      preflight_manifest_uri: "{{ tasks.discover.outputs.archive }}/output/preflight-manifest.json"
-      run_manifest_uri:       "{{ tasks.download-opera.outputs.archive }}/output/run-manifest.json"
+      preflight_manifest_uri: "{{ tasks.run.outputs.archive }}/output/preflight-manifest.json"
+      run_manifest_uri:       "{{ tasks.run.outputs.archive }}/output/run-manifest.json"
     code: |
       import json, os, urllib.request
 

@@ -9,7 +9,7 @@
   "runtimeOptions": [
     "SINGULARITY_RUN"
   ],
-  "containerImage": "docker://ghcr.io/wmobley/subside-h2i-opera-analysis:sha-d791fa0",
+  "containerImage": "docker://ghcr.io/wmobley/subside-h2i-opera-analysis:sha-07c92cf",
   "jobType": "BATCH",
   "maxJobs": -1,
   "maxJobsPerUser": -1,
