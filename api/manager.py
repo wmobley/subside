@@ -15,6 +15,7 @@ from typing import Any
 
 import yaml
 
+from . import config
 from .config import PIPELINE_DIR, PIPELINES, STAGING_PREFIX, STAGING_SYSTEM, TAPIS_BASE_URL
 from .models import Artifact, RunRequest
 
@@ -148,10 +149,15 @@ def _stage(client, username: str, run_id: str, req: RunRequest) -> dict:
     client.files.insert(systemId=STAGING_SYSTEM, path=f"{base}/aoi.geojson",
                         file=io.BytesIO(json.dumps(req.aoi_geojson).encode()))
 
+    # Earthdata creds priority: explicit netrc URI > inline request creds >
+    # the server-side service account from .env. The service account is the
+    # intended path so creds never transit the request body.
     netrc_uri = req.earthdata_netrc_uri or ""
-    if not netrc_uri and req.earthdata_username and req.earthdata_password:
-        netrc = (f"machine urs.earthdata.nasa.gov login {req.earthdata_username} "
-                 f"password {req.earthdata_password}\n")
+    ed_user = req.earthdata_username or config.EARTHDATA_USERNAME
+    ed_pass = req.earthdata_password or config.EARTHDATA_PASSWORD
+    if not netrc_uri and ed_user and ed_pass:
+        netrc = (f"machine urs.earthdata.nasa.gov login {ed_user} "
+                 f"password {ed_pass}\n")
         client.files.insert(systemId=STAGING_SYSTEM, path=f"{base}/.netrc",
                             file=io.BytesIO(netrc.encode()))
         netrc_uri = f"tapis://{STAGING_SYSTEM}/{base}/.netrc"
@@ -166,6 +172,9 @@ def _stage(client, username: str, run_id: str, req: RunRequest) -> dict:
 def submit_run(client, req: RunRequest) -> dict:
     """Stage inputs + submit the monolithic run job. Returns submission info.
     Does NOT poll — the status endpoint does that."""
+    allocation = req.allocation or config.DEFAULT_ALLOCATION
+    if not allocation:
+        raise ValueError("No allocation: set one in the request or SUBSIDE_DEFAULT_ALLOCATION in .env.")
     username = getattr(client, "username", None) or "user"
     run_id = uuid.uuid4().hex[:12]
     staged = _stage(client, username, run_id, req)
@@ -179,12 +188,12 @@ def submit_run(client, req: RunRequest) -> dict:
             "aoi_geojson_uri": staged["aoi_geojson_uri"],
             "earthdata_netrc_uri": staged["earthdata_netrc_uri"],
             "update_conda_env": req.update_conda_env,
-            "allocation": req.allocation,
+            "allocation": allocation,
         },
         "workflow": {"inline_files": {"run_config_uri": staged["run_config_uri"]}},
     }
     job_def = _resolve(run_task["tapis_job_def"], ctx)
-    body = _build_job_body(job_def, req.allocation)
+    body = _build_job_body(job_def, allocation)
     result = client.jobs.submitJob(**body)
     return {
         "uuid": _field(result, "uuid"),

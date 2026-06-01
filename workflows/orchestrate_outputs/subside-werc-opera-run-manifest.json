@@ -1,0 +1,165 @@
+{
+  "artifacts": {
+    "archive_zip": "/scratch/06659/wmobley/tapis/82c6f309-7d81-440e-a73a-85a73eba63fa-007/output/OPERA_L3_DISP-S1.zip",
+    "cumulative_displacement_geotiff": {
+      "bounds": [
+        -95.55510037551701,
+        29.55003060703604,
+        -95.34554475896252,
+        29.750021444411704
+      ],
+      "clip_range_mm": [
+        -19.67234100341797,
+        21.661058731079095
+      ],
+      "crs": "EPSG:4326",
+      "date_end": "20240828",
+      "date_start": "20240816",
+      "path": "output/opera_disp_s1_cumulative.tif"
+    },
+    "display_range": {
+      "vmax": 0.06496887207031232,
+      "vmin": -0.009546279907226562
+    },
+    "downloaded_files": [
+      "output/OPERA_L3_DISP-S1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240816T002700Z_v1.0_20260306T000831Z.nc",
+      "output/OPERA_L3_DISP-S1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240828T002700Z_v1.0_20260306T000831Z.nc"
+    ],
+    "overlay_png": "output/disp_overlay.png",
+    "preview_html": "output/OPERA_L3_DISP-S1/Example_Map.html",
+    "results_dir": "output/OPERA_L3_DISP-S1",
+    "velocity_geotiff": {
+      "bounds": [
+        -95.55510037551701,
+        29.55003060703604,
+        -95.34554475896252,
+        29.750021444411704
+      ],
+      "crs": "EPSG:4326",
+      "p02_p98_mm_per_year": [
+        -553.1492163085937,
+        594.1398803710936
+      ],
+      "path": "output/opera_disp_s1_velocity.tif"
+    }
+  },
+  "config": {
+    "anchor_radius_m": 5000,
+    "bbox": null,
+    "end_date": "2024-09-01",
+    "frame_ids": [],
+    "min_overlap_percent": 50.0,
+    "n_reference_pixels": 25,
+    "netcdf_dir": null,
+    "num_workers": 2,
+    "preview_only": false,
+    "reference_lat": null,
+    "reference_lon": null,
+    "reference_mode": "auto",
+    "skip_download": false,
+    "start_date": "2024-06-01"
+  },
+  "frame_id": 8882,
+  "h2i_manifest": {
+    "artifacts": {
+      "archive_zip": "/scratch/06659/wmobley/tapis/82c6f309-7d81-440e-a73a-85a73eba63fa-007/output/OPERA_L3_DISP-S1.zip",
+      "display_range": {
+        "vmax": 0.06496887207031232,
+        "vmin": -0.009546279907226562
+      },
+      "downloaded_files": [
+        "output/OPERA_L3_DISP-S1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240816T002700Z_v1.0_20260306T000831Z.nc",
+        "output/OPERA_L3_DISP-S1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240828T002700Z_v1.0_20260306T000831Z.nc"
+      ],
+      "overlay_png": "output/disp_overlay.png",
+      "preview_html": "output/OPERA_L3_DISP-S1/Example_Map.html",
+      "results_dir": "output/OPERA_L3_DISP-S1"
+    },
+    "bbox": {
+      "lat_max": 29.75,
+      "lat_min": 29.55,
+      "lon_max": -95.35,
+      "lon_min": -95.55
+    },
+    "config": {
+      "bbox": null,
+      "end_date": "2024-09-01",
+      "frame_ids": [],
+      "min_overlap_percent": 50.0,
+      "num_workers": 2,
+      "preview_only": false,
+      "start_date": "2024-06-01"
+    },
+    "frame_ids": [
+      8882,
+      38238,
+      38239
+    ],
+    "frame_records": [],
+    "pixel_bbox": [
+      6031,
+      6692,
+      3084,
+      3809
+    ],
+    "product_count": 2,
+    "product_urls": [
+      "https://cumulus.asf.earthdatacloud.nasa.gov/OPERA/OPERA_L3_DISP-S1_V1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240816T002700Z_v1.0_20260306T000831Z/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240816T002700Z_v1.0_20260306T000831Z.nc",
+      "https://cumulus.asf.earthdatacloud.nasa.gov/OPERA/OPERA_L3_DISP-S1_V1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240828T002700Z_v1.0_20260306T000831Z/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240828T002700Z_v1.0_20260306T000831Z.nc"
+    ],
+    "size_estimate": {
+      "estimated_stack_gb": 0.005524977453747696,
+      "source_file_mb": 432.0,
+      "subset_file_mb": 2.8287884563188204
+    },
+    "source": "h2i_lab",
+    "stage": "complete",
+    "warnings": []
+  },
+  "inputs_fetched": {
+    "werc_run_manifest_uri": true
+  },
+  "pipeline": "subside-werc-opera",
+  "reference": {
+    "anchor_lat": 29.7036077902975,
+    "anchor_lon": -95.42522283432808,
+    "anchor_path": "output/anchors/reference_anchor_FRAME8882.json",
+    "mode": "auto",
+    "n_pixels": 25,
+    "newly_picked": true,
+    "ref_scores": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "ref_x_center": 265245.0,
+    "ref_y_center": 3285195.0,
+    "threshold_label": "strict (PS-InSAR)"
+  },
+  "schema_version": "v0",
+  "source": "werc",
+  "stage": "complete",
+  "warnings": []
+}

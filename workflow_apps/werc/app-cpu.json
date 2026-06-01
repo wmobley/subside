@@ -72,6 +72,169 @@
       ],
       "envVariables": [
         {
+          "key": "START_DATE",
+          "value": "2024-01-01",
+          "description": "Search window start date (YYYY-MM-DD) for OPERA DISP-S1 products.",
+          "inputMode": "REQUIRED",
+          "notes": {
+            "label": "Start date"
+          }
+        },
+        {
+          "key": "END_DATE",
+          "value": "2025-01-01",
+          "description": "Search window end date (YYYY-MM-DD) for OPERA DISP-S1 products.",
+          "inputMode": "REQUIRED",
+          "notes": {
+            "label": "End date"
+          }
+        },
+        {
+          "key": "AOI_GEOJSON_PATH",
+          "value": "config/aoi.geojson",
+          "description": "Path to the AOI GeoJSON inside the job dir. Keep the default when supplying the aoi-geojson file input; clear it to search by frame IDs only.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "AOI GeoJSON path"
+          }
+        },
+        {
+          "key": "FRAME_IDS",
+          "value": "",
+          "description": "Optional comma-separated OPERA frame IDs to restrict the search (e.g. 8882,8883). Leave blank to derive frames from the AOI.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Frame IDs"
+          }
+        },
+        {
+          "key": "NUM_WORKERS",
+          "value": "2",
+          "description": "Number of parallel download workers.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Download workers"
+          }
+        },
+        {
+          "key": "MIN_OVERLAP_PERCENT",
+          "value": "50",
+          "description": "Minimum AOI/frame overlap percent for a frame to be included.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Min overlap percent"
+          }
+        },
+        {
+          "key": "RESULTS_DIR",
+          "value": "OPERA_L3_DISP-S1",
+          "description": "Subdirectory under the output dir where downloaded products are written.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Results subdirectory"
+          }
+        },
+        {
+          "key": "REQUIRE_PRODUCTS",
+          "value": "true",
+          "description": "Fail the job if no matching products are found.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Require products",
+            "enum_values": [
+              {
+                "true": "true"
+              },
+              {
+                "false": "false"
+              }
+            ]
+          }
+        },
+        {
+          "key": "REFERENCE_MODE",
+          "value": "auto",
+          "description": "How to pick the displacement reference: 'auto' (anchor-based), 'manual' (use reference lat/lon), or 'none'.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Reference mode",
+            "enum_values": [
+              {
+                "auto": "auto"
+              },
+              {
+                "manual": "manual"
+              },
+              {
+                "none": "none"
+              }
+            ]
+          }
+        },
+        {
+          "key": "REFERENCE_LAT",
+          "value": "",
+          "description": "Reference latitude (decimal degrees). Required when reference mode is 'manual'.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Reference latitude"
+          }
+        },
+        {
+          "key": "REFERENCE_LON",
+          "value": "",
+          "description": "Reference longitude (decimal degrees). Required when reference mode is 'manual'.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Reference longitude"
+          }
+        },
+        {
+          "key": "ANCHOR_RADIUS_M",
+          "value": "5000",
+          "description": "Search radius (meters) around the anchor used to select reference pixels (auto mode).",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Anchor radius (m)"
+          }
+        },
+        {
+          "key": "N_REFERENCE_PIXELS",
+          "value": "25",
+          "description": "Number of reference pixels to average when computing the reference offset.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Reference pixel count"
+          }
+        },
+        {
+          "key": "ANCHOR_DIR",
+          "value": "output/anchors",
+          "description": "Directory holding per-frame anchor JSON (used by auto reference mode).",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Anchor directory"
+          }
+        },
+        {
+          "key": "DISPLACEMENT_GEOTIFF_NAME",
+          "value": "opera_disp_s1_cumulative.tif",
+          "description": "Filename for the exported cumulative displacement GeoTIFF.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Displacement GeoTIFF name"
+          }
+        },
+        {
+          "key": "VELOCITY_GEOTIFF_NAME",
+          "value": "opera_disp_s1_velocity.tif",
+          "description": "Filename for the exported velocity GeoTIFF.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Velocity GeoTIFF name"
+          }
+        },
+        {
           "key": "UPDATE_CONDA_ENV",
           "value": "false",
           "description": "Set to 'true' to force run.sh to delete and recreate the conda environment under $WORK before running the analysis. Useful after bumping environment.yaml.",
@@ -85,14 +248,6 @@
       }
     },
     "fileInputs": [
-      {
-        "name": "run-config",
-        "description": "SUBSIDE WERC run configuration JSON. OPTIONAL: the WERC stage subcommands (build-stack/compute-reference/estimate-velocity/export-geotiffs) are driven by env vars, not run-config, so the pipeline stage jobs don't supply one.",
-        "inputMode": "OPTIONAL",
-        "autoMountLocal": true,
-        "sourceUrl": null,
-        "targetPath": "config/run-config.json"
-      },
       {
         "name": "aoi-geojson",
         "description": "Optional AOI GeoJSON used by the run config.",

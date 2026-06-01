@@ -38,6 +38,38 @@ mkdir -p "${OUTPUT_DIR}"
 
 case "${STAGE}" in
     run|preflight)
+        # The run parameters come from the app's env-variable input fields.
+        # run.sh materializes them into the CLI's config JSON at this internal
+        # path — it is generated each run, never staged by the user.
+        echo "Building ${CONFIG_PATH} from environment variables." >&2
+        mkdir -p "$(dirname "${CONFIG_PATH}")"
+        python - "${CONFIG_PATH}" <<'PY'
+import json, os, sys
+
+def as_bool(value, default):
+    if value is None or value == "":
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+def as_int_list(value):
+    if not value:
+        return []
+    return [int(token) for token in value.replace(",", " ").split()]
+
+config = {
+    "start_date": os.environ.get("START_DATE", ""),
+    "end_date": os.environ.get("END_DATE", ""),
+    "aoi_geojson_path": os.environ.get("AOI_GEOJSON_PATH") or None,
+    "frame_ids": as_int_list(os.environ.get("FRAME_IDS", "")),
+    "num_workers": int(os.environ.get("NUM_WORKERS") or 2),
+    "min_overlap_percent": float(os.environ.get("MIN_OVERLAP_PERCENT") or 50),
+    "results_dir": os.environ.get("RESULTS_DIR") or "OPERA_L3_DISP-S1",
+    "require_products": as_bool(os.environ.get("REQUIRE_PRODUCTS"), True),
+    "preview_only": as_bool(os.environ.get("PREVIEW_ONLY"), False),
+}
+with open(sys.argv[1], "w") as handle:
+    json.dump(config, handle, indent=2)
+PY
         python -m subside_analysis.h2i_lab.cli "${STAGE}" \
             --config "${CONFIG_PATH}" \
             --output-dir "${OUTPUT_DIR}"

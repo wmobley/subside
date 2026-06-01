@@ -410,3 +410,7 @@ yarn-error.log*
 /.docker-work
 /workflow_apps/h2i_lab/walkthrough_outputs
 /workflow_apps/werc/walkthrough_outputs
+
+# Local API secrets (SUBSIDE)
+.env
+!.env.sample

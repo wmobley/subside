@@ -20,21 +20,9 @@ Tapis Workflows should orchestrate the run, but this app should perform the heav
 4. App writes `run-manifest.json`, cropped NetCDFs, preview HTML, and zip output.
 5. Workflow/archive layer exposes those outputs back to SUBSIDE.
 
-## Config File
+## Run Parameters
 
-The required Tapis file input is `config/run-config.json`. A template lives at `workflow_apps/h2i_lab/run-config.example.json`:
-
-```json
-{
-  "start_date": "2024-01-01",
-  "end_date": "2025-01-01",
-  "aoi_geojson_path": "config/aoi.geojson",
-  "frame_ids": [],
-  "num_workers": 2,
-  "min_overlap_percent": 50,
-  "output_dir": "output"
-}
-```
+Run parameters are exposed as **input fields** (Tapis env-variable parameters) on the app form — `START_DATE`, `END_DATE`, `AOI_GEOJSON_PATH`, `FRAME_IDS`, `NUM_WORKERS`, `MIN_OVERLAP_PERCENT`, `RESULTS_DIR`, `REQUIRE_PRODUCTS`, and `PREVIEW_ONLY`. There is no run-config file input — on each run, `run.sh` materializes these values into the CLI's config JSON internally before invoking the workflow.
 
 For local runs, set `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` or use a standard `.netrc` entry for `urs.earthdata.nasa.gov`. For production Tapis runs, prefer Tapis secrets/identity handling; the current scaffold also supports staging a protected `.netrc` file input.
 
@@ -79,9 +67,10 @@ docker volume create subside-conda-h2i
 docker run --rm \
   -e ENV_INSTALL_DIR=/opt/conda-root \
   -e EARTHDATA_USERNAME -e EARTHDATA_PASSWORD \
+  -e START_DATE=2024-01-01 -e END_DATE=2025-01-01 \
+  -e AOI_GEOJSON_PATH=config/aoi.geojson -e NUM_WORKERS=2 \
   -v subside-conda-h2i:/opt/conda-root \
   -v "$PWD/.docker-work:/work" \
-  -v "$PWD/workflow_apps/h2i_lab/run-config.example.json:/work/config/run-config.json:ro" \
   -v "$PWD/sample_aoi.geojson:/work/config/aoi.geojson:ro" \
   subside-h2i-opera-analysis:dev
 ```

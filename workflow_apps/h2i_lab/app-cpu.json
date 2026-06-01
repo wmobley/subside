@@ -72,6 +72,103 @@
       ],
       "envVariables": [
         {
+          "key": "START_DATE",
+          "value": "2024-01-01",
+          "description": "Search window start date (YYYY-MM-DD) for OPERA DISP-S1 products.",
+          "inputMode": "REQUIRED",
+          "notes": {
+            "label": "Start date"
+          }
+        },
+        {
+          "key": "END_DATE",
+          "value": "2025-01-01",
+          "description": "Search window end date (YYYY-MM-DD) for OPERA DISP-S1 products.",
+          "inputMode": "REQUIRED",
+          "notes": {
+            "label": "End date"
+          }
+        },
+        {
+          "key": "AOI_GEOJSON_PATH",
+          "value": "config/aoi.geojson",
+          "description": "Path to the AOI GeoJSON inside the job dir. Keep the default when supplying the aoi-geojson file input; clear it to search by frame IDs only.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "AOI GeoJSON path"
+          }
+        },
+        {
+          "key": "FRAME_IDS",
+          "value": "",
+          "description": "Optional comma-separated OPERA frame IDs to restrict the search (e.g. 8882,8883). Leave blank to derive frames from the AOI.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Frame IDs"
+          }
+        },
+        {
+          "key": "NUM_WORKERS",
+          "value": "2",
+          "description": "Number of parallel download workers.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Download workers"
+          }
+        },
+        {
+          "key": "MIN_OVERLAP_PERCENT",
+          "value": "50",
+          "description": "Minimum AOI/frame overlap percent for a frame to be included.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Min overlap percent"
+          }
+        },
+        {
+          "key": "RESULTS_DIR",
+          "value": "OPERA_L3_DISP-S1",
+          "description": "Subdirectory under the output dir where downloaded products are written.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Results subdirectory"
+          }
+        },
+        {
+          "key": "REQUIRE_PRODUCTS",
+          "value": "true",
+          "description": "Fail the job if no matching products are found.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Require products",
+            "enum_values": [
+              {
+                "true": "true"
+              },
+              {
+                "false": "false"
+              }
+            ]
+          }
+        },
+        {
+          "key": "PREVIEW_ONLY",
+          "value": "false",
+          "description": "Run discovery + preview only, skipping the full download and archive.",
+          "inputMode": "INCLUDE_BY_DEFAULT",
+          "notes": {
+            "label": "Preview only",
+            "enum_values": [
+              {
+                "true": "true"
+              },
+              {
+                "false": "false"
+              }
+            ]
+          }
+        },
+        {
           "key": "UPDATE_CONDA_ENV",
           "value": "false",
           "description": "Set to 'true' to force run.sh to delete and recreate the conda environment under $WORK before running the analysis. Useful after bumping environment.yaml.",
@@ -85,14 +182,6 @@
       }
     },
     "fileInputs": [
-      {
-        "name": "run-config",
-        "description": "SUBSIDE H2I run configuration JSON.",
-        "inputMode": "REQUIRED",
-        "autoMountLocal": true,
-        "sourceUrl": null,
-        "targetPath": "config/run-config.json"
-      },
       {
         "name": "aoi-geojson",
         "description": "Optional AOI GeoJSON used by the run config.",

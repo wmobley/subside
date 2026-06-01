@@ -36,7 +36,7 @@ class RunRequest(BaseModel):
     start_date: str
     end_date: str
     aoi_geojson: dict[str, Any]
-    allocation: str
+    allocation: Optional[str] = None   # falls back to SUBSIDE_DEFAULT_ALLOCATION (.env)
     num_workers: int = 2
     min_overlap_percent: float = 50.0
     # werc-only

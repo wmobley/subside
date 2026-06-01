@@ -22,26 +22,9 @@ Tapis Workflows should orchestrate the run, but this app should perform the heav
 4. App writes `werc-run-manifest.json`, cumulative and velocity GeoTIFFs, persisted anchor JSON, and the H2I download/preview artifacts.
 5. Workflow/archive layer exposes those outputs back to SUBSIDE.
 
-## Config File
+## Run Parameters
 
-The required Tapis file input is `config/run-config.json`. A template lives at `workflow_apps/werc/run-config.example.json`:
-
-```json
-{
-  "start_date": "2024-01-01",
-  "end_date": "2025-01-01",
-  "aoi_geojson_path": "config/aoi.geojson",
-  "frame_ids": [],
-  "num_workers": 2,
-  "min_overlap_percent": 50,
-  "output_dir": "output",
-  "results_dir": "OPERA_L3_DISP-S1",
-  "reference_mode": "auto",
-  "anchor_radius_m": 5000,
-  "n_reference_pixels": 25,
-  "anchor_dir": "output/anchors"
-}
-```
+Run parameters are exposed as **input fields** (Tapis env-variable parameters) on the app form: the H2I discovery/download fields (`START_DATE`, `END_DATE`, `AOI_GEOJSON_PATH`, `FRAME_IDS`, `NUM_WORKERS`, `MIN_OVERLAP_PERCENT`, `RESULTS_DIR`, `REQUIRE_PRODUCTS`) plus the WERC-specific fields (`REFERENCE_MODE`, `REFERENCE_LAT`, `REFERENCE_LON`, `ANCHOR_RADIUS_M`, `N_REFERENCE_PIXELS`, `ANCHOR_DIR`, `DISPLACEMENT_GEOTIFF_NAME`, `VELOCITY_GEOTIFF_NAME`). There is no run-config file input — for the `run`/`preflight` stages, `run.sh` materializes these values into the CLI's config JSON internally before invoking the workflow. (The decomposed per-stage Workflows tasks — `build-stack`, `compute-reference`, etc. — drive themselves from their own env vars and never touch the run config.)
 
 Reference modes:
 
@@ -92,9 +75,11 @@ docker volume create subside-conda-werc
 docker run --rm \
   -e ENV_INSTALL_DIR=/opt/conda-root \
   -e EARTHDATA_USERNAME -e EARTHDATA_PASSWORD \
+  -e START_DATE=2024-01-01 -e END_DATE=2025-01-01 \
+  -e AOI_GEOJSON_PATH=config/aoi.geojson -e NUM_WORKERS=2 \
+  -e REFERENCE_MODE=auto \
   -v subside-conda-werc:/opt/conda-root \
   -v "$PWD/.docker-work:/work" \
-  -v "$PWD/workflow_apps/werc/run-config.example.json:/work/config/run-config.json:ro" \
   -v "$PWD/sample_aoi.geojson:/work/config/aoi.geojson:ro" \
   subside-werc-opera-analysis:dev
 ```

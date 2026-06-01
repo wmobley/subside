@@ -5,6 +5,7 @@ uvicorn[standard]>=0.30
 pydantic>=2
 tapipy
 pyyaml
+python-dotenv>=1.0
 
 # Fast discovery endpoints (/aoi/frames, /products/search) additionally need
 # the geospatial stack the analysis uses. These are heavy; install them only

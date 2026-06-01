@@ -14,6 +14,13 @@ What it does (in order):
 3. Registers/updates every Tapis app definition under ``workflow_apps/<pkg>/app-*.json``.
 4. Registers/updates every Tapis Workflows pipeline definition under ``workflows/pipelines/*.yaml``.
 
+Image tags: the CI workflow (``.github/workflows/build-images.yml``) tags each
+image as ``sha-<short-sha>``, ``latest``, and the branch name on every push to
+main. So you don't have to hand-edit the ``containerImage`` pins after every
+push, registration rewrites each app's tag to the current git HEAD
+(``sha-<short>``) by default. Override with ``--image-tag <tag>`` (e.g.
+``--image-tag latest``) or keep the JSON pins with ``--no-retag``.
+
 The Tapis Workflows V3 API surface is still moving. Where tapipy doesn't yet
 expose a typed method, this script falls back to raw HTTP via the
 authenticated tapipy session. Verify the endpoint paths against the live
@@ -194,15 +201,67 @@ def _load_app(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
+def _git_short_sha() -> str | None:
+    """Return the short SHA of git HEAD at the repo root, or None if unavailable."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
+    return out.stdout.strip() or None
+
+
+def _retag_image(image: str, tag: str) -> str:
+    """Return ``image`` with its tag replaced by ``tag``.
+
+    Handles the optional ``docker://`` scheme and registries that carry a
+    ``host:port``. The tag separator is the ``:`` that appears after the final
+    ``/`` in the reference — a ``:`` before that belongs to the registry host.
+    Any existing ``@sha256:...`` digest pin is dropped in favor of the tag.
+    """
+    scheme = ""
+    ref = image
+    if "://" in ref:
+        scheme, ref = ref.split("://", 1)
+        scheme += "://"
+    ref = ref.split("@", 1)[0]  # drop any digest pin
+    slash = ref.rfind("/")
+    colon = ref.find(":", slash + 1)
+    if colon != -1:
+        ref = ref[:colon]
+    return f"{scheme}{ref}:{tag}"
+
+
+def _resolve_image_tag(args) -> str | None:
+    """Resolve the image tag to apply: explicit --image-tag, else git HEAD sha tag."""
+    if args.no_retag:
+        return None
+    if args.image_tag:
+        return args.image_tag
+    sha = _git_short_sha()
+    return f"sha-{sha}" if sha else None
+
+
 # Tapis V3 app PATCH disallows these in the body — they're either URL-path
 # params (id/version), set at create time (owner), or only changeable via
 # dedicated endpoints (enabled, runtimeVersion).
 _PATCH_FORBIDDEN_KEYS = frozenset({"id", "version", "owner", "enabled", "runtimeVersion"})
 
 
-def _register_app(client, app: dict[str, Any], dry_run: bool) -> None:
+def _register_app(client, app: dict[str, Any], dry_run: bool, image_tag: str | None = None) -> None:
     app_id = app["id"]
     version = app["version"]
+    if image_tag and app.get("containerImage"):
+        retagged = _retag_image(app["containerImage"], image_tag)
+        if retagged != app["containerImage"]:
+            print(f"[retag]   app:          {app_id}@{version}  ->  {retagged}")
+            app["containerImage"] = retagged
     resp = _api_get(client, f"/v3/apps/{app_id}/{version}")
     exists = 200 <= resp.status_code < 300
     action = "update" if exists else "create"
@@ -226,18 +285,54 @@ def _load_pipeline(path: Path) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def _register_pipeline(client, group_id: str, pipeline: dict[str, Any], dry_run: bool) -> None:
+# The Tapis Workflows pipeline endpoint has no PUT handler (it 405s); updates go
+# through PATCH, which only accepts this subset of fields. `tasks` is deliberately
+# excluded: in PATCH it CREATES/appends tasks rather than replacing them, so
+# re-sending the YAML tasks would duplicate them. Structural changes (tasks, cron,
+# execution_profile, archive, type) are NOT patchable — use --recreate-pipelines
+# (delete + recreate) to fully re-sync those from the YAML.
+_PIPELINE_PATCH_KEYS = frozenset({"description", "enabled", "env", "params", "tags"})
+_PIPELINE_STRUCTURAL_KEYS = frozenset({"tasks", "cron", "execution_profile", "archive_ids", "type"})
+
+
+def _register_pipeline(
+    client, group_id: str, pipeline: dict[str, Any], dry_run: bool, recreate: bool = False
+) -> None:
     pipeline_id = pipeline["id"]
-    resp = _api_get(client, f"/v3/workflows/groups/{group_id}/pipelines/{pipeline_id}")
+    base = f"/v3/workflows/groups/{group_id}/pipelines"
+    resp = _api_get(client, f"{base}/{pipeline_id}")
     exists = 200 <= resp.status_code < 300
-    action = "update" if exists else "create"
+    if not exists:
+        action = "create"
+    elif recreate:
+        action = "recreate"
+    else:
+        action = "update"
     print(f"[{action}]  pipeline:     {pipeline_id}  (group={group_id})")
     if dry_run:
         return
-    if exists:
-        resp = _api_put(client, f"/v3/workflows/groups/{group_id}/pipelines/{pipeline_id}", pipeline)
-    else:
-        resp = _api_post(client, f"/v3/workflows/groups/{group_id}/pipelines", pipeline)
+
+    if action == "create":
+        resp = _api_post(client, base, pipeline)
+    elif action == "recreate":
+        # Full re-sync: delete then re-create so task/cron/profile changes land.
+        del_resp = _api_delete(client, f"{base}/{pipeline_id}")
+        if not (200 <= del_resp.status_code < 300 or del_resp.status_code == 404):
+            raise SystemExit(
+                f"Failed to delete pipeline {pipeline_id} for recreate: "
+                f"HTTP {del_resp.status_code} — {del_resp.text[:400]}"
+            )
+        resp = _api_post(client, base, pipeline)
+    else:  # update -> PATCH the patchable subset
+        skipped = sorted(_PIPELINE_STRUCTURAL_KEYS & pipeline.keys())
+        if skipped:
+            print(
+                f"[note]    pipeline:     {pipeline_id}  PATCH cannot update {', '.join(skipped)}; "
+                f"re-run with --recreate-pipelines to re-sync those"
+            )
+        body = {k: v for k, v in pipeline.items() if k in _PIPELINE_PATCH_KEYS}
+        resp = _api_patch(client, f"{base}/{pipeline_id}", body)
+
     if not (200 <= resp.status_code < 300):
         raise SystemExit(
             f"Failed to {action} pipeline {pipeline_id}: HTTP {resp.status_code} — {resp.text[:400]}"
@@ -250,6 +345,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--group", default=DEFAULT_GROUP, help="Tapis Workflows group id.")
     parser.add_argument("--apps-only", action="store_true", help="Skip pipeline registration.")
     parser.add_argument("--pipelines-only", action="store_true", help="Skip app registration.")
+    image_group = parser.add_mutually_exclusive_group()
+    image_group.add_argument(
+        "--image-tag",
+        metavar="TAG",
+        help="Rewrite every app's containerImage to this tag before registering "
+             "(e.g. 'sha-b888eb6', 'latest', 'main'). "
+             "Default: the current git HEAD short SHA as 'sha-<short>'.",
+    )
+    image_group.add_argument(
+        "--no-retag",
+        action="store_true",
+        help="Register containerImage exactly as pinned in the app JSON (no tag rewrite).",
+    )
+    parser.add_argument(
+        "--recreate-pipelines",
+        action="store_true",
+        help="For pipelines that already exist, DELETE and re-create them so structural "
+             "changes (tasks, cron, execution_profile) re-sync from YAML. Default is a "
+             "metadata-only PATCH, since the Workflows API can't patch task definitions.",
+    )
     parser.add_argument(
         "--delete-app",
         action="append",
@@ -293,15 +408,22 @@ def main(argv: list[str] | None = None) -> int:
         _prune_apps(client, local_app_ids, dry_run=args.dry_run)
 
     if not args.pipelines_only:
+        image_tag = _resolve_image_tag(args)
+        if image_tag:
+            print(f"Applying image tag to all apps: {image_tag}")
+        elif not args.no_retag:
+            print("[warn]    could not resolve git HEAD short SHA; leaving containerImage tags as-is")
         for path in sorted(REPO_ROOT.glob(APP_JSON_GLOB)):
             app = _load_app(path)
-            _register_app(client, app, dry_run=args.dry_run)
+            _register_app(client, app, dry_run=args.dry_run, image_tag=image_tag)
 
     if not args.apps_only:
         _ensure_group(client, args.group, dry_run=args.dry_run)
         for path in sorted(REPO_ROOT.glob(PIPELINE_GLOB)):
             pipeline = _load_pipeline(path)
-            _register_pipeline(client, args.group, pipeline, dry_run=args.dry_run)
+            _register_pipeline(
+                client, args.group, pipeline, dry_run=args.dry_run, recreate=args.recreate_pipelines
+            )
 
     print("Done." + (" (dry-run, no changes made)" if args.dry_run else ""))
     return 0
