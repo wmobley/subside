@@ -1,0 +1,56 @@
+# Conda env baked into the API image (api/Dockerfile). Mirrors the known-good
+# subside-h2i-opera analysis env so every `analysis.*` import the API touches
+# resolves — frame discovery and availability shading (geopandas + opera-utils +
+# disp-xr), the forecast (numpy/pandas), layers/tiles (psycopg), and runs (tapipy)
+# all work in the pod.
+#
+# Trimmable later (not imported by the API's request paths, only by the batch
+# apps' download/preview): mintpy, localtileserver, matplotlib, folium, branca,
+# pillow, zarr. Kept here only to guarantee imports until the image is build-tested.
+name: subside-api
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  # --- geo + scientific (discovery / availability / analysis imports) ---
+  - aiohttp
+  - boto3
+  - botocore
+  - branca
+  - fiona
+  - folium
+  - fsspec
+  - gdal
+  - geopandas
+  - h5netcdf
+  - h5py
+  - libgdal-netcdf
+  - localtileserver
+  - matplotlib
+  - mintpy
+  - netcdf4
+  - numpy<2
+  - pandas
+  - pillow
+  - pyproj
+  - rasterio
+  - requests
+  - rioxarray
+  - scipy
+  - shapely
+  - xarray
+  - zarr
+  - s3fs
+  # --- API runtime ---
+  - pyyaml
+  - pip
+  - pip:
+      - git+https://github.com/opera-adt/disp-xr.git
+      - opera-utils
+      - fastapi
+      - "uvicorn[standard]"
+      - pydantic
+      - python-dotenv
+      - tapipy
+      - "psycopg[binary]"
+      - psycopg-pool
