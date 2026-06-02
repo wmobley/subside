@@ -1,0 +1,102 @@
+---
+# Pipeline B: SUBSIDE WERC OPERA — full analysis in ONE job.
+#
+# Collapsed from the old 6-task split (discover/download/build-stack/
+# compute-reference/estimate-velocity/export-geotiffs) into a single
+# monolithic `run` task. `STAGE=run` (analysis.werc.cli run) is
+# self-contained: it does its own discover + download (via the embedded
+# h2i runner, unless skip_download=true), then builds the stack, picks a
+# reference, estimates velocity, and exports both GeoTIFFs — all in one
+# process, writing werc-run-manifest.json. No inter-task archive handoff.
+
+id: subside-werc-opera
+type: workflow
+description: |
+  Full SUBSIDE WERC pipeline as a single self-contained Tapis job: discovers
+  OPERA DISP-S1 products, downloads + crops, builds the displacement stack,
+  picks a reference (auto or manual), estimates per-pixel velocity, and
+  exports cumulative + velocity GeoTIFFs.
+owner: ${apiUserId}
+group_id: subside-ops
+tenant_id: portals
+
+params:
+  start_date:          {type: string, required: true}
+  end_date:            {type: string, required: true}
+  aoi_geojson_uri:     {type: string, required: true}
+  earthdata_netrc_uri: {type: string, required: false}
+  reference_mode:      {type: string, default: "auto", enum: [auto, manual, none]}
+  reference_lat:       {type: number, required: false}
+  reference_lon:       {type: number, required: false}
+  anchor_radius_m:     {type: integer, default: 5000}
+  n_reference_pixels:  {type: integer, default: 25}
+  num_workers:         {type: integer, default: 4}
+  min_overlap_percent: {type: number, default: 50.0}
+  allocation:          {type: string, required: true}
+  update_conda_env:    {type: string, default: "false"}
+
+tasks:
+
+  - id: run
+    type: tapis_job
+    depends_on: []
+    description: Discover + download + stack + reference + velocity + export, all in one job (STAGE=run).
+    tapis_job_def:
+      appId: subside-werc-opera-analysis
+      appVersion: "0.1.1"
+      name: subside-werc-opera-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 16
+      memoryMB: 128000
+      maxMinutes: 300
+      fileInputs:
+        - name: aoi-geojson
+          sourceUrl: "{{ args.aoi_geojson_uri }}"
+        - name: earthdata-netrc
+          sourceUrl: "{{ args.earthdata_netrc_uri }}"
+      parameterSet:
+        # Run parameters are passed as env-variable input fields; the app's
+        # run.sh materializes them into the CLI config (no run-config file).
+        envVariables:
+          - {key: STAGE, value: "run"}
+          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
+          - {key: START_DATE, value: "{{ args.start_date }}"}
+          - {key: END_DATE, value: "{{ args.end_date }}"}
+          - {key: NUM_WORKERS, value: "{{ args.num_workers }}"}
+          - {key: MIN_OVERLAP_PERCENT, value: "{{ args.min_overlap_percent }}"}
+          - {key: REFERENCE_MODE, value: "{{ args.reference_mode }}"}
+          - {key: REFERENCE_LAT, value: "{{ args.reference_lat }}"}
+          - {key: REFERENCE_LON, value: "{{ args.reference_lon }}"}
+          - {key: ANCHOR_RADIUS_M, value: "{{ args.anchor_radius_m }}"}
+          - {key: N_REFERENCE_PIXELS, value: "{{ args.n_reference_pixels }}"}
+        schedulerOptions:
+          - name: "TACC Allocation"
+            arg: "{{ args.allocation }}"
+
+  - id: publish
+    type: function
+    runtime: "python:3.11"
+    installer: pip          # required by the Tapis Workflows FunctionTask schema
+    packages: []            # stdlib-only; no third-party deps to install
+    depends_on:
+      - id: run
+    description: |
+      Stdlib-only Python. Reads the werc-run-manifest.json the run job already
+      wrote (it is itself the unified manifest) and re-emits it as
+      subside-run-manifest.json. (Under the manager this runs locally via the
+      Files API.)
+    inputs:
+      werc_run_manifest_uri: "{{ tasks.run.outputs.archive }}/output/werc-run-manifest.json"
+    code: |
+      import json, os, urllib.request
+
+      def _load(uri):
+          if uri.startswith("tapis://"):
+              raise RuntimeError("Configure tapis-files fetch in your workflows runner.")
+          with urllib.request.urlopen(uri) as f:
+              return json.load(f)
+
+      werc = _load(os.environ["INPUTS_WERC_RUN_MANIFEST_URI"])
+      unified = {"pipeline": "subside-werc-opera", "schema_version": "v0", **werc}
+      with open(os.environ["OUTPUT_DIR"] + "/subside-run-manifest.json", "w") as f:
+          json.dump(unified, f, indent=2, sort_keys=True, default=str)

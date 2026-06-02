@@ -7,6 +7,18 @@ tapipy
 pyyaml
 python-dotenv>=1.0
 
+# PostGIS vector layers (/layers ingest + /tiles MVT) need a postgres driver.
+# Install these only if you want to serve GeoJSON layers + vector tiles; the
+# core API runs without them (the endpoints return 503 if SUBSIDE_DATABASE_URL
+# is unset or psycopg is missing). The target database must have PostGIS:
+#   psycopg[binary]  psycopg-pool
+
+# Forecast endpoint (/forecast, /forecast/template) runs the in-process
+# subsidence screening model, which needs only:
+#   numpy  pandas
+# Without them the endpoint returns 503 (the rest of the API still runs).
+# Both are already present in the subside-h2i-opera conda env used for the API.
+
 # Fast discovery endpoints (/aoi/frames, /products/search) additionally need
 # the geospatial stack the analysis uses. These are heavy; install them only
 # if you want discovery served in-process (or run the API inside a conda env

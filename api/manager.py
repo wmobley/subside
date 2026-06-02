@@ -187,6 +187,8 @@ def submit_run(client, req: RunRequest) -> dict:
             "end_date": req.end_date,
             "aoi_geojson_uri": staged["aoi_geojson_uri"],
             "earthdata_netrc_uri": staged["earthdata_netrc_uri"],
+            "num_workers": req.num_workers,
+            "min_overlap_percent": req.min_overlap_percent,
             "update_conda_env": req.update_conda_env,
             "allocation": allocation,
         },
@@ -200,6 +202,50 @@ def submit_run(client, req: RunRequest) -> dict:
         "name": body["name"],
         "tapisStatus": _field(result, "status") or "PENDING",
     }
+
+
+def _pipeline_app_ids() -> dict[str, str]:
+    """appId -> pipeline key, read from each pipeline's run task. Used to filter
+    the user's Tapis job list down to jobs this app submitted."""
+    out: dict[str, str] = {}
+    for key in PIPELINES:
+        try:
+            pl = _load_pipeline(key)
+            run = next(t for t in pl["tasks"] if t["id"] == "run")
+            app_id = run["tapis_job_def"]["appId"]
+            out[str(app_id)] = key
+        except Exception:
+            continue
+    return out
+
+
+def list_runs(client, limit: int = 100, include_all: bool = False) -> list[dict]:
+    """The caller's Tapis jobs that were submitted with one of our pipeline apps.
+
+    This is the durable job history: Tapis owns it, so it survives browser
+    refreshes and is visible from any device the user logs in on. Pass
+    ``include_all=True`` to skip the app-id filter (diagnostics)."""
+    app_map = _pipeline_app_ids()
+    try:  # Tapis orderBy syntax is "field(dir)", not "field dir".
+        jobs = client.jobs.getJobList(limit=limit, orderBy="lastUpdated(desc)")
+    except Exception:
+        jobs = client.jobs.getJobList(limit=limit)
+    out: list[dict] = []
+    for j in jobs or []:
+        app_id = str(_field(j, "appId") or "")
+        if not include_all and app_id not in app_map:
+            continue
+        tapis_status = str(_field(j, "status") or "UNKNOWN")
+        out.append({
+            "runId": _field(j, "uuid"),
+            "name": _field(j, "name"),
+            "pipeline": app_map.get(app_id),
+            "appId": app_id,
+            "status": normalize_status(tapis_status),
+            "tapisStatus": tapis_status,
+            "created": str(_field(j, "created") or "") or None,
+        })
+    return out
 
 
 def get_status(client, run_uuid: str) -> dict:
@@ -217,6 +263,31 @@ def get_status(client, run_uuid: str) -> dict:
 
 # Manifest filenames written by the apps, in priority order.
 _MANIFEST_NAMES = ("werc-run-manifest.json", "run-manifest.json", "subside-run-manifest.json")
+
+
+def fetch_file(client, run_uuid: str, path: str) -> tuple[bytes, str, str]:
+    """Stream one file from a job's archive (so the browser fetches it via our
+    API + the user's token instead of cross-origin to the Tapis Files API).
+
+    The path must live inside this job's archive directory — anything else is
+    rejected — so the proxy can't be used to read arbitrary files."""
+    import mimetypes
+
+    st = get_status(client, run_uuid)
+    archive = st.get("archive")
+    if not archive:
+        raise ValueError("Job has no archive yet.")
+    system, base = _parse_tapis_uri(archive)
+    rel = path.lstrip("/")
+    base = base.rstrip("/")
+    if not (rel == base or rel.startswith(base + "/")):
+        raise PermissionError("Path is outside the job archive.")
+    raw = client.files.getContents(systemId=system, path=rel)
+    data = raw if isinstance(raw, (bytes, bytearray)) else (
+        raw.encode() if isinstance(raw, str) else bytes(raw))
+    name = rel.rsplit("/", 1)[-1]
+    ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return bytes(data), name, ctype
 
 
 def get_results(client, run_uuid: str) -> dict:

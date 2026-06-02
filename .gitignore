@@ -414,3 +414,6 @@ yarn-error.log*
 # Local API secrets (SUBSIDE)
 .env
 !.env.sample
+
+# Local HTTPS dev certs (mkcert)
+.certs/

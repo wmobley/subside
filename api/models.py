@@ -30,6 +30,57 @@ class ProductsSearchResponse(BaseModel):
     product_urls: list[str]
 
 
+# --- availability (viewport-lazy DISP-S1 cache) ----------------------------
+class AvailabilityItem(BaseModel):
+    frame_id: int
+    product_count: int = 0
+    latest_date: Optional[str] = None       # most recent product (ISO date)
+    timeline: list[str] = []                # all distinct product dates (ISO)
+    checked_at: Optional[str] = None        # when this frame was last refreshed
+    stale: bool = False                     # missing or older than ttl_hours
+    cached: bool = False                    # False = no cache row yet (refreshing)
+    bbox: Optional[list[float]] = None      # frame footprint [w, s, e, n] (AOI on click)
+    count_in_window: Optional[int] = None   # set only when a date window is given
+    available_in_window: Optional[bool] = None
+
+
+class AvailabilityResponse(BaseModel):
+    layer: str
+    bbox: list[float]
+    ttl_hours: int
+    frame_count: int
+    refreshing: list[int] = []              # frames scheduled for background refresh
+    items: list[AvailabilityItem] = []
+
+
+# --- forecast (potential subsidence — in-process, no Tapis job) ------------
+class ForecastRequest(BaseModel):
+    scenario: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Aquifer/water-level inputs (visible Excel labels or snake_case, "
+                    "or a {'inputs': {...}} object). Missing fields use model defaults.",
+    )
+
+
+class ForecastProjection(BaseModel):
+    start_year: int
+    final_year: Optional[int] = None
+    final_subsidence_min_ft: Optional[float] = None
+    final_subsidence_max_ft: Optional[float] = None
+    final_drawdown_ft: Optional[float] = None
+
+
+class ForecastResponse(BaseModel):
+    scenario_id: str = ""
+    aquifer: str = ""
+    water_level_method: str = ""
+    risk_score: Optional[float] = None              # 0-10 weighted screening risk
+    risk_factors: dict[str, Any] = {}               # the six named sub-factors
+    projection: ForecastProjection
+    annual: list[dict[str, Any]] = []               # per-year subsidence series
+    resolved_inputs: dict[str, Any] = {}            # inputs actually used (after defaults)
+
+
 # --- runs ------------------------------------------------------------------
 class RunRequest(BaseModel):
     pipeline: Literal["h2i", "werc"] = "h2i"
@@ -69,6 +120,20 @@ class RunStatusResponse(BaseModel):
     archive: Optional[str] = None
 
 
+class RunListItem(BaseModel):
+    runId: str
+    name: Optional[str] = None
+    pipeline: Optional[str] = None
+    appId: Optional[str] = None
+    status: str            # normalized
+    tapisStatus: str
+    created: Optional[str] = None
+
+
+class RunListResponse(BaseModel):
+    runs: list[RunListItem] = []
+
+
 class Artifact(BaseModel):
     name: str
     path: str
@@ -83,6 +148,32 @@ class RunResultsResponse(BaseModel):
     artifacts: list[Artifact] = []
 
 
+# --- vector layers (GeoJSON ingest + MVT tiles) ----------------------------
+class LayerLoadRequest(BaseModel):
+    geojson: dict[str, Any] = Field(..., description="GeoJSON FeatureCollection/Feature/geometry to load.")
+    mode: Literal["replace", "append"] = "replace"
+
+
+class LayerInfo(BaseModel):
+    name: str
+    geom_type: str
+    srid: int
+    columns: dict[str, Any] = {}
+    feature_count: int = 0
+    bbox: Optional[list[float]] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class LayersResponse(BaseModel):
+    layers: list[LayerInfo] = []
+
+
+class LayerLoadResponse(LayerInfo):
+    loaded: int
+    mode: str
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -91,3 +182,22 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     token: str
     username: str
+
+
+# --- OAuth2 authorization-code login ---------------------------------------
+class AuthConfigResponse(BaseModel):
+    base_url: str
+    client_id: str
+    callback_url: str
+    authorize_url: str
+
+
+class AuthCodeRequest(BaseModel):
+    code: str
+    state: Optional[str] = None   # echoed by Tapis; CSRF check happens client-side
+
+
+class AuthTokenResponse(BaseModel):
+    token: str
+    username: str
+    expires_at: Optional[str] = None

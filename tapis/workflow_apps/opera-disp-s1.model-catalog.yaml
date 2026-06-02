@@ -1,0 +1,595 @@
+# =============================================================================
+# MINT Model Catalog registration — OPERA (SUBSIDE DISP-S1 analysis family)
+# =============================================================================
+# Target catalog : https://api.models.mint.tacc.utexas.edu/v2.0.0
+# Schema         : MINT Model Catalog ontology. All scalar properties are LISTS.
+#
+# Hierarchy (model family > model version > configuration):
+#
+#   OPERA                              <- Model (family: shared science/identity)
+#   └─ DISP-S1 Analysis  [tag 0.1.1]   <- SoftwareVersion (the capability/release)
+#      ├─ H2I Lab  (acquire + preview) <- ModelConfiguration -> Tapis app
+#      │                                   subside-h2i-opera-analysis
+#      └─ WERC     (referenced velocity)<- ModelConfiguration -> Tapis app
+#                                          subside-werc-opera-analysis
+#
+# The two configurations are the same DISP-S1 Analysis version run by two labs
+# (H2I Lab and the Water-Energy Research Cluster) with different setups, I/O,
+# and container images. Each configuration's hasSoftwareImage +
+# hasComponentLocation point at its Tapis app so the MINT Ensemble Manager
+# (https://ensemble-manager.mint.tacc.utexas.edu/) submits runs as Tapis jobs.
+#
+# How to register (one of):
+#   * MINT model-catalog UI -> import this YAML, or
+#   * POST `model` to /v2.0.0/models?username=<user>, then its nested
+#     version/configurations to their endpoints if your client does not ingest
+#     the nested graph in one call.
+# Keep `id` slugs stable across re-registration so versions/configs stay linked.
+# =============================================================================
+
+model:
+  id: opera
+  type:
+    - Model
+    - EmpiricalModel
+  label:
+    - OPERA
+  shortDescription:
+    - Surface-displacement analysis family built on NASA OPERA DISP-S1
+      (Sentinel-1) products for land-subsidence monitoring in the SUBSIDE project.
+  description:
+    - >-
+      OPERA is the SUBSIDE analysis family for working with NASA's OPERA
+      Level-3 DISP-S1 surface-displacement products (Sentinel-1 InSAR,
+      line-of-sight). The family covers acquisition, subsetting, time-series
+      assembly, reference correction, and velocity inversion over an area of
+      interest. Concrete scientific capability is captured by the version
+      (DISP-S1 Analysis); concrete runnable, Tapis-wired setups are captured by
+      the configurations (H2I Lab for acquire/preview, WERC for referenced
+      cumulative-displacement and velocity).
+  hasModelCategory:
+    - id: model-category-land-deformation
+      type: [ModelCategory]
+      label:
+        - Land Surface Deformation / Subsidence (InSAR)
+  hasPurpose:
+    - Acquire and analyze OPERA DISP-S1 InSAR displacement over an AOI
+    - Quantify surface displacement and velocity for subsidence monitoring
+    - Support hydrology–deformation coupling within the SUBSIDE project
+  keywords:
+    - InSAR
+    - OPERA
+    - DISP-S1
+    - Sentinel-1
+    - surface displacement
+    - land subsidence
+    - velocity
+    - remote sensing
+  hasTypicalDataSource:
+    - NASA Earthdata / Alaska Satellite Facility (ASF) DAAC
+    - OPERA L3 DISP-S1 V1 collection (cumulus.asf.earthdatacloud.nasa.gov)
+  author:
+    - id: person-subside-team
+      type: [Person]
+      label: [SUBSIDE / TACC Hydro-Informatics Team]
+  hasContactPerson:
+    - id: person-spierce
+      type: [Person]
+      label: [SUBSIDE maintainer]
+      email: [spierce@tacc.utexas.edu]
+  publisher:
+    - id: org-tacc
+      type: [Organization]
+      label: [Texas Advanced Computing Center (TACC)]
+      website: [https://www.tacc.utexas.edu]
+  hasFunding:
+    - id: funding-subside
+      type: [FundingInformation]
+      label: [SUBSIDE project funding]
+      fundingGrant: [TBD]   # replace with the real award before production
+  license:
+    - MIT
+  citation:
+    - >-
+      SUBSIDE OPERA DISP-S1 analysis family (2025). Texas Advanced Computing
+      Center. https://github.com/wmobley/subside
+  referencePublication:
+    - >-
+      OPERA project, Surface Displacement from Sentinel-1 (DISP-S1) Product
+      Specification, NASA/JPL.
+  website:
+    - http://mint-project.info/index.html
+  hasSourceCode:
+    - id: sourcecode-subside
+      type: [SourceCode]
+      label: [analysis]
+      codeRepository: [https://github.com/wmobley/subside]
+      programmingLanguage: [Python]
+      license: [MIT]
+  operatingSystems:
+    - Linux (container / Singularity-Apptainer on TACC Lonestar6)
+
+  # ---- Family-level assumptions & limitations (true of all OPERA DISP-S1 work)
+  hasAssumption:
+    - The AOI (or supplied frame IDs) falls within OPERA DISP-S1 frame coverage.
+    - Valid NASA Earthdata credentials are available (netrc, env vars, or Tapis secret).
+    - Displacement is reported in the radar line-of-sight (LOS) frame; no
+      vertical/horizontal decomposition is performed.
+  limitations:
+    - >-
+      Coverage is limited to where OPERA DISP-S1 is produced (North America /
+      CONUS provisional coverage); AOIs outside available frames return no products.
+    - >-
+      Only VV-polarization Sentinel-1 DISP-S1 granules are handled.
+    - >-
+      DISP-S1 is a relatively new, provisional product; granule availability,
+      versions, and latency vary and the catalog may change under you.
+    - >-
+      LOS displacement/velocity is not vertical subsidence; interpreting it as
+      vertical requires an incidence-angle/geometry assumption not made here.
+    - >-
+      Download volume and memory scale with AOI size × date window × frame count.
+
+  # ===========================================================================
+  # VERSION — the scientific capability / software release
+  # ===========================================================================
+  hasVersion:
+    - id: opera-disp-s1-analysis
+      type: [SoftwareVersion]
+      label: [OPERA DISP-S1 Analysis]
+      tag: ["0.1.1"]
+      hasVersionId: ["0.1.1"]
+      description:
+        - >-
+          DISP-S1 Analysis capability of the OPERA family: discover/download/
+          crop OPERA DISP-S1 granules, optionally assemble a referenced
+          displacement time series and invert it to velocity. Released from the
+          subside repository at tag 0.1.1. Two lab configurations are provided.
+      keywords:
+        - DISP-S1
+        - displacement
+        - velocity
+      softwareRequirements:
+        - Python 3.12
+        - disp-xr (opera-adt/disp-xr)
+        - opera-utils
+        - rasterio / rioxarray / xarray
+        - Valid NASA Earthdata login (urs.earthdata.nasa.gov)
+      hasDocumentation:
+        - https://github.com/wmobley/subside/tree/main/workflow_apps
+
+      # =======================================================================
+      # CONFIGURATIONS — runnable, Tapis-wired setups (one per lab)
+      # =======================================================================
+      hasConfiguration:
+
+        # -------------------------------------------------------------------
+        # Configuration 1 — H2I Lab: acquire + AOI-subset + preview
+        # -------------------------------------------------------------------
+        - id: opera-disp-s1-h2i-lab
+          type: [ModelConfiguration]
+          label: [H2I Lab — acquire + preview]
+          description:
+            - >-
+              H2I (Hydrology-to-InSAR) Lab configuration: discover OPERA DISP-S1
+              granules for an AOI/date window, download and AOI-crop them, and
+              render an interactive + static displacement preview. Produces a
+              normalized run manifest other configurations consume as input.
+              No referencing or velocity inversion.
+          hasComponentLocation:
+            - tapis://portals/apps/subside-h2i-opera-analysis/0.1.1
+          hasExecutionCommand:
+            - python -m analysis.h2i_lab.cli run --config config/run-config.json --output output
+          hasImplementationScriptLocation:
+            - https://github.com/wmobley/subside/blob/main/workflow_apps/h2i_lab/run.sh
+          processorRequirements: ["16 cores (TACC ls6 vm-small)"]
+          memoryRequirements: ["128 GB"]
+          runtimeEstimation:
+            - >-
+              Minutes for a small AOI/short window once the conda env is cached;
+              first run on a new exec system pays a one-time ~5–10 min conda solve.
+          limitations:
+            - No time-series referencing, atmospheric correction, or velocity
+              inversion — outputs are raw LOS granules cropped to the AOI.
+            - Large AOIs/long windows can pull many multi-hundred-MB NetCDFs.
+            - ASF may throttle aggressive parallel downloads (NUM_WORKERS).
+          hasUsageNotes:
+            - Supply an AOI GeoJSON OR explicit FRAME_IDS; if both, FRAME_IDS
+              narrows the AOI-derived set.
+            - Prefer a Tapis secret/identity over a staged plaintext .netrc.
+
+          hasSoftwareImage:
+            - id: opera-h2i-image
+              type: [SoftwareImage]
+              label: [subside-h2i-opera-analysis container]
+              availableInRegistry:
+                - docker://ghcr.io/wmobley/subside-h2i-opera-analysis:sha-07c92cf
+              hasExecutionCommand: [/tapis/run.sh]
+              description:
+                - Thin image; conda env (subside-h2i-opera) built from
+                  /tapis/environment.yaml on first invocation, reused after.
+
+          hasRegion:
+            - id: region-opera-coverage
+              type: [Region]
+              label: [OPERA DISP-S1 coverage (North America); example AOI Houston–Galveston, TX]
+
+          hasInput:
+            - id: h2i-input-aoi
+              type: [DatasetSpecification]
+              label: [AOI GeoJSON]
+              description:
+                - AOI polygon used to derive overlapping OPERA frames and crop
+                  granules. Optional when FRAME_IDS are supplied. (Tapis file
+                  input aoi-geojson -> config/aoi.geojson.)
+              hasFormat: [GeoJSON]
+              hasDimensionality: [2]
+              isOptional: true
+              position: [1]
+            - id: h2i-input-netrc
+              type: [DatasetSpecification]
+              label: [Earthdata .netrc credentials]
+              description:
+                - Optional protected .netrc for urs.earthdata.nasa.gov. Prefer a
+                  Tapis secret. (Tapis file input earthdata-netrc -> .netrc.)
+              hasFormat: [text/netrc]
+              isOptional: true
+              position: [2]
+
+          hasParameter:
+            - id: h2i-param-start-date
+              type: [Parameter]
+              label: [Start date]
+              description: [Search-window start date (YYYY-MM-DD).]
+              hasDataType: [date]
+              hasDefaultValue: ["2024-01-01"]
+              position: [1]
+            - id: h2i-param-end-date
+              type: [Parameter]
+              label: [End date]
+              description: [Search-window end date (YYYY-MM-DD).]
+              hasDataType: [date]
+              hasDefaultValue: ["2025-01-01"]
+              position: [2]
+            - id: h2i-param-frame-ids
+              type: [Parameter]
+              label: [Frame IDs]
+              description: [Optional comma-separated OPERA frame IDs (e.g. 8882,8883). Blank derives from AOI.]
+              hasDataType: [string]
+              hasDefaultValue: [""]
+              position: [3]
+            - id: h2i-param-num-workers
+              type: [Parameter]
+              label: [Download workers]
+              description: [Number of parallel download workers.]
+              hasDataType: [int]
+              hasDefaultValue: [2]
+              hasMinimumAcceptedValue: [1]
+              hasMaximumAcceptedValue: [16]
+              recommendedIncrement: [1]
+              position: [4]
+            - id: h2i-param-min-overlap
+              type: [Parameter]
+              label: [Min overlap percent]
+              description: [Minimum AOI/frame overlap (%) for a frame to be included.]
+              hasDataType: [float]
+              hasDefaultValue: [50]
+              hasMinimumAcceptedValue: [0]
+              hasMaximumAcceptedValue: [100]
+              usesUnit: [{id: unit-percent, type: [Unit], label: [percent]}]
+              position: [5]
+            - id: h2i-param-results-dir
+              type: [Parameter]
+              label: [Results subdirectory]
+              description: [Subdirectory under output where downloaded products are written.]
+              hasDataType: [string]
+              hasDefaultValue: [OPERA_L3_DISP-S1]
+              position: [6]
+            - id: h2i-param-require-products
+              type: [Parameter]
+              label: [Require products]
+              description: [Fail the job if no matching products are found.]
+              hasDataType: [boolean]
+              hasDefaultValue: ["true"]
+              hasAcceptedValues: ["true", "false"]
+              position: [7]
+            - id: h2i-param-preview-only
+              type: [Parameter]
+              label: [Preview only]
+              description: [Run discovery + preview only, skipping full download and archive.]
+              hasDataType: [boolean]
+              hasDefaultValue: ["false"]
+              hasAcceptedValues: ["true", "false"]
+              position: [8]
+
+          hasOutput:
+            - id: h2i-output-manifest
+              type: [DatasetSpecification]
+              label: [Run manifest]
+              description: [run-manifest.json — resolved config, AOI bbox, frame IDs, product count/URLs, downloaded files, pixel bbox, display range.]
+              hasFormat: [application/json]
+              position: [1]
+            - id: h2i-output-netcdfs
+              type: [DatasetSpecification]
+              label: [Cropped DISP-S1 NetCDFs]
+              description: [AOI-cropped OPERA L3 DISP-S1 granules (one NetCDF per granule).]
+              hasFormat: [application/x-netcdf]
+              hasDimensionality: [3]
+              position: [2]
+            - id: h2i-output-preview-html
+              type: [DatasetSpecification]
+              label: [Interactive preview map]
+              description: [Example_Map.html — interactive displacement map.]
+              hasFormat: [text/html]
+              position: [3]
+            - id: h2i-output-overlay-png
+              type: [DatasetSpecification]
+              label: [Displacement overlay PNG]
+              description: [disp_overlay.png — static quick-look displacement overlay.]
+              hasFormat: [image/png]
+              position: [4]
+            - id: h2i-output-archive-zip
+              type: [DatasetSpecification]
+              label: [Archive zip]
+              description: [OPERA_L3_DISP-S1.zip — bundled results for download/archival.]
+              hasFormat: [application/zip]
+              position: [5]
+
+        # -------------------------------------------------------------------
+        # Configuration 2 — WERC: referenced cumulative displacement + velocity
+        # -------------------------------------------------------------------
+        - id: opera-disp-s1-werc
+          type: [ModelConfiguration]
+          label: [WERC — referenced velocity]
+          description:
+            - >-
+              Water-Energy Research Cluster (WERC) configuration: composes the
+              H2I acquire stage, then assembles the displacement time-series
+              stack, selects a reference (auto/manual/none), subtracts the
+              reference offset, inverts to per-pixel linear velocity, and
+              exports cumulative-displacement and velocity GeoTIFFs (EPSG:4326).
+          hasComponentLocation:
+            - tapis://portals/apps/subside-werc-opera-analysis/0.1.1
+          hasExecutionCommand:
+            - python -m analysis.werc.cli run --config config/run-config.json --output output
+          hasImplementationScriptLocation:
+            - https://github.com/wmobley/subside/blob/main/workflow_apps/werc/run.sh
+          processorRequirements: ["16 cores (TACC ls6 vm-small)"]
+          memoryRequirements: ["128 GB"]
+          runtimeEstimation:
+            - >-
+              Tens of minutes for a small AOI/short window once the conda env is
+              cached; first run pays a one-time ~5–10 min conda solve.
+          limitations:
+            - >-
+              Velocity is a simple linear (least-squares) rate; short windows or
+              few acquisitions yield very noisy velocities (the demo's ~3-month
+              window gave p02–p98 spreads of hundreds of mm/yr — inversion noise,
+              not a physical signal).
+            - An unstable or poorly chosen reference biases the entire field;
+              `none` mode is only valid if upstream data is already referenced.
+            - No atmospheric correction, unwrapping-error screening, or
+              cross-frame mosaicking beyond the embedded H2I crop.
+            - Memory/IO-bound; large AOIs or long stacks may exceed the
+              128 GB / 240-minute job envelope.
+          hasUsageNotes:
+            - Use reference_mode=auto for hands-off runs; manual with a known
+              stable benchmark when one exists.
+            - For meaningful velocity, use a multi-year window with many
+              acquisitions; treat short-window velocity as exploratory only.
+
+          hasSoftwareImage:
+            - id: opera-werc-image
+              type: [SoftwareImage]
+              label: [subside-werc-opera-analysis container]
+              availableInRegistry:
+                - docker://ghcr.io/wmobley/subside-werc-opera-analysis:sha-07c92cf
+              hasExecutionCommand: [/tapis/run.sh]
+              description:
+                - Thin image; conda env (subside-werc-opera) built from
+                  /tapis/environment.yaml on first invocation, reused after.
+
+          hasRegion:
+            - id: region-opera-coverage
+              type: [Region]
+              label: [OPERA DISP-S1 coverage (North America); example AOI Houston–Galveston, TX]
+
+          hasConstraint:
+            - id: werc-constraint-manual-reference
+              type: [Constraint]
+              label: [Manual reference requires coordinates]
+              description:
+                - When reference_mode = manual, reference_lat and reference_lon
+                  must be set and lie within the AOI.
+              hasRule:
+                - "reference_mode == 'manual' => reference_lat AND reference_lon are required"
+            - id: werc-constraint-velocity-window
+              type: [Constraint]
+              label: [Velocity reliability vs. window length]
+              description:
+                - Reliable velocity requires a long window with many
+                  acquisitions; short windows yield noise-dominated rates.
+              hasRule:
+                - "(end_date - start_date) should span multiple acquisition cycles (recommend >= 1 year)"
+
+          hasInput:
+            - id: werc-input-aoi
+              type: [DatasetSpecification]
+              label: [AOI GeoJSON]
+              description:
+                - AOI polygon used to derive overlapping frames and crop
+                  granules. Optional when FRAME_IDS are supplied. (Tapis file
+                  input aoi-geojson -> config/aoi.geojson.)
+              hasFormat: [GeoJSON]
+              hasDimensionality: [2]
+              isOptional: true
+              position: [1]
+            - id: werc-input-netrc
+              type: [DatasetSpecification]
+              label: [Earthdata .netrc credentials]
+              description:
+                - Optional protected .netrc for urs.earthdata.nasa.gov. Prefer a
+                  Tapis secret. (Tapis file input earthdata-netrc -> .netrc.)
+              hasFormat: [text/netrc]
+              isOptional: true
+              position: [2]
+
+          hasParameter:
+            # shared H2I discovery/download parameters
+            - id: werc-param-start-date
+              type: [Parameter]
+              label: [Start date]
+              description: [Search-window start date (YYYY-MM-DD).]
+              hasDataType: [date]
+              hasDefaultValue: ["2024-01-01"]
+              position: [1]
+            - id: werc-param-end-date
+              type: [Parameter]
+              label: [End date]
+              description: [Search-window end date (YYYY-MM-DD).]
+              hasDataType: [date]
+              hasDefaultValue: ["2025-01-01"]
+              position: [2]
+            - id: werc-param-frame-ids
+              type: [Parameter]
+              label: [Frame IDs]
+              description: [Optional comma-separated OPERA frame IDs. Blank derives from AOI.]
+              hasDataType: [string]
+              hasDefaultValue: [""]
+              position: [3]
+            - id: werc-param-num-workers
+              type: [Parameter]
+              label: [Download workers]
+              description: [Number of parallel download workers.]
+              hasDataType: [int]
+              hasDefaultValue: [2]
+              hasMinimumAcceptedValue: [1]
+              hasMaximumAcceptedValue: [16]
+              recommendedIncrement: [1]
+              position: [4]
+            - id: werc-param-min-overlap
+              type: [Parameter]
+              label: [Min overlap percent]
+              description: [Minimum AOI/frame overlap (%) for a frame to be included.]
+              hasDataType: [float]
+              hasDefaultValue: [50]
+              hasMinimumAcceptedValue: [0]
+              hasMaximumAcceptedValue: [100]
+              usesUnit: [{id: unit-percent, type: [Unit], label: [percent]}]
+              position: [5]
+            - id: werc-param-results-dir
+              type: [Parameter]
+              label: [Results subdirectory]
+              description: [Subdirectory under output where downloaded products are written.]
+              hasDataType: [string]
+              hasDefaultValue: [OPERA_L3_DISP-S1]
+              position: [6]
+            - id: werc-param-require-products
+              type: [Parameter]
+              label: [Require products]
+              description: [Fail the job if no matching products are found.]
+              hasDataType: [boolean]
+              hasDefaultValue: ["true"]
+              hasAcceptedValues: ["true", "false"]
+              position: [7]
+            # WERC-specific reference / velocity / export parameters
+            - id: werc-param-reference-mode
+              type: [Parameter]
+              label: [Reference mode]
+              description: [Referencing strategy: auto (anchor-based), manual (lat/lon), or none.]
+              hasDataType: [string]
+              hasDefaultValue: [auto]
+              hasAcceptedValues: [auto, manual, none]
+              position: [8]
+            - id: werc-param-reference-lat
+              type: [Parameter]
+              label: [Reference latitude]
+              description: [Reference latitude (decimal degrees). Required when reference mode is manual.]
+              hasDataType: [float]
+              hasDefaultValue: [""]
+              hasMinimumAcceptedValue: [-90]
+              hasMaximumAcceptedValue: [90]
+              usesUnit: [{id: unit-degree, type: [Unit], label: [decimal degrees]}]
+              position: [9]
+            - id: werc-param-reference-lon
+              type: [Parameter]
+              label: [Reference longitude]
+              description: [Reference longitude (decimal degrees). Required when reference mode is manual.]
+              hasDataType: [float]
+              hasDefaultValue: [""]
+              hasMinimumAcceptedValue: [-180]
+              hasMaximumAcceptedValue: [180]
+              usesUnit: [{id: unit-degree, type: [Unit], label: [decimal degrees]}]
+              position: [10]
+            - id: werc-param-anchor-radius-m
+              type: [Parameter]
+              label: [Anchor radius (m)]
+              description: [Search radius (m) around the anchor used to select reference pixels (auto mode).]
+              hasDataType: [int]
+              hasDefaultValue: [5000]
+              hasMinimumAcceptedValue: [100]
+              usesUnit: [{id: unit-meter, type: [Unit], label: [meters]}]
+              position: [11]
+            - id: werc-param-n-reference-pixels
+              type: [Parameter]
+              label: [Reference pixel count]
+              description: [Number of reference pixels to average for the reference offset.]
+              hasDataType: [int]
+              hasDefaultValue: [25]
+              hasMinimumAcceptedValue: [1]
+              position: [12]
+            - id: werc-param-anchor-dir
+              type: [Parameter]
+              label: [Anchor directory]
+              description: [Directory holding per-frame anchor JSON (auto mode).]
+              hasDataType: [string]
+              hasDefaultValue: [output/anchors]
+              position: [13]
+            - id: werc-param-displacement-geotiff-name
+              type: [Parameter]
+              label: [Displacement GeoTIFF name]
+              description: [Filename for the exported cumulative-displacement GeoTIFF.]
+              hasDataType: [string]
+              hasDefaultValue: [opera_disp_s1_cumulative.tif]
+              position: [14]
+            - id: werc-param-velocity-geotiff-name
+              type: [Parameter]
+              label: [Velocity GeoTIFF name]
+              description: [Filename for the exported velocity GeoTIFF.]
+              hasDataType: [string]
+              hasDefaultValue: [opera_disp_s1_velocity.tif]
+              position: [15]
+
+          hasOutput:
+            - id: werc-output-manifest
+              type: [DatasetSpecification]
+              label: [WERC run manifest]
+              description: [werc-run-manifest.json — resolved config, selected frame, embedded H2I manifest, and per-raster metadata (bounds, CRS, clip/velocity ranges, dates).]
+              hasFormat: [application/json]
+              position: [1]
+            - id: werc-output-cumulative-tif
+              type: [DatasetSpecification]
+              label: [Cumulative displacement GeoTIFF]
+              description: [Referenced cumulative LOS displacement (mm) over the window, EPSG:4326.]
+              hasFormat: ["image/tiff;application=geotiff"]
+              hasDimensionality: [2]
+              position: [2]
+            - id: werc-output-velocity-tif
+              type: [DatasetSpecification]
+              label: [Velocity GeoTIFF]
+              description: [Per-pixel LOS velocity (mm/year) from the linear fit through the referenced stack, EPSG:4326.]
+              hasFormat: ["image/tiff;application=geotiff"]
+              hasDimensionality: [2]
+              position: [3]
+            - id: werc-output-anchors
+              type: [DatasetSpecification]
+              label: [Reference anchor JSON]
+              description: [Persisted per-frame anchor/reference-pixel selection (auto mode) for reuse and audit.]
+              hasFormat: [application/json]
+              position: [4]
+            - id: werc-output-h2i-artifacts
+              type: [DatasetSpecification]
+              label: [H2I download/preview artifacts]
+              description: [Cropped DISP-S1 NetCDFs, preview HTML, and overlay PNG carried through from the embedded H2I stage.]
+              hasFormat: [application/x-netcdf, text/html, image/png]
+              position: [5]

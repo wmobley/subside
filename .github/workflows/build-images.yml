@@ -4,16 +4,16 @@ on:
   push:
     branches: [main]
     paths:
-      - "subside_analysis/**"
-      - "workflow_apps/h2i_lab/**"
-      - "workflow_apps/werc/**"
+      - "analysis/**"
+      - "tapis/workflow_apps/h2i_lab/**"
+      - "tapis/workflow_apps/werc/**"
       - ".dockerignore"
       - ".github/workflows/build-images.yml"
   pull_request:
     paths:
-      - "subside_analysis/**"
-      - "workflow_apps/h2i_lab/**"
-      - "workflow_apps/werc/**"
+      - "analysis/**"
+      - "tapis/workflow_apps/h2i_lab/**"
+      - "tapis/workflow_apps/werc/**"
       - ".dockerignore"
       - ".github/workflows/build-images.yml"
   workflow_dispatch:
@@ -45,10 +45,10 @@ jobs:
         include:
           - name: h2i_lab
             image: subside-h2i-opera-analysis
-            dockerfile: workflow_apps/h2i_lab/Dockerfile
+            dockerfile: tapis/workflow_apps/h2i_lab/Dockerfile
           - name: werc
             image: subside-werc-opera-analysis
-            dockerfile: workflow_apps/werc/Dockerfile
+            dockerfile: tapis/workflow_apps/werc/Dockerfile
 
     steps:
       - name: Checkout

@@ -1,8 +1,12 @@
+# Docker build context is subside/ (CI: context: .). The Tapis app images only
+# need analysis/ + tapis/workflow_apps/<pkg>/, so keep everything else out to
+# keep the context small.
+ui
+examples
+.venv
+.certs
 node_modules
 dist
-notebookExamples
-webpage_Examples
 **/__pycache__
 *.pyc
 .git
-

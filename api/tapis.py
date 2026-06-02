@@ -5,7 +5,13 @@ from __future__ import annotations
 import base64
 import json
 
-from .config import TAPIS_BASE_URL
+from .config import (
+    TAPIS_BASE_URL, TAPIS_CLIENT_ID, TAPIS_CLIENT_KEY, TAPIS_OAUTH_CALLBACK_URL,
+)
+
+
+class OAuthNotConfigured(RuntimeError):
+    """No Tapis OAuth client configured (TAPIS_CLIENT_ID/KEY unset)."""
 
 
 def _need_tapipy():
@@ -52,6 +58,64 @@ def username_from_token(token: str) -> str | None:
         or claims.get("username")
         or claims.get("sub")
     )
+
+
+def oauth_public_config() -> dict | None:
+    """Non-secret bits the browser needs to build the authorize redirect.
+
+    Returns None when no OAuth client is configured, so the API can advertise
+    that the redirect login is unavailable (the endpoint maps that to 503).
+    """
+    if not (TAPIS_CLIENT_ID and TAPIS_OAUTH_CALLBACK_URL):
+        return None
+    return {
+        "base_url": TAPIS_BASE_URL,
+        "client_id": TAPIS_CLIENT_ID,
+        "callback_url": TAPIS_OAUTH_CALLBACK_URL,
+        "authorize_url": f"{TAPIS_BASE_URL}/v3/oauth2/authorize",
+    }
+
+
+def exchange_code(code: str) -> dict:
+    """Exchange an OAuth2 authorization code for a Tapis access token.
+
+    Server-side leg of the 3-legged flow: POSTs to the tenant's token endpoint
+    with HTTP Basic ``client_id:client_key`` and the same ``redirect_uri`` used
+    in the authorize request. The client_key never leaves the server.
+    Returns ``{token, username, expires_at, refresh_token}``.
+    """
+    if not (TAPIS_CLIENT_ID and TAPIS_CLIENT_KEY):
+        raise OAuthNotConfigured(
+            "No Tapis OAuth client configured. Set TAPIS_CLIENT_ID and "
+            "TAPIS_CLIENT_KEY (see workflows/register_oauth_client.py)."
+        )
+    import requests
+
+    resp = requests.post(
+        f"{TAPIS_BASE_URL}/v3/oauth2/tokens",
+        auth=(TAPIS_CLIENT_ID, TAPIS_CLIENT_KEY),
+        json={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": TAPIS_OAUTH_CALLBACK_URL,
+        },
+        timeout=30,
+    )
+    if resp.status_code >= 400:
+        # Surface Tapis's message (e.g. invalid/expired code) to the caller.
+        raise RuntimeError(f"Token exchange failed ({resp.status_code}): {resp.text[:300]}")
+    result = (resp.json() or {}).get("result") or {}
+    access = result.get("access_token") or {}
+    token = access.get("access_token")
+    if not token:
+        raise RuntimeError("Token exchange returned no access_token.")
+    refresh = (result.get("refresh_token") or {}).get("refresh_token")
+    return {
+        "token": token,
+        "username": username_from_token(token) or "",
+        "expires_at": access.get("expires_at"),
+        "refresh_token": refresh,
+    }
 
 
 def login(username: str, password: str) -> str:

@@ -1,6 +1,6 @@
 """Fast, in-process OPERA discovery (no Tapis job) for the pre-submit UI step.
 
-Calls the same subside_analysis.h2i_lab.aoi helpers the batch app uses. These
+Calls the same analysis.h2i_lab.aoi helpers the batch app uses. These
 pull heavy geospatial deps (geopandas; product search additionally needs
 disp_xr), so imports are lazy and failures surface as a clear 503 rather than
 crashing the whole API.
@@ -16,7 +16,7 @@ from typing import Any
 
 from .config import SUBSIDE_ROOT
 
-# subside_analysis lives at subside/subside_analysis.
+# analysis lives at subside/analysis.
 if str(SUBSIDE_ROOT) not in sys.path:
     sys.path.insert(0, str(SUBSIDE_ROOT))
 
@@ -37,7 +37,7 @@ def find_frames(aoi_geojson: dict[str, Any], min_overlap_percent: float) -> dict
     """Frames intersecting the AOI. require_products=False keeps it pure-geopandas
     (no disp_xr/opera_utils) so it stays fast and dependency-light."""
     try:
-        from subside_analysis.h2i_lab import aoi as h2i_aoi
+        from analysis.h2i_lab import aoi as h2i_aoi
     except ImportError as exc:
         raise DiscoveryUnavailable(f"frame discovery needs geopandas: {exc}") from exc
 
@@ -64,7 +64,7 @@ def find_frames(aoi_geojson: dict[str, Any], min_overlap_percent: float) -> dict
 def search_products(frame_ids: list[int], start_date: str, end_date: str) -> dict[str, Any]:
     """OPERA DISP-S1 products for the frames within the date window. Needs disp_xr."""
     try:
-        from subside_analysis.h2i_lab import aoi as h2i_aoi
+        from analysis.h2i_lab import aoi as h2i_aoi
     except ImportError as exc:
         raise DiscoveryUnavailable(f"product search needs disp_xr/geopandas: {exc}") from exc
 

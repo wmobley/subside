@@ -1,0 +1,100 @@
+---
+# Pipeline A: SUBSIDE H2I OPERA — discover + download + preview in ONE job.
+#
+# Collapsed from the old discover/download split into a single monolithic
+# `run` task. `STAGE=run` (analysis.h2i_lab.cli run) already calls
+# preflight() internally before downloading, so the single job writes BOTH
+# preflight-manifest.json and run-manifest.json to its archive — the discover
+# gate added a second job for no extra information.
+
+id: subside-h2i-opera
+type: workflow
+description: |
+  Discovery + Earthdata download + preview + zip archive for OPERA DISP-S1
+  over an AOI, as a single self-contained Tapis job. Companion pipeline
+  `subside-werc-opera` is the same shape but continues through the
+  stack/reference/velocity/export analysis.
+owner: ${apiUserId}
+group_id: subside-ops
+tenant_id: portals
+
+params:
+  start_date:          {type: string, required: true}
+  end_date:            {type: string, required: true}
+  aoi_geojson_uri:     {type: string, required: true, description: "tapis:// URI to the AOI GeoJSON"}
+  earthdata_netrc_uri: {type: string, required: false, description: "Optional tapis:// URI to a protected .netrc"}
+  num_workers:         {type: integer, default: 4}
+  min_overlap_percent: {type: number, default: 50.0}
+  allocation:          {type: string, required: true, description: "TACC allocation to charge"}
+  update_conda_env:    {type: string, default: "false"}
+
+tasks:
+
+  - id: run
+    type: tapis_job
+    depends_on: []
+    description: Discover + download + crop + preview + archive, all in one job (STAGE=run).
+    tapis_job_def:
+      appId: subside-h2i-opera-analysis
+      appVersion: "0.1.1"
+      name: subside-h2i-opera-{{ args.start_date }}-{{ args.end_date }}
+      nodeCount: 1
+      coresPerNode: 16
+      memoryMB: 128000
+      maxMinutes: 240
+      fileInputs:
+        - name: aoi-geojson
+          sourceUrl: "{{ args.aoi_geojson_uri }}"
+        - name: earthdata-netrc
+          sourceUrl: "{{ args.earthdata_netrc_uri }}"
+      parameterSet:
+        # Run parameters are passed as env-variable input fields; the app's
+        # run.sh materializes them into the CLI config (no run-config file).
+        envVariables:
+          - {key: STAGE, value: "run"}
+          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
+          - {key: START_DATE, value: "{{ args.start_date }}"}
+          - {key: END_DATE, value: "{{ args.end_date }}"}
+          - {key: NUM_WORKERS, value: "{{ args.num_workers }}"}
+          - {key: MIN_OVERLAP_PERCENT, value: "{{ args.min_overlap_percent }}"}
+        schedulerOptions:
+          - name: "TACC Allocation"
+            arg: "{{ args.allocation }}"
+
+  - id: publish
+    type: function
+    runtime: "python:3.11"
+    installer: pip          # required by the Tapis Workflows FunctionTask schema
+    packages: []            # stdlib-only; no third-party deps to install
+    depends_on:
+      - id: run
+    description: |
+      Stdlib-only Python. Reads preflight-manifest.json + run-manifest.json from
+      the single run job's archive and emits a unified subside-run-manifest.json
+      the UI can consume. (Under the manager this runs locally via the Files API.)
+    inputs:
+      preflight_manifest_uri: "{{ tasks.run.outputs.archive }}/output/preflight-manifest.json"
+      run_manifest_uri:       "{{ tasks.run.outputs.archive }}/output/run-manifest.json"
+    code: |
+      import json, os, urllib.request
+
+      def _load(uri):
+          if uri.startswith("tapis://"):
+              raise RuntimeError("Configure tapis-files fetch in your workflows runner.")
+          with urllib.request.urlopen(uri) as f:
+              return json.load(f)
+
+      preflight = _load(os.environ["INPUTS_PREFLIGHT_MANIFEST_URI"])
+      run_manifest = _load(os.environ["INPUTS_RUN_MANIFEST_URI"])
+
+      unified = {
+          "pipeline": "subside-h2i-opera",
+          "schema_version": "v0",
+          "frame_ids": preflight.get("frame_ids", []),
+          "product_count": preflight.get("product_count", 0),
+          "warnings": preflight.get("warnings", []) + run_manifest.get("warnings", []),
+          "artifacts": run_manifest.get("artifacts", {}),
+          "config": run_manifest.get("config", {}),
+      }
+      with open(os.environ["OUTPUT_DIR"] + "/subside-run-manifest.json", "w") as f:
+          json.dump(unified, f, indent=2, sort_keys=True, default=str)
