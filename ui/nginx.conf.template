@@ -1,0 +1,31 @@
+# Rendered at container start: ${API_UPSTREAM} is substituted by envsubst, while
+# nginx runtime vars ($host, $uri, …) are left untouched (they aren't env vars).
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # SUBSIDE API — same-origin proxy. proxy_pass without a path preserves the
+    # full /api/subside/... URI that the API serves.
+    location /api/subside/ {
+        proxy_pass ${API_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # TACC CKAN catalog (Data tab).
+    location /ckan/ {
+        proxy_pass https://ckan.tacc.utexas.edu/;
+        proxy_set_header Host ckan.tacc.utexas.edu;
+        proxy_ssl_server_name on;
+    }
+
+    # SPA: serve index.html for client-side routes.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

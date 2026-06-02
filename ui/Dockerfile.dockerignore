@@ -1,0 +1,14 @@
+# Build context for the UI image (root .dockerignore excludes ui/, which this
+# build needs). The UI build only needs the ui/ app source.
+api
+analysis
+tapis
+examples
+.venv
+.certs
+.git
+ui/node_modules
+ui/dist
+ui/.certs
+**/__pycache__
+*.pyc

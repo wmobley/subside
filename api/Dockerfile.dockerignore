@@ -1,0 +1,12 @@
+# Build context for the API image (root .dockerignore is for the OPERA apps).
+# The API build only needs api/, analysis/, and tapis/workflows/pipelines/.
+ui
+examples
+tapis/workflow_apps
+.venv
+.certs
+node_modules
+dist
+**/__pycache__
+*.pyc
+.git
