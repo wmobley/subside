@@ -4,12 +4,18 @@
 Creates two custom-image pods from the GHCR images built by
 `.github/workflows/build-services.yml`:
 
-    subside-api  ->  https://subside-api.pods.portals.tapis.io   (FastAPI :8000)
-    subside-ui   ->  https://subside-ui.pods.portals.tapis.io    (nginx :80)
+    subsideapi  ->  https://subsideapi.pods.portals.tapis.io   (FastAPI :8000)
+    subsideui   ->  https://subsideui.pods.portals.tapis.io    (nginx :80)
 
-The UI pod's nginx reverse-proxies /api/subside/ to the API pod, so the browser
-stays same-origin. Pod env vars (DB URL, OAuth client, Earthdata, …) are read
-from the environment / subside/.env — the same values the API uses locally.
+(pod_id has no hyphen — Tapis requires lowercase-alphanumeric ids; the GHCR
+image names ghcr.io/<owner>/subside-{api,ui} keep their hyphens.)
+
+The UI pod serves static files only; the browser calls the API DIRECTLY (CORS) at
+SUBSIDE_API_BASE (set here to the API pod URL, injected into the UI's runtime
+config at container start). A UI pod cannot proxy back through the Tapis ingress
+to the API pod — that egress times out — so same-origin proxying is not used.
+Pod env vars (DB URL, OAuth client, Earthdata, …) are read from the environment /
+subside/.env — the same values the API uses locally.
 
 Usage:
     export TAPIS_USERNAME=... TAPIS_PASSWORD=...      # or you'll be prompted
@@ -24,7 +30,7 @@ Prerequisites:
       Pods custom images pull anonymously. (Private GHCR won't pull.)
     * After the UI pod exists, register the OAuth client against its URL:
         python tapis/workflows/register_oauth_client.py \\
-            --callback-url https://subside-ui.pods.portals.tapis.io/
+            --callback-url https://subsideui.pods.portals.tapis.io/
       and set TAPIS_OAUTH_CALLBACK_URL to match.
 """
 
@@ -74,10 +80,27 @@ def _pods_domain(base_url: str) -> str:
     return base_url.rstrip("/").split("://", 1)[-1]
 
 
+# Tapis pod_id must be lowercase alphanumeric, first char alpha — NO hyphens.
+# The pod's URL is derived from this id (https://<pod_id>.pods.<domain>), so the
+# two must stay in lockstep; don't reintroduce a hyphen in one but not the other.
+API_POD_ID = "subsideapi"
+UI_POD_ID = "subsideui"
+
+
+def _ui_env(api_url: str) -> dict[str, str]:
+    """Env for the UI pod: the API origin the browser calls (rewritten into
+    /runtime-config.js at container start) plus optional STAC settings."""
+    env = {"SUBSIDE_API_BASE": api_url}
+    for k in ("SUBSIDE_STAC_API_BASE", "SUBSIDE_STAC_COLLECTION"):
+        if os.environ.get(k):
+            env[k] = os.environ[k]
+    return env
+
+
 def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
     domain = _pods_domain(base_url)
-    api_url = f"https://subside-api.pods.{domain}"
-    ui_url = f"https://subside-ui.pods.{domain}"
+    api_url = f"https://{API_POD_ID}.pods.{domain}"
+    ui_url = f"https://{UI_POD_ID}.pods.{domain}"
 
     api_env = {k: os.environ[k] for k in API_ENV_KEYS if os.environ.get(k)}
     # Deployment-derived (always the pod URLs, never the local dev values):
@@ -86,7 +109,7 @@ def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
     api_env.setdefault("TAPIS_BASE_URL", base_url.rstrip("/"))
 
     api = {
-        "pod_id": "subside-api",
+        "pod_id": API_POD_ID,
         "image": f"ghcr.io/{owner}/subside-api:{tag}",
         "description": "SUBSIDE FastAPI gateway (full geo stack)",
         "networking": {"default": {"protocol": "http", "port": 8000}},
@@ -97,13 +120,18 @@ def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
         "time_to_stop_default": -1,  # long-running service
     }
     ui = {
-        "pod_id": "subside-ui",
+        "pod_id": UI_POD_ID,
         "image": f"ghcr.io/{owner}/subside-ui:{tag}",
-        "description": "SUBSIDE web UI (nginx) — proxies /api/subside to the API pod",
+        "description": "SUBSIDE web UI (nginx) - proxies /api/subside to the API pod",
         "networking": {"default": {"protocol": "http", "port": 80}},
-        "resources": {"cpu_request": 100, "cpu_limit": 1000,
-                      "mem_request": 128, "mem_limit": 512},
-        "environment_variables": {"API_UPSTREAM": api_url},
+        # Tenant floor is cpu_request>=250, mem_request>=256 (breaking it needs
+        # an extra role). nginx is light, so request the minimum.
+        "resources": {"cpu_request": 250, "cpu_limit": 1000,
+                      "mem_request": 256, "mem_limit": 512},
+        # The browser calls the API directly at this origin (CORS); it's baked
+        # into /runtime-config.js at container start. STAC base is optional and
+        # forwarded only when set locally (STAC features are off otherwise).
+        "environment_variables": _ui_env(api_url),
         "time_to_stop_default": -1,
     }
     return {"api": api, "ui": ui, "_urls": {"api": api_url, "ui": ui_url}}
@@ -131,11 +159,20 @@ def upsert_pod(t, spec: dict, *, recreate: bool, start: bool) -> None:
         t.pods.create_pod(**spec)
 
     if start:
+        # A freshly-created pod auto-starts; start_pod only works from STOPPED.
+        # Check status first so re-runs don't spew a scary RuntimeError.
         try:
-            t.pods.start_pod(pod_id=pid)
-            print(f"  [{pid}] start requested")
-        except Exception as exc:
-            print(f"  [{pid}] start skipped: {exc}")
+            status = getattr(t.pods.get_pod(pod_id=pid), "status", None)
+        except Exception:
+            status = None
+        if status and status != "STOPPED":
+            print(f"  [{pid}] already {status}; not starting")
+        else:
+            try:
+                t.pods.start_pod(pod_id=pid)
+                print(f"  [{pid}] start requested")
+            except Exception as exc:
+                print(f"  [{pid}] start skipped: {exc}")
 
 
 def main(argv=None) -> int:

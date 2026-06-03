@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { MapContainer, TileLayer, useMapEvents } from 'react-leaflet'
 import { SubsideAnalysis } from './SubsideAnalysis'
 import { SubsideLayers } from './SubsideLayers'
+import { StacResults } from './StacResults'
 
 function MapEventsBridge({ onZoomChange }) {
   useMapEvents({
@@ -25,6 +26,8 @@ export function ModelMap({ mapData, zoom, setZoom }) {
         />
         <SubsideLayers onPickFrame={setPickedFrame} />
         <SubsideAnalysis picked={pickedFrame} />
+        {/* STAC discovery panel + COG render (no-op unless VITE_STAC_API_BASE set) */}
+        <StacResults />
       </MapContainer>
     </div>
   )

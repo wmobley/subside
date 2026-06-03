@@ -1,10 +1,13 @@
 // Client for the SUBSIDE FastAPI (layers / tiles / availability).
 //
-// In dev these go through the Vite proxy (`/api/subside` -> :8000). For other
-// deployments set VITE_SUBSIDE_API_BASE to the API origin.
+// In dev these go through the Vite proxy (`/api/subside` -> :8000). For deployed
+// pods the browser calls the API directly (CORS) — set the API origin via the
+// runtime config (SUBSIDE_API_BASE env -> window.__SUBSIDE_CONFIG__) or, for a
+// build-time default, VITE_SUBSIDE_API_BASE. Empty => same-origin (dev proxy).
 import { requestJson } from './api'
+import { getConfig } from './runtimeConfig'
 
-const BASE = (import.meta.env?.VITE_SUBSIDE_API_BASE || '').replace(/\/$/, '')
+const BASE = getConfig('VITE_SUBSIDE_API_BASE').replace(/\/$/, '')
 
 const path = (p) => `${BASE}/api/subside${p}`
 
