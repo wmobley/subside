@@ -66,11 +66,14 @@ API_ENV_KEYS = [
 SECRET_KEYS = {"SUBSIDE_DATABASE_URL", "TAPIS_CLIENT_KEY", "EARTHDATA_PASSWORD"}
 
 
-def _load_dotenv() -> None:
-    """Load subside/.env so local config/secrets populate os.environ."""
+def _load_dotenv(override: bool = False) -> None:
+    """Load subside/.env so local config/secrets populate os.environ.
+
+    Pass override=True to refresh os.environ from .env after it's been rewritten
+    (e.g. once the OAuth step has written a fresh TAPIS_CLIENT_KEY)."""
     try:
         from dotenv import load_dotenv
-        load_dotenv(REPO_ROOT / ".env")
+        load_dotenv(REPO_ROOT / ".env", override=override)
     except ImportError:
         pass
 
@@ -97,10 +100,20 @@ def _ui_env(api_url: str) -> dict[str, str]:
     return env
 
 
-def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
+def pod_urls(base_url: str) -> dict[str, str]:
+    """Public URLs derived from the pod ids — needed before build_specs (e.g. as
+    the OAuth callback) and for the final summary."""
     domain = _pods_domain(base_url)
-    api_url = f"https://{API_POD_ID}.pods.{domain}"
-    ui_url = f"https://{UI_POD_ID}.pods.{domain}"
+    return {
+        "api": f"https://{API_POD_ID}.pods.{domain}",
+        "ui": f"https://{UI_POD_ID}.pods.{domain}",
+    }
+
+
+def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
+    urls = pod_urls(base_url)
+    api_url = urls["api"]
+    ui_url = urls["ui"]
 
     api_env = {k: os.environ[k] for k in API_ENV_KEYS if os.environ.get(k)}
     # Deployment-derived (always the pod URLs, never the local dev values):
@@ -185,21 +198,24 @@ def main(argv=None) -> int:
     parser.add_argument("--recreate", action="store_true", help="Delete + recreate instead of update.")
     parser.add_argument("--no-start", action="store_true", help="Create/update but don't start.")
     parser.add_argument("--dry-run", action="store_true", help="Print specs; don't call Tapis.")
+    # OAuth client: registered (rotating its key) right before deploying, so the
+    # API pod always gets a key that matches the live client. See workflows/
+    # register_oauth_client.py; callback is forced to the UI pod URL.
+    parser.add_argument("--no-oauth", action="store_true",
+                        help="Skip (re)registering the OAuth client + writing .env.")
+    parser.add_argument("--oauth-client-id",
+                        default=os.environ.get("TAPIS_OAUTH_CLIENT_ID", "subside-portal-prod"),
+                        help="OAuth client id to (re)create (default: subside-portal-prod).")
     args = parser.parse_args(argv)
 
     _load_dotenv()
-    specs = build_specs(args.owner, args.image_tag, args.base_url)
-    urls = specs.pop("_urls")
+    urls = pod_urls(args.base_url)
+    ui_callback = f"{urls['ui']}/"  # OAuth callback == UI pod URL (trailing slash)
     selected = ["api", "ui"] if args.pods == "both" else [args.pods]
 
-    # Warn about secrets that will be stored in the pod spec.
-    leaked = sorted(k for k in SECRET_KEYS if os.environ.get(k))
-    if leaked and "api" in selected:
-        print("WARNING: these secrets will be stored in the API pod's environment_variables "
-              "(visible to the pod owner): " + ", ".join(leaked))
-        print("         For production, move them to Tapis secrets (${pods:secrets:KEY}).\n")
-
     if args.dry_run:
+        specs = build_specs(args.owner, args.image_tag, args.base_url)
+        specs.pop("_urls")
         for key in selected:
             spec = dict(specs[key])
             spec["environment_variables"] = {
@@ -209,6 +225,11 @@ def main(argv=None) -> int:
             print(f"--- {spec['pod_id']} ---")
             print(json.dumps(spec, indent=2))
         print(f"\nURLs once running:\n  API: {urls['api']}\n  UI:  {urls['ui']}")
+        if not args.no_oauth and "api" in selected:
+            print(f"\nWould register OAuth client {args.oauth_client_id!r} "
+                  f"(callback {ui_callback}) and write its id/key to subside/.env.")
+        elif not args.no_oauth:
+            print("\nWould SKIP OAuth registration (no API pod in this run).")
         return 0
 
     try:
@@ -221,6 +242,37 @@ def main(argv=None) -> int:
     t = Tapis(base_url=args.base_url.rstrip("/"), username=username, password=password)
     t.get_tokens()
 
+    # (Re)register the OAuth client FIRST and persist its fresh id/key/callback to
+    # .env, then reload so build_specs forwards the matching key into the API pod.
+    # (Registering rotates the key, so doing it here — not as a separate step —
+    # is what keeps the running API pod from holding a stale key -> 401.)
+    # Only when (re)deploying the API pod: registering rotates the key, and the
+    # API pod is what carries it — rotating without redeploying the API would
+    # strand the running pod on a stale key. (Skip with --pods ui or --no-oauth.)
+    if not args.no_oauth and "api" in selected:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))  # make `workflows` importable
+        from workflows import register_oauth_client as oauth
+        cid, _key = oauth.register_and_write_env(
+            t, client_id=args.oauth_client_id, callback_url=ui_callback,
+            env_path=REPO_ROOT / ".env")
+        print(f"OAuth client {cid!r} registered; wrote id/key/callback to subside/.env "
+              f"(callback {ui_callback}).")
+        _load_dotenv(override=True)  # pick up the fresh TAPIS_CLIENT_ID/KEY/CALLBACK
+    elif not args.no_oauth and "api" not in selected:
+        print("Note: skipping OAuth client registration (no API pod in this run; it "
+              "would rotate the key out from under the running API pod). Use "
+              "--pods api/both to rotate, or --no-oauth to silence this.")
+
+    specs = build_specs(args.owner, args.image_tag, args.base_url)
+    specs.pop("_urls")
+
+    # Warn about secrets that will be stored in the pod spec.
+    leaked = sorted(k for k in SECRET_KEYS if os.environ.get(k))
+    if leaked and "api" in selected:
+        print("WARNING: these secrets will be stored in the API pod's environment_variables "
+              "(visible to the pod owner): " + ", ".join(leaked))
+        print("         For production, move them to Tapis secrets (${pods:secrets:KEY}).\n")
+
     for key in selected:
         upsert_pod(t, specs[key], recreate=args.recreate, start=not args.no_start)
 
@@ -229,9 +281,6 @@ def main(argv=None) -> int:
         print(f"  API: {urls['api']}   (health: {urls['api']}/api/subside/healthz)")
     if "ui" in selected:
         print(f"  UI:  {urls['ui']}")
-    print("\nNext: register the OAuth client against the UI URL and set "
-          "TAPIS_OAUTH_CALLBACK_URL to it:")
-    print(f"  python tapis/workflows/register_oauth_client.py --callback-url {urls['ui']}/")
     return 0
 
 
