@@ -23,7 +23,7 @@
     "execSystemInputDir": "${JobWorkingDir}",
     "execSystemOutputDir": "${JobWorkingDir}/output",
     "execSystemLogicalQueue": "vm-small",
-    "archiveSystemId": "cloud.data",
+    "archiveSystemId": "ls6",
     "archiveSystemDir": "HOST_EVAL($HOME)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}",
     "archiveOnAppError": true,
     "isMpi": false,

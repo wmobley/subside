@@ -109,38 +109,42 @@ tasks:
           json.dump(unified, f, indent=2, sort_keys=True, default=str)
 
   - id: stac-publish
-    type: tapis_job
+    type: function
+    runtime: "python:3.11"
+    installer: pip
+    # Lightweight env: pip-installs the stac-platform publish core (which pulls
+    # ckanapi + httpx). No container image, no Singularity, no HPC allocation.
+    packages:
+      - "git+https://github.com/wmobley/stac-platform.git"
     depends_on:
       - id: run
     description: |
-      Dual-write this run's COG + overlay + manifest to CKAN (asset store) and the
-      STAC API (Transactions extension), via the reusable stac-platform `stac-publish`
-      app. No-ops when ckan_token/stac_url are blank, so it is safe to leave in.
-    tapis_job_def:
-      appId: stac-publish
-      appVersion: "0.1.0"
-      name: stac-publish-{{ args.stac_collection }}-{{ args.start_date }}-{{ args.end_date }}
-      nodeCount: 1
-      coresPerNode: 1
-      memoryMB: 2048
-      maxMinutes: 30
-      fileInputs:
-        # Artifacts written to the run job's archive output dir by runner.py.
-        - name: manifest
-          sourceUrl: "{{ tasks.run.outputs.archive }}/output/run-manifest.json"
-        - name: cog
-          sourceUrl: "{{ tasks.run.outputs.archive }}/output/disp_displacement.tif"
-        - name: overlay
-          sourceUrl: "{{ tasks.run.outputs.archive }}/output/disp_overlay.png"
-      parameterSet:
-        envVariables:
-          - {key: COLLECTION, value: "{{ args.stac_collection }}"}
-          - {key: ITEM_ID, value: "{{ args.stac_item_id | default('subside-h2i-' ~ args.start_date ~ '-' ~ args.end_date, true) }}"}
-          - {key: CKAN_URL, value: "{{ args.ckan_url }}"}
-          - {key: CKAN_ORG, value: "{{ args.ckan_org }}"}
-          - {key: CKAN_TOKEN, value: "{{ args.ckan_token }}"}
-          - {key: STAC_URL, value: "{{ args.stac_url }}"}
-          - {key: STAC_TOKEN, value: "{{ args.stac_token }}"}
-        schedulerOptions:
-          - name: "TACC Allocation"
-            arg: "{{ args.allocation }}"
+      Dual-write this run to CKAN (asset store) + the STAC API (Transactions) via
+      stacmap.publish. Manifest-driven: the orchestrator (which holds Tapis creds)
+      fetches run-manifest.json from the run job's tapis:// archive, then fetches
+      exactly the COG(s)/overlay it names and publishes. No-ops when ckan_token /
+      stac_url are blank, so it is safe to leave in.
+    inputs:
+      manifest_uri: "{{ tasks.run.outputs.archive }}/output/run-manifest.json"
+    env:
+      COLLECTION:  "{{ args.stac_collection }}"
+      ITEM_ID:     "{{ args.stac_item_id | default('subside-h2i-' ~ args.start_date ~ '-' ~ args.end_date, true) }}"
+      CKAN_URL:    "{{ args.ckan_url }}"
+      CKAN_ORG:    "{{ args.ckan_org }}"
+      CKAN_TOKEN:  "{{ args.ckan_token }}"
+      STAC_URL:    "{{ args.stac_url }}"
+      STAC_TOKEN:  "{{ args.stac_token }}"
+    code: |
+      # Hosted-engine path (the local orchestrator runs _run_stac_publish instead,
+      # which fetches tapis:// files via the Files API). Assumes the engine staged
+      # the manifest + COG(s) into one dir; stacmap.publish derives the rest.
+      import os
+      from stacmap.publish import publish_from_dir
+      if not (os.environ.get("CKAN_TOKEN") and os.environ.get("STAC_URL")):
+          print("stac-publish: disabled (CKAN_TOKEN/STAC_URL unset) — skipping.")
+      else:
+          manifest = os.environ.get("INPUTS_MANIFEST_LOCAL", "run-manifest.json")
+          item = publish_from_dir(collection_id=os.environ["COLLECTION"],
+                                  manifest_path=manifest, item_id=os.environ["ITEM_ID"],
+                                  files_dir=os.path.dirname(manifest) or ".")
+          print(f"published {item['id']} -> {os.environ['COLLECTION']}")

@@ -360,6 +360,108 @@ def _run_publish(client, task: dict, ctx: dict, args: argparse.Namespace) -> str
 
 
 # --------------------------------------------------------------------------- #
+# stac-publish (function task) — dual-write CKAN + STAC via stac-platform       #
+# --------------------------------------------------------------------------- #
+def _client_token(client) -> str | None:
+    """The user's Tapis access token (used as the CKAN token — TACC CKAN accepts it)."""
+    at = getattr(client, "access_token", None)
+    return getattr(at, "access_token", None) or (str(at) if at else None)
+
+
+def _fetch_to_tmp(client, uri: str, tmpdir: str) -> str | None:
+    """Download a tapis:// file to a local temp path. Falls back to a basename
+    search of the archive (layout varies). Returns the local path or None."""
+    import os as _os
+    system, path = _parse_tapis_uri(uri)
+    want = path.split("/")[-1]
+    local = _os.path.join(tmpdir, want)
+
+    def _save(raw) -> str:
+        data = raw if isinstance(raw, (bytes, bytearray)) else (
+            raw.encode() if isinstance(raw, str) else bytes(raw))
+        with open(local, "wb") as fh:
+            fh.write(data)
+        return local
+
+    try:
+        return _save(client.files.getContents(systemId=system, path=path))
+    except Exception:
+        base_dir = "/".join(path.split("/")[:-2]) or "/"
+        try:
+            listing = client.files.listFiles(systemId=system, path=base_dir, recurse=True, limit=1000)
+            for f in listing or []:
+                fpath = smoke_test._field(f, "path") or ""
+                if fpath.endswith("/" + want) or fpath.endswith(want):
+                    return _save(client.files.getContents(systemId=system, path=fpath))
+        except Exception as exc:
+            print(f"  [stac-publish] could not fetch {want}: {type(exc).__name__}: {str(exc)[:120]}")
+    return None
+
+
+def _run_stac_publish(client, task: dict, ctx: dict, args: argparse.Namespace) -> str:
+    """Dual-write the run's COG/overlay/manifest to CKAN + STAC.
+
+    Config comes from the environment (CKAN_URL/ORG, STAC_URL/TOKEN,
+    STAC_COLLECTION; fall back to the SUBSIDE_* names). The CKAN token is the
+    user's own Tapis token. No-op (skip) when STAC_URL or the token is missing.
+    """
+    import os as _os
+    print(f"\n=== task {task['id']} (function/local: dual-write CKAN + STAC) ===")
+    inputs = _resolve(task.get("inputs", {}) or {}, ctx)
+    print("resolved inputs:", json.dumps(inputs, indent=2))
+    if args.dry_run:
+        return "dry-run"
+
+    stac_url = _os.environ.get("STAC_URL") or _os.environ.get("SUBSIDE_STAC_URL")
+    ckan_token = _client_token(client)
+    if not stac_url or not ckan_token:
+        print("  [stac-publish] disabled (STAC_URL or Tapis token missing) — skipping.")
+        return "FINISHED"  # not a failure; publishing is optional
+
+    try:
+        from stacmap.manifest import parse_manifest
+        from stacmap.publish import publish_from_dir
+    except ImportError as exc:
+        print(f"  [stac-publish] stac-platform not installed "
+              f"(`pip install git+https://github.com/wmobley/stac-platform.git`): {exc}")
+        return "FAILED"
+
+    # Make CkanClient / StacClient pick up config + the user's token from env.
+    # Both CKAN and STAC writes use the user's own Tapis token (the STAC API
+    # validates it per-user); SUBSIDE_STAC_TOKEN can override for a service token.
+    _os.environ.setdefault("CKAN_URL", _os.environ.get("SUBSIDE_CKAN_URL", "https://ckan.tacc.utexas.edu"))
+    _os.environ.setdefault("CKAN_ORG", _os.environ.get("SUBSIDE_CKAN_ORG", "tacc-water"))
+    _os.environ["CKAN_TOKEN"] = ckan_token
+    _os.environ["STAC_URL"] = stac_url
+    _os.environ["STAC_TOKEN"] = _os.environ.get("SUBSIDE_STAC_TOKEN") or ckan_token
+    collection = _os.environ.get("STAC_COLLECTION") or _os.environ.get("SUBSIDE_STAC_COLLECTION", "subsidence-rates")
+    item_id = f"{ctx['pipeline_id']}-{ctx['args'].get('start_date')}-{ctx['args'].get('end_date')}"
+
+    # Manifest-driven: fetch the manifest, parse it (H2I single-COG vs WERC
+    # cumulative+velocity), then fetch exactly the COG(s)/overlay it names from
+    # the same archive output dir, and publish from that temp dir.
+    import json as _json
+    import tempfile
+    manifest_uri = inputs["manifest_uri"]
+    out_dir_uri = manifest_uri.rsplit("/", 1)[0]
+    with tempfile.TemporaryDirectory() as tmp:
+        manifest = _fetch_to_tmp(client, manifest_uri, tmp)
+        if not manifest:
+            print("  [stac-publish] manifest not found in archive — skipping.")
+            return "FAILED"
+        data = _json.loads(open(manifest).read())
+        _granule, cogs, overlay = parse_manifest(data, item_id)
+        for spec in cogs:
+            _fetch_to_tmp(client, f"{out_dir_uri}/{spec.filename}", tmp)
+        if overlay:
+            _fetch_to_tmp(client, f"{out_dir_uri}/{overlay}", tmp)
+        item = publish_from_dir(collection_id=collection, manifest_path=manifest,
+                                item_id=item_id, files_dir=tmp)
+        print(f"  [stac-publish] published {item['id']} ({len(cogs)} COG(s)) -> {collection}")
+    return "FINISHED"
+
+
+# --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--pipeline", choices=["h2i", "werc"], default="h2i")
@@ -375,10 +477,23 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     import os
-    args.allocation = args.allocation or os.environ.get("TACC_ALLOCATION")
+    # Load subside/.env so EARTHDATA_* (for --with-netrc), SUBSIDE_STAC_*/CKAN_*
+    # (for the stac-publish step), and the default allocation are available
+    # without manual `export` — same file api/config.py reads.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+    except ImportError:
+        pass
+
+    args.allocation = args.allocation or os.environ.get("TACC_ALLOCATION") \
+        or os.environ.get("SUBSIDE_DEFAULT_ALLOCATION")
     args.staging_system = os.environ.get("TAPIS_STAGING_SYSTEM", args.staging_system)
     if not args.allocation:
-        raise SystemExit("Need --allocation (or $TACC_ALLOCATION).")
+        raise SystemExit("Need --allocation (or $TACC_ALLOCATION / SUBSIDE_DEFAULT_ALLOCATION).")
+    if args.with_netrc and not (os.environ.get("EARTHDATA_USERNAME") and os.environ.get("EARTHDATA_PASSWORD")):
+        raise SystemExit("--with-netrc needs EARTHDATA_USERNAME + EARTHDATA_PASSWORD "
+                         "(set them in subside/.env or the environment).")
 
     pipeline_file = PIPELINE_DIR / f"{'h2i-opera' if args.pipeline == 'h2i' else 'werc-opera'}.yaml"
     pipeline = register._load_pipeline(pipeline_file)
@@ -419,7 +534,13 @@ def main(argv: list[str] | None = None) -> int:
         if task["type"] == "tapis_job":
             status = _run_job(client, task, ctx, args)
         elif task["type"] == "function":
-            status = _run_publish(client, task, ctx, args)
+            # Function tasks run locally (the orchestrator holds Tapis creds, so it
+            # can fetch tapis:// archive files). Dispatch by id: stac-publish does
+            # the CKAN+STAC dual-write; everything else is the manifest-merge.
+            if task["id"] == "stac-publish":
+                status = _run_stac_publish(client, task, ctx, args)
+            else:
+                status = _run_publish(client, task, ctx, args)
         else:
             status = f"skipped:{task['type']}"
         results[task["id"]] = status

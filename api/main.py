@@ -213,6 +213,9 @@ def run_status(run_id: str, client=Depends(require_client)):
         st = manager.get_status(client, run_id)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Run not found: {exc}") from exc
+    # NOTE: CKAN+STAC publishing runs as the `stac-publish` function task in the
+    # Tapis Workflows pipeline (see tapis/workflows/orchestrate.py), not from this
+    # request-driven status hook.
     return RunStatusResponse(runId=run_id, **st)
 
 

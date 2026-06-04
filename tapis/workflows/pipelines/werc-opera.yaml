@@ -34,6 +34,15 @@ params:
   min_overlap_percent: {type: number, default: 50.0}
   allocation:          {type: string, required: true}
   update_conda_env:    {type: string, default: "false"}
+  # --- STAC/CKAN publishing (stac-platform). Leave ckan_token/stac_url blank to
+  #     disable: the stac-publish task no-ops when either is unset. ---
+  stac_collection:     {type: string, default: "subsidence-rates", description: "CKAN dataset = STAC Collection id"}
+  stac_item_id:        {type: string, required: false, description: "Unique STAC Item id for this run (defaults to the run job name)"}
+  ckan_url:            {type: string, default: "https://ckan.tacc.utexas.edu"}
+  ckan_org:            {type: string, default: "tacc-water"}
+  ckan_token:          {type: string, required: false, description: "CKAN API token / user Tapis token (blank disables publishing)"}
+  stac_url:            {type: string, required: false, description: "STAC API base URL incl. /api/v1 (blank disables publishing)"}
+  stac_token:          {type: string, required: false, description: "STAC Transactions bearer (defaults to the user's Tapis token)"}
 
 tasks:
 
@@ -100,3 +109,44 @@ tasks:
       unified = {"pipeline": "subside-werc-opera", "schema_version": "v0", **werc}
       with open(os.environ["OUTPUT_DIR"] + "/subside-run-manifest.json", "w") as f:
           json.dump(unified, f, indent=2, sort_keys=True, default=str)
+
+  - id: stac-publish
+    type: function
+    runtime: "python:3.11"
+    installer: pip
+    # Lightweight env: pip-installs the stac-platform publish core (ckanapi + httpx).
+    # No container image, no Singularity, no HPC allocation.
+    packages:
+      - "git+https://github.com/wmobley/stac-platform.git"
+    depends_on:
+      - id: run
+    description: |
+      Dual-write this WERC run to CKAN + the STAC API via stacmap.publish.
+      Manifest-driven: the orchestrator fetches werc-run-manifest.json from the run
+      job's tapis:// archive, then fetches the TWO COGs it names (cumulative +
+      velocity) and publishes them as one Item. No-ops when ckan_token / stac_url
+      are blank.
+    inputs:
+      manifest_uri: "{{ tasks.run.outputs.archive }}/output/werc-run-manifest.json"
+    env:
+      COLLECTION:  "{{ args.stac_collection }}"
+      ITEM_ID:     "{{ args.stac_item_id | default('subside-werc-' ~ args.start_date ~ '-' ~ args.end_date, true) }}"
+      CKAN_URL:    "{{ args.ckan_url }}"
+      CKAN_ORG:    "{{ args.ckan_org }}"
+      CKAN_TOKEN:  "{{ args.ckan_token }}"
+      STAC_URL:    "{{ args.stac_url }}"
+      STAC_TOKEN:  "{{ args.stac_token }}"
+    code: |
+      # Hosted-engine path (the local orchestrator runs _run_stac_publish instead,
+      # which fetches tapis:// files via the Files API). stacmap.publish auto-detects
+      # the WERC manifest (cumulative + velocity COGs).
+      import os
+      from stacmap.publish import publish_from_dir
+      if not (os.environ.get("CKAN_TOKEN") and os.environ.get("STAC_URL")):
+          print("stac-publish: disabled (CKAN_TOKEN/STAC_URL unset) — skipping.")
+      else:
+          manifest = os.environ.get("INPUTS_MANIFEST_LOCAL", "werc-run-manifest.json")
+          item = publish_from_dir(collection_id=os.environ["COLLECTION"],
+                                  manifest_path=manifest, item_id=os.environ["ITEM_ID"],
+                                  files_dir=os.path.dirname(manifest) or ".")
+          print(f"published {item['id']} -> {os.environ['COLLECTION']}")

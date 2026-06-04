@@ -49,6 +49,11 @@ STAGING_PREFIX = os.environ.get("SUBSIDE_STAGING_PREFIX", "home/{username}/subsi
 # pipeline key -> pipeline YAML filename (sans .yaml).
 PIPELINES = {"h2i": "h2i-opera", "werc": "werc-opera"}
 
+# NOTE: CKAN+STAC publishing is the `stac-publish` function task in the Tapis
+# Workflows pipeline (tapis/workflows/orchestrate.py reads STAC_*/CKAN_* /
+# SUBSIDE_STAC_* from the environment there) — it is no longer driven from the
+# request-path API, so no STAC config lives in this module.
+
 # --- PostGIS vector layers (GeoJSON ingest + MVT tiles) --------------------
 # Postgres *wire* endpoint behind the PostGIS database (NOT the PostgREST HTTP
 # URL — psycopg speaks the postgres protocol, not HTTP). On Tapis this is the
