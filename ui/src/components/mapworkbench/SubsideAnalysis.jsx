@@ -4,7 +4,7 @@
 // availability frame (handled by SubsideLayers, lifted through ModelMap as
 // `picked`); that frame's footprint becomes the AOI and its product date range
 // pre-fills start/end. The panel then logs in to the SUBSIDE API, submits the
-// chosen pipeline as a Tapis job over that AOI, and polls status to completion.
+// chosen Tapis Workflows pipeline over that AOI, and polls status to completion.
 //
 // The control panel is portalled into a Leaflet control (top-left); the AOI
 // rectangle is a normal react-leaflet child.
@@ -29,7 +29,7 @@ const OUTCOMES = [
   { pipeline: 'werc', label: 'Measure how fast it is sinking', hint: 'velocity, mm/yr — slower' },
 ]
 
-// Plain-language status for the running job (hide Tapis state machine detail).
+// Plain-language status for the running pipeline (hide Tapis state machine detail).
 const RUN_COPY = {
   completed: 'Done — your results are below.',
   failed: 'The analysis failed. Try a smaller area or a different time range.',
@@ -178,7 +178,7 @@ export function SubsideAnalysis({ picked }) {
   // A fresh run starts with no known velocity range.
   useEffect(() => { setVelocityRange(null) }, [run?.runId])
 
-  // Pull the durable job history whenever we have a token (incl. after refresh).
+  // Pull the durable workflow history whenever we have a token (incl. after refresh).
   function refreshHistory(tok = token) {
     if (!tok) return
     listRuns(tok)
@@ -195,7 +195,7 @@ export function SubsideAnalysis({ picked }) {
     if (!token) { setHistory([]); setRun(null) }
   }, [token])
 
-  // Re-attach the status poller to a job picked from history.
+  // Re-attach the status poller to a pipeline run picked from history.
   function attachRun(item) {
     setRun({ runId: item.runId, status: item.status, tapisStatus: item.tapisStatus, lastMessage: '' })
   }

@@ -30,6 +30,7 @@ tenant the first time you run it.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import sys
@@ -282,7 +283,19 @@ def _register_app(client, app: dict[str, Any], dry_run: bool, image_tag: str | N
 def _load_pipeline(path: Path) -> dict[str, Any]:
     yaml = _need("yaml")
     with path.open() as f:
-        return yaml.safe_load(f)
+        pipeline = yaml.safe_load(f)
+    _encode_function_task_code(pipeline)
+    return pipeline
+
+
+def _encode_function_task_code(pipeline: dict[str, Any]) -> None:
+    """Encode hosted function source for the Workflows API's byte-string field."""
+    for task in pipeline.get("tasks", []) or []:
+        if task.get("type") != "function" or "code" not in task:
+            continue
+        code = task["code"]
+        if isinstance(code, str):
+            task["code"] = base64.b64encode(code.encode("utf-8")).decode("ascii")
 
 
 # The Tapis Workflows pipeline endpoint has no PUT handler (it 405s); updates go

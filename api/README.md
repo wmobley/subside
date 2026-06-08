@@ -2,9 +2,8 @@
 
 FastAPI gateway in front of Tapis. Turns portal concepts (AOI, frames, products,
 runs, results) into stable UI responses, and submits the OPERA analysis as Tapis
-**Jobs run as the calling user** — the same identity that makes
-[`workflows/orchestrate.py`](../workflows/orchestrate.py) work, so it inherits
-the restricted-Workflows-service bypass.
+**Workflows pipeline runs as the calling user**. The workflow's `run` task still
+submits the heavy analysis job internally, but the API tracks the pipeline run.
 
 ## Run (dev)
 
@@ -34,7 +33,7 @@ No passwords are stored server-side. (Production hardening — server-side sessi
 | `POST /api/subside/login` | no | username/password → Tapis token |
 | `POST /api/subside/aoi/frames` | no | frames intersecting an AOI (in-process, fast) |
 | `POST /api/subside/products/search` | no | OPERA products for frames + dates (in-process) |
-| `POST /api/subside/runs` | yes | stage inputs + submit one monolithic `run` job; returns `runId` |
+| `POST /api/subside/runs` | yes | stage inputs + submit a Tapis Workflows pipeline run; returns `runId` |
 | `GET  /api/subside/runs/{runId}` | yes | normalized status: queued/running/completed/failed/cancelled |
 | `GET  /api/subside/runs/{runId}/results` | yes | manifest + artifact download URLs once completed |
 | `GET  /api/subside/layers` | no | list ingested PostGIS layers (count + bbox) |
@@ -43,7 +42,7 @@ No passwords are stored server-side. (Production hardening — server-side sessi
 | `GET  /api/subside/layers/{layer}.geojson` | no | read a layer back as GeoJSON (`?bbox=&limit=`) |
 | `GET  /api/subside/tiles/{layer}/{z}/{x}/{y}.mvt` | no | Mapbox Vector Tile (protobuf); 204 when empty |
 
-`runId` is the Tapis job uuid. Submission is **non-blocking** — poll the status
+`runId` is the Tapis Workflows pipeline-run uuid. Submission is **non-blocking** — poll the status
 endpoint; fetch results when `status == "completed"`.
 
 ## PostGIS vector layers (GeoJSON → MVT)
@@ -90,7 +89,7 @@ or `pip install` the geospatial extras listed in `requirements.txt`.
 |---|---|
 | `main.py` | FastAPI app, routes, CORS, the `X-Tapis-Token` dependency |
 | `tapis.py` | build a client from a token; password-grant login; username-from-JWT |
-| `manager.py` | run-config build, input staging, job submit/status/results (request-driven cousin of `orchestrate.py`) |
+| `manager.py` | input staging, workflow submit/status/results, and archive lookup |
 | `discovery.py` | in-process frames/products via `analysis` (lazy imports) |
 | `db.py` | lazy psycopg pool + PostGIS/schema/registry bootstrap (`DbUnavailable` → 503) |
 | `layers.py` | generic GeoJSON ingest, layer list/drop, GeoJSON read-back, MVT tiles |

@@ -40,6 +40,11 @@ EARTHDATA_PASSWORD = os.environ.get("EARTHDATA_PASSWORD")
 # Optional default TACC allocation, used when a run request omits one.
 DEFAULT_ALLOCATION = os.environ.get("SUBSIDE_DEFAULT_ALLOCATION")
 
+# Tapis Workflows group used by the request-path API. Pipelines must already be
+# registered there, typically with:
+#   python tapis/workflows/register.py --pipelines-only --recreate-pipelines
+SUBSIDE_WORKFLOW_GROUP = os.environ.get("SUBSIDE_WORKFLOW_GROUP", "subside-ops")
+
 # Where the API stages run inputs (run-config, AOI, .netrc). cloud.data rootDir
 # is "/", so the writable path is the user's $HOME minus the leading slash:
 # /home/<user> -> home/<user>.
@@ -49,10 +54,14 @@ STAGING_PREFIX = os.environ.get("SUBSIDE_STAGING_PREFIX", "home/{username}/subsi
 # pipeline key -> pipeline YAML filename (sans .yaml).
 PIPELINES = {"h2i": "h2i-opera", "werc": "werc-opera"}
 
-# NOTE: CKAN+STAC publishing is the `stac-publish` function task in the Tapis
-# Workflows pipeline (tapis/workflows/orchestrate.py reads STAC_*/CKAN_* /
-# SUBSIDE_STAC_* from the environment there) — it is no longer driven from the
-# request-path API, so no STAC config lives in this module.
+# CKAN+STAC publishing runs inside the workflow's `stac-publish` task. The API
+# passes these values as pipeline args when SUBSIDE_STAC_URL is configured.
+SUBSIDE_STAC_URL = os.environ.get("SUBSIDE_STAC_URL", "")
+SUBSIDE_STAC_TOKEN = os.environ.get("SUBSIDE_STAC_TOKEN", "")
+SUBSIDE_STAC_COLLECTION = os.environ.get("SUBSIDE_STAC_COLLECTION", "subsidence-rates")
+SUBSIDE_CKAN_URL = os.environ.get("SUBSIDE_CKAN_URL", "https://ckan.tacc.utexas.edu")
+SUBSIDE_CKAN_ORG = os.environ.get("SUBSIDE_CKAN_ORG", "tacc-water")
+SUBSIDE_CKAN_TOKEN = os.environ.get("SUBSIDE_CKAN_TOKEN", "")
 
 # --- PostGIS vector layers (GeoJSON ingest + MVT tiles) --------------------
 # Postgres *wire* endpoint behind the PostGIS database (NOT the PostgREST HTTP

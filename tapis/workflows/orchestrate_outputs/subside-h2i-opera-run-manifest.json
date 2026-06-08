@@ -1,6 +1,7 @@
 {
   "artifacts": {
-    "archive_zip": "/scratch/06659/wmobley/tapis/be3de967-925b-426e-a984-e9c1c08df8e0-007/output/OPERA_L3_DISP-S1.zip",
+    "archive_zip": "/scratch/06659/wmobley/tapis/df61f3b9-5bec-4cc6-ad0e-2f871a59e639-007/output/OPERA_L3_DISP-S1.zip",
+    "cog_tif": "output/disp_displacement.tif",
     "display_range": {
       "vmax": 0.06496887207031232,
       "vmin": -0.009546279907226562

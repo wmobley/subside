@@ -1,4 +1,4 @@
-// Renders a job's Cloud-Optimized GeoTIFF as a real raster on the Leaflet map.
+// Renders a pipeline run's Cloud-Optimized GeoTIFF as a real raster on the Leaflet map.
 //
 // Fetches the COG through the API proxy (token in header) as an ArrayBuffer,
 // parses it with georaster (geotiff.js), and adds a GeoRasterLayer — which

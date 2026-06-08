@@ -8,8 +8,7 @@ Run (dev)::
 
 Auth: the frontend logs in (POST /api/subside/login) to get a Tapis token,
 then sends it on every other call as the ``X-Tapis-Token`` header. The API
-acts as that user — so job submission goes through as the user and dodges the
-restricted Workflows service.
+acts as that user for Tapis Workflows pipeline submission and archive reads.
 """
 
 from __future__ import annotations
@@ -181,7 +180,7 @@ def frame_availability(
     )
 
 
-# --- runs (Tapis jobs, as the user) ----------------------------------------
+# --- runs (Tapis Workflows pipelines, as the user) --------------------------
 @app.post("/api/subside/runs", response_model=RunSubmitResponse)
 def submit_run(body: RunRequest, client=Depends(require_client)):
     try:
@@ -189,17 +188,18 @@ def submit_run(body: RunRequest, client=Depends(require_client)):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Run submission failed: {exc}") from exc
     if not info.get("uuid"):
-        raise HTTPException(status_code=502, detail="Tapis did not return a job uuid.")
+        raise HTTPException(status_code=502, detail="Tapis did not return a workflow run uuid.")
     return RunSubmitResponse(
         runId=info["uuid"], pipeline=body.pipeline, name=info["name"],
+        pipelineId=info.get("pipelineId"), groupId=info.get("groupId"),
         tapisStatus=info["tapisStatus"], status=manager.normalize_status(info["tapisStatus"]),
     )
 
 
 @app.get("/api/subside/runs", response_model=RunListResponse)
 def list_runs(client=Depends(require_client),
-              all: bool = Query(False, description="Diagnostics: skip the app-id filter, list every recent job.")):
-    """The caller's job history — Tapis jobs submitted with our pipeline apps."""
+              all: bool = Query(False, description="Diagnostics placeholder; the API lists configured SUBSIDE pipelines.")):
+    """The caller's Tapis Workflows history for configured SUBSIDE pipelines."""
     try:
         runs = manager.list_runs(client, include_all=all)
     except Exception as exc:
@@ -213,9 +213,6 @@ def run_status(run_id: str, client=Depends(require_client)):
         st = manager.get_status(client, run_id)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Run not found: {exc}") from exc
-    # NOTE: CKAN+STAC publishing runs as the `stac-publish` function task in the
-    # Tapis Workflows pipeline (see tapis/workflows/orchestrate.py), not from this
-    # request-driven status hook.
     return RunStatusResponse(runId=run_id, **st)
 
 
@@ -231,7 +228,7 @@ def run_results(run_id: str, client=Depends(require_client)):
 @app.get("/api/subside/runs/{run_id}/file")
 def run_file(run_id: str, path: str = Query(..., description="Archive-relative file path from results artifacts."),
              client=Depends(require_client)):
-    """Proxy one archive file (image/COG/zip/manifest) using the user's token."""
+    """Proxy one pipeline-run archive file (image/COG/zip/manifest)."""
     try:
         data, name, ctype = manager.fetch_file(client, run_id, path)
     except PermissionError as exc:

@@ -35,7 +35,7 @@ export async function fetchAvailability(bounds, { layer = 'satellite', ttlHours,
   return requestJson(path(`/availability?${params.toString()}`))
 }
 
-// --- forecast (potential subsidence — in-process, no auth, no Tapis job) ----
+// --- forecast (potential subsidence — in-process, no auth, no Tapis workflow) -
 
 // Run the screening model for a scenario; returns { risk_score, projection,
 // annual, risk_factors, ... }. `scenario` uses visible Excel-style labels.
@@ -90,7 +90,7 @@ export function takeOAuthState() {
   return s
 }
 
-// --- runs (Tapis jobs on TACC, as the logged-in user) ----------------------
+// --- runs (Tapis Workflows pipelines, as the logged-in user) ----------------
 
 // Password grant -> a Tapis access token. Returns { token, username }.
 // Retained for scripts/dev; the web app uses the OAuth2 redirect flow above.
@@ -111,7 +111,7 @@ export async function submitRun(token, body) {
   })
 }
 
-// The caller's durable job history (Tapis jobs submitted with our pipeline apps).
+// The caller's durable workflow history for the configured SUBSIDE pipelines.
 export async function listRuns(token) {
   return requestJson(path('/runs'), { headers: { 'X-Tapis-Token': token } })
 }

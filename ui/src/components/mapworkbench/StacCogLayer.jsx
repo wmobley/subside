@@ -1,6 +1,6 @@
 // Renders a STAC Item's COG asset (a public CKAN URL) as a raster on the map.
 //
-// Sibling to CogLayer.jsx: that one streams a job artifact through the
+// Sibling to CogLayer.jsx: that one streams a workflow artifact through the
 // authenticated SUBSIDE API proxy; this one fetches a public STAC asset href
 // directly (the CKAN resource download URL must allow CORS + range requests).
 // Shares the viridis ramp + display-range scaling behavior.

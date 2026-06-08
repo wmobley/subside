@@ -22,79 +22,243 @@ params:
   start_date:          {type: string, required: true}
   end_date:            {type: string, required: true}
   aoi_geojson_uri:     {type: string, required: true, description: "tapis:// URI to the AOI GeoJSON"}
-  earthdata_netrc_uri: {type: string, required: false, description: "Optional tapis:// URI to a protected .netrc"}
+  earthdata_netrc_uri: {type: string, default: "", required: false, description: "Optional tapis:// URI to a protected .netrc"}
   num_workers:         {type: integer, default: 4}
   min_overlap_percent: {type: number, default: 50.0}
   allocation:          {type: string, required: true, description: "TACC allocation to charge"}
   update_conda_env:    {type: string, default: "false"}
+  tapis_base_url:      {type: string, default: "https://portals.tapis.io"}
+  tapis_token:         {type: string, required: true, description: "User Tapis bearer token used by hosted function tasks"}
   # --- STAC/CKAN publishing (stac-platform). Leave ckan_token/stac_url blank to
   #     disable: the stac-publish task no-ops when either is unset. ---
   stac_collection:     {type: string, default: "subsidence-rates", description: "CKAN dataset = STAC Collection id"}
-  stac_item_id:        {type: string, required: false, description: "Unique STAC Item id for this run (defaults to the run job name)"}
+  stac_item_id:        {type: string, default: "", required: false, description: "Unique STAC Item id for this run (defaults to the run job name)"}
   ckan_url:            {type: string, default: "https://ckan.tacc.utexas.edu"}
   ckan_org:            {type: string, default: "tacc-water"}
-  ckan_token:          {type: string, required: false, description: "CKAN API token (blank disables publishing)"}
-  stac_url:            {type: string, required: false, description: "STAC API base URL (blank disables publishing)"}
-  stac_token:          {type: string, required: false, description: "STAC Transactions bearer token"}
+  ckan_token:          {type: string, default: "", required: false, description: "CKAN API token / Bearer user Tapis token (blank disables publishing)"}
+  stac_url:            {type: string, default: "", required: false, description: "STAC API base URL (blank disables publishing)"}
+  stac_token:          {type: string, default: "", required: false, description: "STAC Transactions bearer token"}
 
 tasks:
 
   - id: run
-    type: tapis_job
+    type: function
+    runtime: "python:3.11"
+    installer: pip
+    packages:
+      - tapipy==25.4.0
     depends_on: []
+    execution_profile:
+      max_exec_time: 15000
     description: Discover + download + crop + preview + archive, all in one job (STAGE=run).
-    tapis_job_def:
-      appId: subside-h2i-opera-analysis
-      appVersion: "0.1.1"
-      name: subside-h2i-opera-{{ args.start_date }}-{{ args.end_date }}
-      nodeCount: 1
-      coresPerNode: 16
-      memoryMB: 128000
-      maxMinutes: 240
-      fileInputs:
-        - name: aoi-geojson
-          sourceUrl: "{{ args.aoi_geojson_uri }}"
-        - name: earthdata-netrc
-          sourceUrl: "{{ args.earthdata_netrc_uri }}"
-      parameterSet:
-        # Run parameters are passed as env-variable input fields; the app's
-        # run.sh materializes them into the CLI config (no run-config file).
-        envVariables:
-          - {key: STAGE, value: "run"}
-          - {key: UPDATE_CONDA_ENV, value: "{{ args.update_conda_env }}"}
-          - {key: START_DATE, value: "{{ args.start_date }}"}
-          - {key: END_DATE, value: "{{ args.end_date }}"}
-          - {key: NUM_WORKERS, value: "{{ args.num_workers }}"}
-          - {key: MIN_OVERLAP_PERCENT, value: "{{ args.min_overlap_percent }}"}
-        schedulerOptions:
-          - name: "TACC Allocation"
-            arg: "{{ args.allocation }}"
+    input:
+      TAPIS_BASE_URL:       {type: string, value_from: {args: tapis_base_url}}
+      TAPIS_TOKEN:          {type: string, value_from: {args: tapis_token}}
+      START_DATE:           {type: string, value_from: {args: start_date}}
+      END_DATE:             {type: string, value_from: {args: end_date}}
+      AOI_GEOJSON_URI:      {type: string, value_from: {args: aoi_geojson_uri}}
+      EARTHDATA_NETRC_URI:  {type: string, value_from: {args: earthdata_netrc_uri}}
+      NUM_WORKERS:          {type: number, value_from: {args: num_workers}}
+      MIN_OVERLAP_PERCENT:  {type: number, value_from: {args: min_overlap_percent}}
+      ALLOCATION:           {type: string, value_from: {args: allocation}}
+      UPDATE_CONDA_ENV:     {type: string, value_from: {args: update_conda_env}}
+    output:
+      job_uuid: {type: string}
+      archive:  {type: string}
+    code: |
+      import time
+      from tapipy.tapis import Tapis
+      from owe_python_sdk.runtime import execution_context as ctx
+
+      SUCCESS = {"FINISHED"}
+      FAILURE = {"FAILED", "CANCELLED"}
+
+      def val(name, default=""):
+          got = ctx.get_input(name)
+          return default if got is None else got
+
+      def alloc_arg(allocation):
+          allocation = str(allocation or "").strip()
+          return allocation if allocation.startswith("-") else f"-A {allocation}"
+
+      def fail(message):
+          try:
+              ctx.stderr(1, message)
+          finally:
+              raise SystemExit(message)
+
+      base_url = str(val("TAPIS_BASE_URL", "https://portals.tapis.io")).rstrip("/")
+      token = str(val("TAPIS_TOKEN", ""))
+      if not token:
+          fail("Missing TAPIS_TOKEN workflow input.")
+      t = Tapis(base_url=base_url, jwt=token)
+
+      start = str(val("START_DATE"))
+      end = str(val("END_DATE"))
+      allocation = str(val("ALLOCATION"))
+      env = [
+          {"key": "STAGE", "value": "run"},
+          {"key": "UPDATE_CONDA_ENV", "value": str(val("UPDATE_CONDA_ENV", "false"))},
+          {"key": "START_DATE", "value": start},
+          {"key": "END_DATE", "value": end},
+          {"key": "NUM_WORKERS", "value": str(val("NUM_WORKERS", 2))},
+          {"key": "MIN_OVERLAP_PERCENT", "value": str(val("MIN_OVERLAP_PERCENT", 50.0))},
+      ]
+
+      file_inputs = []
+      aoi_uri = str(val("AOI_GEOJSON_URI", "")).strip()
+      if aoi_uri:
+          file_inputs.append({"name": "aoi-geojson", "sourceUrl": aoi_uri, "targetPath": "config/aoi.geojson"})
+      netrc_uri = str(val("EARTHDATA_NETRC_URI", "")).strip()
+      if netrc_uri:
+          file_inputs.append({"name": "earthdata-netrc", "sourceUrl": netrc_uri, "targetPath": ".netrc"})
+
+      body = {
+          "name": f"subside-h2i-opera-{start}-{end}",
+          "appId": "subside-h2i-opera-analysis",
+          "appVersion": "0.1.1",
+          "nodeCount": 1,
+          "coresPerNode": 16,
+          "memoryMB": 128000,
+          "maxMinutes": 240,
+          "execSystemId": "ls6",
+          "execSystemExecDir": "${JobWorkingDir}",
+          "execSystemInputDir": "${JobWorkingDir}",
+          "execSystemOutputDir": "${JobWorkingDir}/output",
+          "execSystemLogicalQueue": "vm-small",
+          "archiveSystemId": "ls6",
+          "archiveSystemDir": "HOST_EVAL($WORK)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}",
+          "archiveOnAppError": True,
+          "fileInputs": file_inputs,
+          "parameterSet": {
+              "envVariables": env,
+              "schedulerOptions": [{"name": "TACC Allocation", "arg": alloc_arg(allocation)}],
+          },
+      }
+
+      result = t.jobs.submitJob(**body)
+      job_uuid = getattr(result, "uuid", None)
+      if not job_uuid:
+          fail(f"submitJob did not return a uuid: {result}")
+      ctx.set_output("job_uuid", job_uuid)
+      print(f"submitted Tapis job {job_uuid}")
+
+      last = ""
+      while True:
+          job = t.jobs.getJob(jobUuid=job_uuid)
+          status = str(getattr(job, "status", "") or "").upper()
+          if status != last:
+              print(f"job {job_uuid} status={status}")
+              last = status
+          if status in SUCCESS:
+              archive_system = getattr(job, "archiveSystemId", "") or ""
+              archive_dir = str(getattr(job, "archiveSystemDir", "") or "").lstrip("/")
+              archive = f"tapis://{archive_system}/{archive_dir}" if archive_system and archive_dir else ""
+              ctx.set_output("archive", archive)
+              ctx.stdout(f"job {job_uuid} archive={archive}")
+              raise SystemExit(0)
+          if status in FAILURE:
+              msg = getattr(job, "lastMessage", "") or f"Job {job_uuid} failed with status {status}"
+              fail(str(msg))
+          time.sleep(30)
 
   - id: publish
     type: function
     runtime: "python:3.11"
     installer: pip          # required by the Tapis Workflows FunctionTask schema
-    packages: []            # stdlib-only; no third-party deps to install
+    packages:
+      - tapipy==25.4.0
     depends_on:
       - id: run
     description: |
       Stdlib-only Python. Reads preflight-manifest.json + run-manifest.json from
       the single run job's archive and emits a unified subside-run-manifest.json
       the UI can consume. (Under the manager this runs locally via the Files API.)
-    inputs:
-      preflight_manifest_uri: "{{ tasks.run.outputs.archive }}/output/preflight-manifest.json"
-      run_manifest_uri:       "{{ tasks.run.outputs.archive }}/output/run-manifest.json"
+    input:
+      TAPIS_BASE_URL: {type: string, value_from: {args: tapis_base_url}}
+      TAPIS_TOKEN:    {type: string, value_from: {args: tapis_token}}
+      ARCHIVE_URI:    {type: string, value_from: {task_output: {task_id: run, output_id: archive}}}
+    output:
+      manifest_json: {type: string}
     code: |
-      import json, os, urllib.request
+      import json, os, time
+      from tapipy.tapis import Tapis
+      from owe_python_sdk.runtime import execution_context as ctx
 
-      def _load(uri):
-          if uri.startswith("tapis://"):
-              raise RuntimeError("Configure tapis-files fetch in your workflows runner.")
-          with urllib.request.urlopen(uri) as f:
-              return json.load(f)
+      RETRY_DELAYS = (10, 20, 40, 60, 90)
 
-      preflight = _load(os.environ["INPUTS_PREFLIGHT_MANIFEST_URI"])
-      run_manifest = _load(os.environ["INPUTS_RUN_MANIFEST_URI"])
+      def _parse(uri):
+          rest = uri[len("tapis://"):]
+          system, _, path = rest.partition("/")
+          return system, path.strip("/")
+
+      def _field(obj, name, default=None):
+          return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
+
+      def _is_not_found(exc):
+          text = str(exc)
+          return "NotFound" in type(exc).__name__ or "NO_FILEINFO" in text or "not found" in text.lower()
+
+      def _files_call(label, fn):
+          last = None
+          for attempt, delay in enumerate((0, *RETRY_DELAYS), start=1):
+              if delay:
+                  print(f"{label}: retrying after {delay}s")
+                  time.sleep(delay)
+              try:
+                  return fn()
+              except Exception as exc:
+                  if _is_not_found(exc):
+                      raise
+                  last = exc
+                  print(f"{label}: attempt {attempt} failed: {type(exc).__name__}: {str(exc)[:240]}")
+          raise last
+
+      def _read_json(tapis, system, path):
+          path = path.strip("/")
+          raw = _files_call(f"get tapis://{system}/{path}",
+                            lambda: tapis.files.getContents(systemId=system, path=path))
+          text = raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+          return json.loads(text)
+
+      def _load(tapis, uri):
+          system, path = _parse(uri)
+          return _read_json(tapis, system, path)
+
+      def _find_manifest(tapis, archive_uri, filename):
+          system, base = _parse(archive_uri)
+          base = base.strip("/")
+          tried = []
+          for rel in (filename, f"output/{filename}"):
+              path = f"{base}/{rel}" if base else rel
+              tried.append(path)
+              try:
+                  return _read_json(tapis, system, path)
+              except Exception:
+                  pass
+          listing = _files_call(f"list {archive_uri}",
+                                lambda: tapis.files.listFiles(
+                                    systemId=system, path=base, recurse=True, limit=1000)) or []
+          for item in listing:
+              if str(_field(item, "type", "file")).lower() == "dir":
+                  continue
+              path = str(_field(item, "path", "") or "")
+              name = str(_field(item, "name", "") or path.rsplit("/", 1)[-1])
+              if name == filename and path:
+                  return _read_json(tapis, system, path)
+          raise FileNotFoundError(f"could not find {filename} under {archive_uri}; tried {tried}")
+
+      archive = str(ctx.get_input("ARCHIVE_URI") or "").rstrip("/")
+      if not archive:
+          ctx.stderr(1, "run task did not provide an archive URI")
+          raise SystemExit("run task did not provide an archive URI")
+      tapis = Tapis(
+          base_url=str(ctx.get_input("TAPIS_BASE_URL") or "https://portals.tapis.io").rstrip("/"),
+          jwt=str(ctx.get_input("TAPIS_TOKEN") or ""),
+      )
+
+      preflight = _find_manifest(tapis, archive, "preflight-manifest.json")
+      run_manifest = _find_manifest(tapis, archive, "run-manifest.json")
 
       unified = {
           "pipeline": "subside-h2i-opera",
@@ -105,46 +269,627 @@ tasks:
           "artifacts": run_manifest.get("artifacts", {}),
           "config": run_manifest.get("config", {}),
       }
-      with open(os.environ["OUTPUT_DIR"] + "/subside-run-manifest.json", "w") as f:
+      out_dir = os.environ.get("OUTPUT_DIR") or os.getcwd()
+      os.makedirs(out_dir, exist_ok=True)
+      with open(os.path.join(out_dir, "subside-run-manifest.json"), "w") as f:
           json.dump(unified, f, indent=2, sort_keys=True, default=str)
+      ctx.set_output("manifest_json", json.dumps(unified, sort_keys=True, default=str))
+      ctx.stdout("wrote subside-run-manifest.json")
+      raise SystemExit(0)
 
   - id: stac-publish
     type: function
     runtime: "python:3.11"
     installer: pip
-    # Lightweight env: pip-installs the stac-platform publish core (which pulls
-    # ckanapi + httpx). No container image, no Singularity, no HPC allocation.
     packages:
-      - "git+https://github.com/wmobley/stac-platform.git"
+      - tapipy==25.4.0
+      - "requests>=2.31.0"
+      - https://github.com/wmobley/stac-platform/archive/refs/heads/main.zip
     depends_on:
       - id: run
+      - id: publish
     description: |
       Dual-write this run to CKAN (asset store) + the STAC API (Transactions) via
       stacmap.publish. Manifest-driven: the orchestrator (which holds Tapis creds)
       fetches run-manifest.json from the run job's tapis:// archive, then fetches
       exactly the COG(s)/overlay it names and publishes. No-ops when ckan_token /
       stac_url are blank, so it is safe to leave in.
-    inputs:
-      manifest_uri: "{{ tasks.run.outputs.archive }}/output/run-manifest.json"
-    env:
-      COLLECTION:  "{{ args.stac_collection }}"
-      ITEM_ID:     "{{ args.stac_item_id | default('subside-h2i-' ~ args.start_date ~ '-' ~ args.end_date, true) }}"
-      CKAN_URL:    "{{ args.ckan_url }}"
-      CKAN_ORG:    "{{ args.ckan_org }}"
-      CKAN_TOKEN:  "{{ args.ckan_token }}"
-      STAC_URL:    "{{ args.stac_url }}"
-      STAC_TOKEN:  "{{ args.stac_token }}"
+    input:
+      TAPIS_BASE_URL: {type: string, value_from: {args: tapis_base_url}}
+      TAPIS_TOKEN:    {type: string, value_from: {args: tapis_token}}
+      ARCHIVE_URI: {type: string, value_from: {task_output: {task_id: run, output_id: archive}}}
+      COLLECTION:  {type: string, value_from: {args: stac_collection}}
+      ITEM_ID:     {type: string, value_from: {args: stac_item_id}}
+      CKAN_URL:    {type: string, value_from: {args: ckan_url}}
+      CKAN_ORG:    {type: string, value_from: {args: ckan_org}}
+      CKAN_TOKEN:  {type: string, value_from: {args: ckan_token}}
+      STAC_URL:    {type: string, value_from: {args: stac_url}}
+      STAC_TOKEN:  {type: string, value_from: {args: stac_token}}
     code: |
-      # Hosted-engine path (the local orchestrator runs _run_stac_publish instead,
-      # which fetches tapis:// files via the Files API). Assumes the engine staged
-      # the manifest + COG(s) into one dir; stacmap.publish derives the rest.
-      import os
+      import json
+      import time
+      import tempfile
+      from pathlib import Path
+
+      import httpx
+      import requests
+      from owe_python_sdk.runtime import execution_context as ctx
+      from tapipy.tapis import Tapis
+      from stacmap.manifest import parse_manifest
       from stacmap.publish import publish_from_dir
-      if not (os.environ.get("CKAN_TOKEN") and os.environ.get("STAC_URL")):
-          print("stac-publish: disabled (CKAN_TOKEN/STAC_URL unset) — skipping.")
-      else:
-          manifest = os.environ.get("INPUTS_MANIFEST_LOCAL", "run-manifest.json")
-          item = publish_from_dir(collection_id=os.environ["COLLECTION"],
-                                  manifest_path=manifest, item_id=os.environ["ITEM_ID"],
-                                  files_dir=os.path.dirname(manifest) or ".")
-          print(f"published {item['id']} -> {os.environ['COLLECTION']}")
+      from stacmap.stac_client import StacClient
+
+      MANIFEST_NAME = "run-manifest.json"
+      ITEM_PREFIX = "subside-h2i"
+      RETRY_DELAYS = (10, 20, 40, 60, 90)
+
+      def val(name, default=""):
+          got = ctx.get_input(name)
+          return default if got is None else got
+
+      def _field(obj, name, default=None):
+          return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
+
+      def _parse(uri):
+          rest = uri[len("tapis://"):]
+          system, _, path = rest.partition("/")
+          return system, path.strip("/")
+
+      def _bytes(raw):
+          if isinstance(raw, (bytes, bytearray)):
+              return bytes(raw)
+          return str(raw).encode("utf-8")
+
+      def _is_not_found(exc):
+          text = str(exc)
+          return "NotFound" in type(exc).__name__ or "NO_FILEINFO" in text or "not found" in text.lower()
+
+      def _files_call(label, fn):
+          last = None
+          for attempt, delay in enumerate((0, *RETRY_DELAYS), start=1):
+              if delay:
+                  print(f"{label}: retrying after {delay}s")
+                  time.sleep(delay)
+              try:
+                  return fn()
+              except Exception as exc:
+                  if _is_not_found(exc):
+                      raise
+                  last = exc
+                  print(f"{label}: attempt {attempt} failed: {type(exc).__name__}: {str(exc)[:240]}")
+          raise last
+
+      def _read_json(tapis, system, path):
+          path = path.strip("/")
+          raw = _files_call(f"get tapis://{system}/{path}",
+                            lambda: tapis.files.getContents(systemId=system, path=path))
+          return json.loads(_bytes(raw).decode("utf-8"))
+
+      def _iter_files(tapis, system, base):
+          listing = _files_call(f"list tapis://{system}/{base}",
+                                lambda: tapis.files.listFiles(
+                                    systemId=system, path=base, recurse=True, limit=1000)) or []
+          for item in listing:
+              if str(_field(item, "type", "file")).lower() == "dir":
+                  continue
+              path = str(_field(item, "path", "") or "")
+              name = str(_field(item, "name", "") or path.rsplit("/", 1)[-1])
+              if path:
+                  yield path.strip("/"), name
+
+      def _find_path(tapis, system, base, filename):
+          tried = []
+          for rel in (filename, f"output/{filename}"):
+              path = f"{base}/{rel}" if base else rel
+              try:
+                  path = path.strip("/")
+                  _files_call(f"get tapis://{system}/{path}",
+                              lambda: tapis.files.getContents(systemId=system, path=path))
+                  return path
+              except Exception as exc:
+                  tried.append(f"{path.strip('/')}: {type(exc).__name__}: {str(exc)[:240]}")
+          try:
+              for path, name in _iter_files(tapis, system, base):
+                  if name == filename:
+                      return path
+          except Exception as exc:
+              tried.append(f"list {base}: {type(exc).__name__}: {str(exc)[:240]}")
+          detail = "; ".join(tried) if tried else "no paths tried"
+          raise FileNotFoundError(f"could not find {filename} in tapis://{system}/{base}; {detail}")
+
+      def _download(tapis, system, path, dest):
+          path = path.strip("/")
+          raw = _files_call(f"download tapis://{system}/{path}",
+                            lambda: tapis.files.getContents(systemId=system, path=path))
+          dest.write_bytes(_bytes(raw))
+
+      def _default_item_id(archive_uri, manifest):
+          cfg = manifest.get("config") or {}
+          start = str(cfg.get("start_date") or "").strip()
+          end = str(cfg.get("end_date") or "").strip()
+          tail = archive_uri.rstrip("/").rsplit("/", 1)[-1]
+          parts = tail.rsplit("-", 6)
+          suffix = "-".join(parts[-6:]) if len(parts) >= 7 else tail[-48:]
+          if start and end:
+              return f"{ITEM_PREFIX}-{start}-{end}-{suffix}"
+          return tail
+
+      def fail(message):
+          try:
+              ctx.stderr(1, message)
+          finally:
+              raise SystemExit(message)
+
+      def _bare_token(token):
+          token = str(token or "").strip()
+          return token[7:].strip() if token.lower().startswith("bearer ") else token
+
+      def _ckan_headers(token):
+          token = str(token or "").strip()
+          if not token:
+              return {}
+          if token.lower().startswith("bearer "):
+              return {"Authorization": token}
+          return {"Authorization": f"Bearer {token}" if token.count(".") == 2 else token}
+
+      def _fmt_from_name(name):
+          ext = name.rsplit(".", 1)[-1].upper() if "." in name else ""
+          return {"TIF": "TIFF", "TIFF": "TIFF", "PNG": "PNG", "JSON": "JSON", "NC": "NetCDF"}.get(ext, ext)
+
+      def _mimetype_from_name(name):
+          ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+          return {
+              "tif": "image/tiff",
+              "tiff": "image/tiff",
+              "png": "image/png",
+              "json": "application/json",
+              "nc": "application/x-netcdf",
+          }.get(ext)
+
+      def _bbox_values(manifest):
+          bbox = manifest.get("bbox")
+          if isinstance(bbox, dict):
+              return [
+                  float(bbox["lon_min"]),
+                  float(bbox["lat_min"]),
+                  float(bbox["lon_max"]),
+                  float(bbox["lat_max"]),
+              ]
+          if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+              return [float(value) for value in bbox]
+          artifacts = manifest.get("artifacts") or {}
+          for key in ("cumulative_displacement_geotiff", "velocity_geotiff"):
+              bounds = (artifacts.get(key) or {}).get("bounds")
+              if isinstance(bounds, (list, tuple)) and len(bounds) == 4:
+                  return [float(value) for value in bounds]
+          return None
+
+      def _spatial_json(manifest):
+          bbox = _bbox_values(manifest)
+          if not bbox:
+              return None
+          west, south, east, north = bbox
+          return json.dumps({
+              "type": "Polygon",
+              "coordinates": [[
+                  [west, south],
+                  [west, north],
+                  [east, north],
+                  [east, south],
+                  [west, south],
+              ]],
+          })
+
+      def _dataset_payload(collection, org, manifest):
+          cfg = manifest.get("config") or {}
+          payload = {
+              "name": collection,
+              "title": "SUBSIDE OPERA Subsidence Products",
+              "notes": (
+                  "Surface displacement and subsidence products generated by the "
+                  "SUBSIDE OPERA workflow from NASA OPERA DISP-S1 inputs. "
+                  "Resources are uploaded to the CKAN FileStore for public download "
+                  "and indexed as STAC Items for spatiotemporal discovery."
+              ),
+              "owner_org": org,
+              "private": False,
+              "license_id": "cc-by",
+              "author": "William Mobley",
+              "author_email": "wmobley@tacc.utexas.edu",
+              "maintainer": "William Mobley",
+              "maintainer_email": "wmobley@tacc.utexas.edu",
+              "tags": [
+                  {"name": tag}
+                  for tag in ("SUBSIDE", "OPERA", "DISP-S1", "InSAR", "subsidence", "remote-sensing")
+              ],
+          }
+          if cfg.get("start_date"):
+              payload["temporal_coverage_start"] = str(cfg["start_date"])
+          if cfg.get("end_date"):
+              payload["temporal_coverage_end"] = str(cfg["end_date"])
+          spatial = _spatial_json(manifest)
+          if spatial:
+              payload["spatial"] = spatial
+          return payload
+
+      class TapisLinkCkanClient:
+          def __init__(self, url, token, org, dataset_meta, tapis_urls, resource_meta, manifest, archive_uri):
+              self.url = str(url or "").rstrip("/")
+              self.org = org
+              self.dataset_meta = dataset_meta
+              self.tapis_urls = tapis_urls
+              self.resource_meta = resource_meta
+              self.manifest = manifest
+              self.archive_uri = archive_uri
+              self.resources_by_name = {}
+              self.source_counts = {}
+              self.headers = _ckan_headers(token)
+              self.client = httpx.Client(base_url=self.url, headers=self.headers, timeout=300.0)
+
+          def close(self):
+              self.client.close()
+
+          def _result(self, action, response):
+              try:
+                  payload = response.json()
+              except Exception as exc:
+                  raise RuntimeError(f"CKAN {action} returned HTTP {response.status_code}: {response.text[:1000]}") from exc
+              if response.status_code >= 400 or not payload.get("success"):
+                  raise RuntimeError(f"CKAN {action} failed HTTP {response.status_code}: {payload}")
+              return payload["result"]
+
+          def _action(self, action, payload):
+              response = self.client.post(f"/api/3/action/{action}", json=payload)
+              return self._result(action, response)
+
+          def _action_upload(self, action, fields, file_path):
+              data = {key: str(value) for key, value in fields.items() if value is not None}
+              filename = Path(file_path).name
+              with open(file_path, "rb") as fh:
+                  response = requests.post(
+                      f"{self.url}/api/3/action/{action}",
+                      data=data,
+                      files={"upload": fh},
+                      headers=self.headers,
+                      timeout=300,
+                  )
+              try:
+                  return self._result(action, response)
+              except Exception as exc:
+                  size = Path(file_path).stat().st_size
+                  keys = ",".join(sorted(data))
+                  raise RuntimeError(f"{exc}; upload={filename} size={size} bytes fields={keys}") from exc
+
+          def get_dataset(self, name):
+              response = self.client.post("/api/3/action/package_show", json={"id": name})
+              if response.status_code == 404:
+                  return None
+              try:
+                  payload = response.json()
+              except Exception as exc:
+                  raise RuntimeError(f"CKAN package_show returned HTTP {response.status_code}: {response.text[:1000]}") from exc
+              if payload.get("success"):
+                  return payload["result"]
+              error = payload.get("error") or {}
+              if error.get("__type") == "Not Found":
+                  return None
+              raise RuntimeError(f"CKAN package_show failed HTTP {response.status_code}: {payload}")
+
+          def ensure_dataset(self, name, *, title=None, notes=None):
+              payload = dict(self.dataset_meta)
+              payload["name"] = name
+              payload["owner_org"] = self.org
+              if title:
+                  payload["title"] = title
+              if notes:
+                  payload["notes"] = notes
+              existing = self.get_dataset(name)
+              if existing:
+                  payload["id"] = existing["id"]
+                  return self._action("package_patch", payload)
+              return self._action("package_create", payload)
+
+          def _existing_resource_id(
+              self, dataset, name, item_id, *,
+              original_filename=None, tapis_uri=None, require_upload=False,
+          ):
+              package = self.get_dataset(dataset)
+              if not package:
+                  return None
+              for resource in package.get("resources", []):
+                  if require_upload and resource.get("url_type") != "upload":
+                      continue
+                  same_item = resource.get("stac_item_id") == item_id
+                  if resource.get("name") == name and same_item:
+                      return resource["id"]
+                  if same_item and original_filename and resource.get("subside_original_filename") == original_filename:
+                      return resource["id"]
+                  if same_item and tapis_uri and (
+                      resource.get("tapis_original_url") == tapis_uri
+                      or resource.get("subside_source_url") == tapis_uri
+                  ):
+                      return resource["id"]
+              return None
+
+          def _tracking_fields(self, item_id):
+              cfg = self.manifest.get("config") or {}
+              fields = {
+                  "subside_pipeline": "subside-h2i-opera",
+                  "subside_archive_uri": self.archive_uri,
+                  "subside_start_date": cfg.get("start_date"),
+                  "subside_end_date": cfg.get("end_date"),
+                  "subside_bbox": json.dumps(_bbox_values(self.manifest)) if _bbox_values(self.manifest) else None,
+                  "subside_frame_ids": json.dumps(self.manifest.get("frame_ids", [])),
+                  "subside_product_count": self.manifest.get("product_count"),
+                  "stac_collection": str(val("COLLECTION", "subsidence-rates")),
+                  "stac_item_id": item_id,
+              }
+              return {key: value for key, value in fields.items() if value is not None}
+
+          def _short_run_suffix(self, item_id):
+              parts = str(item_id).rsplit("-", 6)
+              if len(parts) >= 7:
+                  return f"{parts[-6]}-{parts[-1]}"
+              return str(item_id)[-16:]
+
+          def _date_range(self):
+              cfg = self.manifest.get("config") or {}
+              start = cfg.get("start_date") or "unknown start"
+              end = cfg.get("end_date") or "unknown end"
+              return f"{start} to {end}"
+
+          def _run_label(self, item_id):
+              return f"run {self._short_run_suffix(item_id)}"
+
+          def _asset_title(self, fname, title):
+              lower = str(fname).lower()
+              if lower == "disp_displacement.tif":
+                  return "Displacement GeoTIFF (COG)"
+              if lower == "disp_overlay.png":
+                  return "Displacement overlay PNG"
+              if lower == MANIFEST_NAME:
+                  return "Run manifest JSON"
+              return title
+
+          def _resource_name(self, title, item_id):
+              return f"{title} - {self._date_range()} - {self._run_label(item_id)}"
+
+          def _opera_timestamp(self, fname):
+              for token in str(fname).split("_"):
+                  if len(token) == 16 and token[8] == "T" and token.endswith("Z"):
+                      return f"{token[:4]}-{token[4:6]}-{token[6:8]} {token[9:11]}:{token[11:13]}Z"
+              return ""
+
+          def _source_title(self, fname, item_id, source_index):
+              stamp = self._opera_timestamp(fname)
+              title = f"Source OPERA DISP-S1 NetCDF {source_index}"
+              if stamp:
+                  title = f"{title} - {stamp}"
+              return f"{title} - {self._run_label(item_id)}"
+
+          def _description(self, title, item_id):
+              cfg = self.manifest.get("config") or {}
+              bbox = _bbox_values(self.manifest)
+              bits = [
+                  f"{title} for SUBSIDE H2I STAC item {item_id}.",
+                  f"Time range: {cfg.get('start_date') or 'unknown'} to {cfg.get('end_date') or 'unknown'}.",
+              ]
+              if bbox:
+                  bits.append(f"Location bbox [west, south, east, north]: {bbox}.")
+              bits.append("Files from the same run share stac_item_id and subside_archive_uri.")
+              return " ".join(bits)
+
+          def upload_resource(self, dataset, file_path, *, item_id, name=None, fmt=None):
+              fname = name or Path(file_path).name
+              tapis_uri = self.tapis_urls.get(fname)
+              if not tapis_uri:
+                  raise RuntimeError(f"No tapis_original_url mapping for CKAN resource {fname}")
+              meta = self.resource_meta.get(fname) or {}
+              title = self._asset_title(fname, meta.get("subside_asset_title") or fname)
+              resource_name = self._resource_name(title, item_id)
+              description = self._description(title, item_id)
+              create_fields = {
+                  "package_id": dataset,
+                  "name": resource_name,
+                  "format": fmt or _fmt_from_name(fname),
+                  "description": description,
+              }
+              metadata_fields = {
+                  "mimetype": _mimetype_from_name(fname),
+                  "tapis_original_url": tapis_uri,
+                  "stac_item_id": item_id,
+                  "description": description,
+                  "subside_original_filename": fname,
+                  "subside_resource_title": resource_name,
+              }
+              metadata_fields.update(self._tracking_fields(item_id))
+              metadata_fields.update({
+                  key: value for key, value in meta.items()
+                  if value is not None
+              })
+              metadata_fields = {key: value for key, value in metadata_fields.items() if value is not None}
+              existing = self._existing_resource_id(
+                  dataset, resource_name, item_id,
+                  original_filename=fname, tapis_uri=tapis_uri, require_upload=True,
+              )
+              if existing:
+                  patch_fields = {"id": existing, "name": resource_name, **metadata_fields}
+                  try:
+                      result = self._action("resource_patch", patch_fields)
+                      self.resources_by_name[fname] = result
+                      return result
+                  except Exception as exc:
+                      print(
+                          f"CKAN existing resource patch skipped for {resource_name}: "
+                          f"{type(exc).__name__}: {str(exc)[:500]}"
+                      )
+                  create_fields["name"] = f"{resource_name} - {int(time.time())}"
+              result = self._action_upload("resource_create", create_fields, file_path)
+              patch_fields = {"id": result["id"], **metadata_fields}
+              try:
+                  result = self._action("resource_patch", patch_fields)
+              except Exception as exc:
+                  print(
+                      f"CKAN resource metadata patch skipped for {create_fields['name']}: "
+                      f"{type(exc).__name__}: {str(exc)[:500]}"
+                  )
+                  result = {**result, **metadata_fields}
+              self.resources_by_name[fname] = result
+              return result
+
+          def link_resource(self, dataset, url, *, item_id, name=None, fmt=None):
+              fname = name or url.rsplit("/", 1)[-1]
+              source_index = self.source_counts.get(item_id, 0) + 1
+              self.source_counts[item_id] = source_index
+              asset_key = "source" if source_index == 1 else f"source_{source_index - 1:04d}"
+              source_title = self._source_title(fname, item_id, source_index)
+              description = (
+                  f"{source_title}. Source OPERA DISP-S1 product used by SUBSIDE H2I "
+                  f"for {self._date_range()}. Files from the same run share "
+                  "stac_item_id and subside_archive_uri."
+              )
+              fields = {
+                  "name": source_title,
+                  "url": url,
+                  "format": fmt or _fmt_from_name(fname),
+                  "mimetype": _mimetype_from_name(fname),
+                  "stac_item_id": item_id,
+                  "description": description,
+              }
+              fields.update(self._tracking_fields(item_id))
+              fields.update({
+                  "subside_asset_key": asset_key,
+                  "subside_asset_role": "source",
+                  "subside_asset_title": source_title,
+                  "subside_original_filename": fname,
+                  "subside_source_url": url,
+              })
+              fields = {key: value for key, value in fields.items() if value is not None}
+              existing = self._existing_resource_id(
+                  dataset, source_title, item_id,
+                  original_filename=fname, tapis_uri=url,
+              )
+              if existing:
+                  fields["id"] = existing
+                  result = self._action("resource_patch", fields)
+              else:
+                  fields["package_id"] = dataset
+                  result = self._action("resource_create", fields)
+              resource_key = fname if fname not in self.resources_by_name else f"{fname}#{source_index}"
+              self.resource_meta[resource_key] = {
+                  "subside_asset_key": asset_key,
+                  "subside_asset_role": "source",
+                  "subside_asset_title": source_title,
+              }
+              self.resources_by_name[resource_key] = result
+              return result
+
+      def _annotate_stac_assets(item, ckan_client):
+          for fname, resource in ckan_client.resources_by_name.items():
+              meta = ckan_client.resource_meta.get(fname) or {}
+              asset_key = meta.get("subside_asset_key")
+              if not asset_key or asset_key not in item.get("assets", {}):
+                  continue
+              asset = item["assets"][asset_key]
+              if resource.get("id"):
+                  asset["ckan:resource_id"] = resource["id"]
+              if resource.get("url"):
+                  asset["ckan:resource_url"] = resource["url"]
+              if resource.get("tapis_original_url"):
+                  asset["tapis:original_url"] = resource["tapis_original_url"]
+              asset["auth:required"] = False
+              if meta.get("subside_asset_role"):
+                  asset["subside:asset_role"] = meta["subside_asset_role"]
+              if meta.get("subside_asset_title"):
+                  asset["title"] = meta["subside_asset_title"]
+                  asset["subside:asset_title"] = meta["subside_asset_title"]
+
+      archive = str(val("ARCHIVE_URI", "")).rstrip("/")
+      ckan_token = str(val("CKAN_TOKEN", "")).strip()
+      stac_url = str(val("STAC_URL", "")).strip()
+      if not (ckan_token and stac_url):
+          ctx.stdout("stac-publish: disabled (CKAN_TOKEN/STAC_URL unset) - skipping.")
+          raise SystemExit(0)
+      tapis_token = str(val("TAPIS_TOKEN", "")).strip()
+      if not tapis_token:
+          fail("Missing TAPIS_TOKEN workflow input; cannot read the Tapis job archive.")
+
+      tapis = Tapis(
+          base_url=str(val("TAPIS_BASE_URL", "https://portals.tapis.io")).rstrip("/"),
+          jwt=tapis_token,
+      )
+      system, base = _parse(archive)
+      manifest_path = _find_path(tapis, system, base, MANIFEST_NAME)
+      manifest = _read_json(tapis, system, manifest_path)
+      item_id = str(val("ITEM_ID", "")).strip() or _default_item_id(archive, manifest)
+      _, cogs, overlay = parse_manifest(manifest, item_id)
+      tapis_urls = {MANIFEST_NAME: f"tapis://{system}/{manifest_path}"}
+      resource_meta = {
+          MANIFEST_NAME: {
+              "subside_asset_key": "metadata",
+              "subside_asset_role": "metadata",
+              "subside_asset_title": "Run manifest",
+          }
+      }
+
+      with tempfile.TemporaryDirectory() as tmp:
+          tmpdir = Path(tmp)
+          local_manifest = tmpdir / MANIFEST_NAME
+          local_manifest.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+          missing = []
+          for spec in cogs:
+              try:
+                  artifact_path = _find_path(tapis, system, base, spec.filename)
+                  tapis_urls[spec.filename] = f"tapis://{system}/{artifact_path}"
+                  resource_meta[spec.filename] = {
+                      "subside_asset_key": spec.key,
+                      "subside_asset_role": "data",
+                      "subside_asset_title": spec.title or spec.filename,
+                      "subside_display_range": json.dumps(spec.display_range) if spec.display_range else None,
+                  }
+                  _download(tapis, system, artifact_path, tmpdir / spec.filename)
+              except Exception as exc:
+                  missing.append(f"{spec.filename}: {exc}")
+          if missing:
+              fail("missing publish artifacts: " + "; ".join(missing))
+          if overlay:
+              try:
+                  overlay_path = _find_path(tapis, system, base, overlay)
+                  tapis_urls[overlay] = f"tapis://{system}/{overlay_path}"
+                  resource_meta[overlay] = {
+                      "subside_asset_key": "overlay",
+                      "subside_asset_role": "overlay",
+                      "subside_asset_title": overlay,
+                  }
+                  _download(tapis, system, overlay_path, tmpdir / overlay)
+              except Exception as exc:
+                  print(f"overlay {overlay} not available, continuing: {exc}")
+
+          collection_id = str(val("COLLECTION", "subsidence-rates"))
+          stac_client = StacClient(url=stac_url, token=_bare_token(str(val("STAC_TOKEN", "")).strip() or ckan_token))
+          ckan_client = TapisLinkCkanClient(
+              url=str(val("CKAN_URL", "https://ckan.tacc.utexas.edu")),
+              token=ckan_token,
+              org=str(val("CKAN_ORG", "tacc-water")),
+              dataset_meta=_dataset_payload(collection_id, str(val("CKAN_ORG", "tacc-water")), manifest),
+              tapis_urls=tapis_urls,
+              resource_meta=resource_meta,
+              manifest=manifest,
+              archive_uri=archive,
+          )
+          try:
+              item = publish_from_dir(
+                  collection_id=collection_id,
+                  manifest_path=local_manifest,
+                  item_id=item_id,
+                  files_dir=tmpdir,
+                  ckan=ckan_client,
+                  stac_client=stac_client,
+              )
+              _annotate_stac_assets(item, ckan_client)
+              stac_client.upsert_item(collection_id, item)
+          finally:
+              stac_client.close()
+              ckan_client.close()
+      ctx.stdout(f"stac-publish: published item {item['id']} collection={val('COLLECTION', 'subsidence-rates')}")
+      raise SystemExit(0)

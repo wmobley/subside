@@ -1,0 +1,53 @@
+{
+  "group": "subside-ops",
+  "pipeline_id": "subside-h2i-opera",
+  "run_uuid": "84d655dc-63c6-4251-bca6-77468e354787",
+  "run": {
+    "name": "84d655dc-63c6-4251-bca6-77468e354787",
+    "description": null,
+    "last_modified": "2026-06-08 17:38:01",
+    "logs": "[TASK]     subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera.stac-publish\n[TASK]     subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera.run\n[TASK]     subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera.publish\n[PIPELINE] subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera 84d655dc-63c6-4251-bca6-77468e354787\n[PIPELINE] subside-ops.portals.subside-h2i-opera INITIALIZING NOTIFICATION HANDLERS subside-h2i-opera\n[PIPELINE] subside-ops.portals.subside-h2i-opera ACTIVE subside-h2i-opera\n[TASK]     subside-ops.portals.subside-h2i-opera ACTIVE subside-h2i-opera.run\n[TASK]     subside-ops.portals.subside-h2i-opera COMPLETED subside-h2i-opera.run\n[TASK]     subside-ops.portals.subside-h2i-opera ACTIVE subside-h2i-opera.publish\n[TASK]     subside-ops.portals.subside-h2i-opera ACTIVE subside-h2i-opera.stac-publish\n[TASK]     subside-ops.portals.subside-h2i-opera COMPLETED subside-h2i-opera.publish\n[TASK]     subside-ops.portals.subside-h2i-opera FAILED: [] subside-h2i-opera.stac-publish\n[PIPELINE] subside-ops.portals.subside-h2i-opera COMPLETED subside-h2i-opera\n",
+    "pipeline": "f7a9aabc-d103-42a8-8ae6-7dc6a94176ad",
+    "status": "completed",
+    "started_at": "2026-06-08 17:34:03",
+    "uuid": "84d655dc-63c6-4251-bca6-77468e354787"
+  },
+  "task_executions": [
+    {
+      "last_modified": "2026-06-08T17:37:55.792Z",
+      "last_message": "Task Completed Successfully",
+      "pipeline_run": "84d655dc-63c6-4251-bca6-77468e354787",
+      "started_at": "2026-06-08T17:34:06.328Z",
+      "stdout": "wrote subside-run-manifest.json",
+      "stderr": "",
+      "status": "completed",
+      "task": "d1f537de-fae4-486c-9059-aecee3f58aeb",
+      "uuid": "395fa0a9-774e-4dfc-ae94-2da6a5276e6d",
+      "task_id": "publish"
+    },
+    {
+      "last_modified": "2026-06-08T17:37:33.189Z",
+      "last_message": "Task Completed Successfully",
+      "pipeline_run": "84d655dc-63c6-4251-bca6-77468e354787",
+      "started_at": "2026-06-08T17:34:06.294Z",
+      "stdout": "submitted Tapis job f34912f1-a188-4fbc-9453-b63643945dc3-007\njob f34912f1-a188-4fbc-9453-b63643945dc3-007 status=PENDING\njob f34912f1-a188-4fbc-9453-b63643945dc3-007 status=STAGING_JOB\njob f34912f1-a188-4fbc-9453-b63643945dc3-007 status=RUNNING\njob f34912f1-a188-4fbc-9453-b63643945dc3-007 status=ARCHIVING\njob f34912f1-a188-4fbc-9453-b63643945dc3-007 status=FINISHED\n",
+      "stderr": "",
+      "status": "completed",
+      "task": "7eb4a8d1-43af-4b5b-89a2-0412e35fbdec",
+      "uuid": "914e9252-bbfc-4bca-88fe-3bb7598ae5a6",
+      "task_id": "run"
+    },
+    {
+      "last_modified": "2026-06-08T17:38:00.475Z",
+      "last_message": "Task Failed: []",
+      "pipeline_run": "84d655dc-63c6-4251-bca6-77468e354787",
+      "started_at": "2026-06-08T17:34:06.192Z",
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/mnt/open-workflow-engine/pipeline/task/src/entrypoint.py\", line 92, in <module>\n    manifest_path = _find_path(tapis, system, base, MANIFEST_NAME)\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/mnt/open-workflow-engine/pipeline/task/src/entrypoint.py\", line 60, in _find_path\n    raise FileNotFoundError(f\"could not find {filename} in tapis://{system}/{base}\")\nFileNotFoundError: could not find run-manifest.json in tapis://ls6/work/06659/wmobley/ls6/tapis-jobs-archive/2026-06-08Z/subside-h2i-opera-2024-06-01-2024-09-01-f34912f1-a188-4fbc-9453-b63643945dc3-007\n",
+      "status": "failed",
+      "task": "2249d545-085c-43a2-89e9-d675c9f28716",
+      "uuid": "f985bad4-563b-4088-8e8a-cebfea5bf640",
+      "task_id": "stac-publish"
+    }
+  ]
+}

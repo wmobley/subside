@@ -17,7 +17,7 @@ Related local docs:
 ## 2026-05-28 — Resolved (answers from user)
 
 - **Q1 → Tenant: `portals.tapis.io`.** PortalsCI tenant. New workflow group `subside-ops` (assumed; rename via env var in registration script if needed).
-- **Q2 → Archive system + path:** unchanged. Keep `cloud.data` with `HOST_EVAL($HOME)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}`. Each pipeline run writes one archive directory; downstream tasks reference it as their input source via the Tapis Files API.
+- **Q2 → Archive system + path:** use the `ls6` system with `HOST_EVAL($WORK)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}`. Each pipeline run writes one archive directory; downstream tasks reference it as their input source via the Tapis Files API.
 - **Q3 → WERC granularity: four tasks per stage.** `build-stack`, `compute-reference`, `estimate-velocity`, `export-geotiffs`. Trade-off accepted: each stage boundary spills the combined displacement stack (~GB-scale) to NetCDF on the archive and the next stage opens it. Mitigations called out under "Data passing between tasks" below.
 - **Q4 → CKAN: later.** v1 `publish` task is stdlib JSON munging only.
 

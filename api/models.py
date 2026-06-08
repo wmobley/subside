@@ -107,23 +107,36 @@ class RunRequest(BaseModel):
 class RunSubmitResponse(BaseModel):
     runId: str
     pipeline: str
+    pipelineId: Optional[str] = None
+    groupId: Optional[str] = None
     status: str
     tapisStatus: str
     name: str
 
 
+class RunTaskStatus(BaseModel):
+    taskId: Optional[str] = None
+    status: str
+    tapisStatus: str
+    lastMessage: Optional[str] = None
+
+
 class RunStatusResponse(BaseModel):
     runId: str
+    pipeline: Optional[str] = None
+    pipelineId: Optional[str] = None
     status: str          # normalized: queued|running|completed|failed|cancelled|unknown
     tapisStatus: str
     lastMessage: Optional[str] = None
     archive: Optional[str] = None
+    tasks: list[RunTaskStatus] = []
 
 
 class RunListItem(BaseModel):
     runId: str
     name: Optional[str] = None
     pipeline: Optional[str] = None
+    pipelineId: Optional[str] = None
     appId: Optional[str] = None
     status: str            # normalized
     tapisStatus: str

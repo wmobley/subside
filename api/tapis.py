@@ -25,12 +25,15 @@ def _need_tapipy():
 def client_from_token(token: str):
     """Build a tapipy client that acts as the user who owns ``token``.
 
-    Every API call made with this client carries the user's token, so Tapis
-    sees normal user operations (not workflows-service-on-behalf-of) — that is
-    what sidesteps the restricted-service block for job submission.
+    Every API call made with this client carries the user's token, so Tapis sees
+    normal user operations for Workflows submission and Files/Jobs inspection.
     """
     Tapis = _need_tapipy()
     client = Tapis(base_url=TAPIS_BASE_URL, jwt=token)
+    try:
+        client.subside_access_token = token
+    except Exception:
+        pass
     # tapipy doesn't populate .username from a bare jwt; derive it from the claim
     # so we can build the per-user staging path.
     username = username_from_token(token)

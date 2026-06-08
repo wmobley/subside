@@ -1,8 +1,10 @@
-"""Live smoke test for the SUBSIDE Tapis Workflows pipelines.
+"""Live smoke test for the SUBSIDE Tapis Workflows pipelines or direct jobs.
 
 Triggers each registered pipeline against ``portals.tapis.io`` with the
 Houston-Galveston test data from the local walkthroughs, then polls the run
 until it reaches a terminal state, printing per-task status as it goes.
+With ``--direct-jobs`` it skips Workflows and submits the pipeline's monolithic
+``run`` task directly through the Tapis Jobs API.
 
 This CONSUMES REAL COMPUTE on your TACC allocation and downloads OPERA
 products from Earthdata. Use ``--dry-run`` to validate the run payloads and
@@ -23,6 +25,10 @@ Usage::
     python workflows/smoke_test.py --pipeline h2i \
         --allocation MyAllocation --staging-system cloud.data --with-netrc
 
+    # Run the same app directly through Tapis Jobs, not Workflows:
+    python workflows/smoke_test.py --direct-jobs --pipeline h2i \
+        --allocation MyAllocation --staging-system cloud.data --with-netrc
+
     # Both pipelines:
     python workflows/smoke_test.py --pipeline both --allocation MyAllocation
 
@@ -39,17 +45,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
 from typing import Any
+from types import SimpleNamespace
 
 # register.py lives next to this file and exposes the auth + tenant helpers.
 # Importing it is side-effect free (its work is guarded by __main__).
 import register
 
 REPO_ROOT = register.REPO_ROOT  # subside/
-PIPELINE_DIR = REPO_ROOT / "workflows" / "pipelines"
+PIPELINE_DIR = REPO_ROOT / "tapis" / "workflows" / "pipelines"
 
 # --- Test data, lifted verbatim from the walkthroughs ----------------------
 # Houston-Galveston: known subsidence + good DISP-S1 coverage, tiny AOI so the
@@ -76,7 +84,19 @@ TEST_DATA = {
     "end_date": "2024-09-01",
     "num_workers": 2,            # walkthrough uses 2; keep the smoke test light
     "min_overlap_percent": 50.0,
+    "update_conda_env": "false",
     "reference_mode": "auto",    # werc only
+    "reference_lat": "",
+    "reference_lon": "",
+    "anchor_radius_m": 5000,
+    "n_reference_pixels": 25,
+    "stac_collection": "subsidence-rates",
+    "stac_item_id": "",
+    "ckan_url": "https://ckan.tacc.utexas.edu",
+    "ckan_org": "tacc-water",
+    "ckan_token": "",
+    "stac_url": "",
+    "stac_token": "",
 }
 
 # Pipeline id -> definition file. Both must already be registered (run
@@ -85,11 +105,16 @@ PIPELINES = {
     "h2i": "subside-h2i-opera",
     "werc": "subside-werc-opera",
 }
+PIPELINE_FILES = {
+    "h2i": "h2i-opera.yaml",
+    "werc": "werc-opera.yaml",
+}
 
 # Terminal run/task statuses (compared case-insensitively). Anything not in
 # either set means "still going" and we keep polling.
-SUCCESS_STATES = {"completed", "success", "succeeded"}
-FAILURE_STATES = {"failed", "error", "terminated", "stopped", "suspended"}
+SUCCESS_STATES = {"completed", "success", "succeeded", "finished"}
+FAILURE_STATES = {"failed", "error", "terminated", "stopped", "suspended", "cancelled", "canceled"}
+_TMPL = re.compile(r"\{\{\s*([a-zA-Z0-9_.\-]+)\s*\}\}")
 
 
 def _status_of(obj: Any) -> str:
@@ -212,12 +237,267 @@ def _build_args(pipeline_key: str, aoi_uri: str, netrc_uri: str | None, allocati
         "num_workers": {"value": TEST_DATA["num_workers"]},
         "min_overlap_percent": {"value": TEST_DATA["min_overlap_percent"]},
         "allocation": {"value": allocation},
+        "update_conda_env": {"value": TEST_DATA["update_conda_env"]},
+        "stac_collection": {"value": TEST_DATA["stac_collection"]},
+        "stac_item_id": {"value": TEST_DATA["stac_item_id"]},
+        "ckan_url": {"value": TEST_DATA["ckan_url"]},
+        "ckan_org": {"value": TEST_DATA["ckan_org"]},
+        "ckan_token": {"value": TEST_DATA["ckan_token"]},
+        "stac_url": {"value": TEST_DATA["stac_url"]},
+        "stac_token": {"value": TEST_DATA["stac_token"]},
     }
-    if netrc_uri:
-        a["earthdata_netrc_uri"] = {"value": netrc_uri}
+    a["earthdata_netrc_uri"] = {"value": netrc_uri or ""}
     if pipeline_key == "werc":
         a["reference_mode"] = {"value": TEST_DATA["reference_mode"]}
+        a["reference_lat"] = {"value": TEST_DATA["reference_lat"]}
+        a["reference_lon"] = {"value": TEST_DATA["reference_lon"]}
+        a["anchor_radius_m"] = {"value": TEST_DATA["anchor_radius_m"]}
+        a["n_reference_pixels"] = {"value": TEST_DATA["n_reference_pixels"]}
     return a
+
+
+def _client_token(client) -> str:
+    access = getattr(client, "access_token", None)
+    return getattr(access, "access_token", None) or (str(access) if access else "")
+
+
+def _add_workflow_auth_args(run_args: dict[str, dict], client) -> None:
+    token = _client_token(client)
+    if not token:
+        raise SystemExit("Could not resolve a Tapis token for the hosted Workflows run task.")
+    run_args["tapis_base_url"] = {"value": register.DEFAULT_BASE_URL}
+    run_args["tapis_token"] = {"value": token}
+
+
+def _redact_run_args(run_args: dict[str, dict]) -> dict[str, dict]:
+    redacted = json.loads(json.dumps(run_args, default=str))
+    for key in redacted:
+        if "token" in key.lower():
+            redacted[key] = {"value": "***"}
+    return redacted
+
+
+def _unwrap_args(run_args: dict[str, dict]) -> dict[str, Any]:
+    """Convert Workflows-style ``{"key": {"value": x}}`` args to flat values."""
+    return {key: value.get("value") if isinstance(value, dict) else value
+            for key, value in run_args.items()}
+
+
+def _resolve(value: Any, ctx: dict[str, Any]) -> Any:
+    """Resolve the simple ``{{ args.foo }}`` templates used by run task YAML."""
+    if isinstance(value, str):
+        def repl(match: re.Match) -> str:
+            cur: Any = ctx
+            for part in match.group(1).split("."):
+                cur = cur.get(part) if isinstance(cur, dict) else None
+                if cur is None:
+                    return ""
+            return str(cur)
+        return _TMPL.sub(repl, value)
+    if isinstance(value, list):
+        return [_resolve(item, ctx) for item in value]
+    if isinstance(value, dict):
+        return {key: _resolve(item, ctx) for key, item in value.items()}
+    return value
+
+
+def _load_pipeline(pipeline_key: str) -> dict[str, Any]:
+    yaml = register._need("yaml")
+    path = PIPELINE_DIR / PIPELINE_FILES[pipeline_key]
+    with path.open() as f:
+        return yaml.safe_load(f)
+
+
+def _alloc_arg(allocation: str) -> str:
+    allocation = allocation.strip()
+    return allocation if allocation.startswith("-") else f"-A {allocation}"
+
+
+def _build_direct_job_body(job_def: dict[str, Any], allocation: str) -> dict[str, Any]:
+    """Convert a pipeline ``tapis_job_def`` into a Jobs ``submitJob`` body."""
+    body: dict[str, Any] = {
+        "name": job_def["name"],
+        "appId": job_def["appId"],
+        "appVersion": str(job_def["appVersion"]),
+    }
+    for key in (
+        "nodeCount",
+        "coresPerNode",
+        "memoryMB",
+        "maxMinutes",
+        "execSystemId",
+        "execSystemExecDir",
+        "execSystemInputDir",
+        "execSystemOutputDir",
+        "execSystemLogicalQueue",
+        "archiveSystemId",
+        "archiveSystemDir",
+        "archiveOnAppError",
+    ):
+        if key in job_def:
+            body[key] = job_def[key]
+
+    file_inputs = []
+    for file_input in job_def.get("fileInputs", []) or []:
+        source_url = str(file_input.get("sourceUrl") or "").strip()
+        if not source_url:
+            continue
+        entry = {"name": file_input["name"], "sourceUrl": source_url}
+        if file_input.get("targetPath"):
+            entry["targetPath"] = file_input["targetPath"]
+        file_inputs.append(entry)
+    if file_inputs:
+        body["fileInputs"] = file_inputs
+
+    parameter_set = job_def.get("parameterSet", {}) or {}
+    out_parameter_set: dict[str, Any] = {}
+    env_vars = parameter_set.get("envVariables") or []
+    if env_vars:
+        out_parameter_set["envVariables"] = [
+            {"key": item["key"], "value": str(item.get("value", ""))}
+            for item in env_vars
+        ]
+
+    scheduler_options = []
+    for option in parameter_set.get("schedulerOptions", []) or []:
+        if option.get("name") == "TACC Allocation":
+            scheduler_options.append({"name": "TACC Allocation", "arg": _alloc_arg(allocation)})
+        else:
+            scheduler_options.append(option)
+    if scheduler_options:
+        out_parameter_set["schedulerOptions"] = scheduler_options
+
+    if out_parameter_set:
+        body["parameterSet"] = out_parameter_set
+    return body
+
+
+def _workflow_job_def(pipeline_key: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Build the same job request the hosted run function submits."""
+    app_id = {
+        "h2i": "subside-h2i-opera-analysis",
+        "werc": "subside-werc-opera-analysis",
+    }[pipeline_key]
+    max_minutes = 300 if pipeline_key == "werc" else 240
+    prefix = "subside-werc-opera" if pipeline_key == "werc" else "subside-h2i-opera"
+    env = [
+        {"key": "STAGE", "value": "run"},
+        {"key": "UPDATE_CONDA_ENV", "value": str(args.get("update_conda_env", "false"))},
+        {"key": "START_DATE", "value": str(args.get("start_date", ""))},
+        {"key": "END_DATE", "value": str(args.get("end_date", ""))},
+        {"key": "NUM_WORKERS", "value": str(args.get("num_workers", 2))},
+        {"key": "MIN_OVERLAP_PERCENT", "value": str(args.get("min_overlap_percent", 50.0))},
+    ]
+    if pipeline_key == "werc":
+        env.extend([
+            {"key": "REFERENCE_MODE", "value": str(args.get("reference_mode", "auto"))},
+            {"key": "REFERENCE_LAT", "value": str(args.get("reference_lat", ""))},
+            {"key": "REFERENCE_LON", "value": str(args.get("reference_lon", ""))},
+            {"key": "ANCHOR_RADIUS_M", "value": str(args.get("anchor_radius_m", 5000))},
+            {"key": "N_REFERENCE_PIXELS", "value": str(args.get("n_reference_pixels", 25))},
+        ])
+
+    file_inputs = []
+    aoi_uri = str(args.get("aoi_geojson_uri") or "").strip()
+    if aoi_uri:
+        file_inputs.append({
+            "name": "aoi-geojson",
+            "sourceUrl": aoi_uri,
+            "targetPath": "config/aoi.geojson",
+        })
+    netrc_uri = str(args.get("earthdata_netrc_uri") or "").strip()
+    if netrc_uri:
+        file_inputs.append({
+            "name": "earthdata-netrc",
+            "sourceUrl": netrc_uri,
+            "targetPath": ".netrc",
+        })
+
+    return {
+        "name": f"{prefix}-{args.get('start_date', '')}-{args.get('end_date', '')}",
+        "appId": app_id,
+        "appVersion": "0.1.1",
+        "nodeCount": 1,
+        "coresPerNode": 16,
+        "memoryMB": 128000,
+        "maxMinutes": max_minutes,
+        "execSystemId": "ls6",
+        "execSystemExecDir": "${JobWorkingDir}",
+        "execSystemInputDir": "${JobWorkingDir}",
+        "execSystemOutputDir": "${JobWorkingDir}/output",
+        "execSystemLogicalQueue": "vm-small",
+        "archiveSystemId": "ls6",
+        "archiveSystemDir": "HOST_EVAL($WORK)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}",
+        "archiveOnAppError": True,
+        "fileInputs": file_inputs,
+        "parameterSet": {
+            "envVariables": env,
+            "schedulerOptions": [
+                {"name": "TACC Allocation", "arg": _alloc_arg(str(args.get("allocation", "")))},
+            ],
+        },
+    }
+
+
+def _direct_job_body(pipeline_key: str, run_args: dict[str, dict], allocation: str) -> dict[str, Any]:
+    pipeline = _load_pipeline(pipeline_key)
+    run_task = next(task for task in pipeline["tasks"] if task["id"] == "run")
+    ctx = {"args": _unwrap_args(run_args)}
+    if "tapis_job_def" in run_task:
+        job_def = _resolve(run_task["tapis_job_def"], ctx)
+    else:
+        job_def = _workflow_job_def(pipeline_key, ctx["args"])
+    return _build_direct_job_body(job_def, allocation)
+
+
+def _has_template(value: Any) -> bool:
+    """Return true if a value still contains our local ``{{ ... }}`` placeholders."""
+    if isinstance(value, str):
+        return bool(_TMPL.search(value))
+    if isinstance(value, list):
+        return any(_has_template(item) for item in value)
+    if isinstance(value, dict):
+        return any(_has_template(item) for item in value.values())
+    return False
+
+
+def _hosted_workflow_supported(pipeline_key: str) -> bool:
+    """Hosted Workflows does not render our local Jinja-style Jobs templates."""
+    pipeline = _load_pipeline(pipeline_key)
+    return not _has_template(pipeline)
+
+
+def _submit_direct_job(client, body: dict[str, Any]) -> str | None:
+    result = client.jobs.submitJob(**body)
+    return _field(result, "uuid")
+
+
+def _poll_direct_job(client, job_uuid: str, args: argparse.Namespace) -> str:
+    deadline = time.monotonic() + args.timeout
+    last_line = ""
+    while True:
+        job = client.jobs.getJob(jobUuid=job_uuid)
+        status = _status_of(job)
+        archive_system = _field(job, "archiveSystemId") or ""
+        archive_dir = _field(job, "archiveSystemDir") or ""
+        line = f"  job={status}"
+        if archive_system or archive_dir:
+            line += f" | archive=tapis://{archive_system}/{str(archive_dir).lstrip('/')}"
+        if line != last_line:
+            print(line)
+            last_line = line
+
+        if status in SUCCESS_STATES or status in FAILURE_STATES:
+            if status in FAILURE_STATES:
+                last_message = _field(job, "lastMessage")
+                if last_message:
+                    print("  lastMessage:")
+                    print("    " + str(last_message).strip().replace("\n", "\n    "))
+            return status
+        if time.monotonic() > deadline:
+            print(f"  [timeout] still '{status}' after {args.timeout}s; giving up polling")
+            return f"timeout:{status}"
+        time.sleep(args.poll_interval)
 
 
 def _trigger(client, group_id: str, pipeline_id: str, run_args: dict) -> str | None:
@@ -321,9 +601,12 @@ def _poll(client, group_id: str, pipeline_id: str, run_uuid: str, args: argparse
             print(line)
             last_line = line
 
+        failed_tasks = [e for e in execs if _status_of(e) in FAILURE_STATES]
         if run_status in SUCCESS_STATES or run_status in FAILURE_STATES:
-            if run_status in FAILURE_STATES:
+            if run_status in FAILURE_STATES or failed_tasks:
                 _dump_failures(client, group_id, pipeline_id, run_uuid)
+            if failed_tasks and run_status in SUCCESS_STATES:
+                return "failed"
             return run_status
         if time.monotonic() > deadline:
             print(f"  [timeout] still '{run_status}' after {args.timeout}s; giving up polling")
@@ -335,9 +618,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pipeline", choices=["h2i", "werc", "both"], default="h2i",
                         help="Which pipeline(s) to smoke test. Default: h2i (cheapest).")
+    parser.add_argument("--direct-jobs", action="store_true",
+                        help="Submit each pipeline's monolithic run task directly through "
+                             "Tapis Jobs instead of triggering the Workflows pipeline.")
     parser.add_argument("--allocation", default=None,
                         help="TACC allocation to charge. Required for a live run "
-                             "(env: TACC_ALLOCATION).")
+                             "(env: TACC_ALLOCATION / SUBSIDE_DEFAULT_ALLOCATION).")
     parser.add_argument("--staging-system", default="cloud.data",
                         help="Tapis storage system to stage the AOI/.netrc onto "
                              "(env: TAPIS_STAGING_SYSTEM). Default: cloud.data.")
@@ -361,16 +647,33 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     import os
-    args.allocation = args.allocation or os.environ.get("TACC_ALLOCATION")
+
+    # Match orchestrate.py/API behavior: local secrets and defaults live in
+    # subside/.env. No-op when python-dotenv is absent.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(REPO_ROOT / ".env")
+    except ImportError:
+        pass
+
+    register.DEFAULT_BASE_URL = os.environ.get("TAPIS_BASE_URL", register.DEFAULT_BASE_URL)
+    register.DEFAULT_GROUP = os.environ.get("SUBSIDE_WORKFLOW_GROUP", register.DEFAULT_GROUP)
+
+    args.allocation = args.allocation or os.environ.get("TACC_ALLOCATION") \
+        or os.environ.get("SUBSIDE_DEFAULT_ALLOCATION")
     args.staging_system = os.environ.get("TAPIS_STAGING_SYSTEM", args.staging_system)
 
     if not args.dry_run and not args.allocation:
-        raise SystemExit("A live run needs --allocation (or $TACC_ALLOCATION).")
+        raise SystemExit("A live run needs --allocation (or $TACC_ALLOCATION / $SUBSIDE_DEFAULT_ALLOCATION).")
 
     selected = ["h2i", "werc"] if args.pipeline == "both" else [args.pipeline]
 
-    client = register._authenticate()
-    print(f"Authenticated against {register.DEFAULT_BASE_URL} as {client.username}")
+    if args.dry_run and not (args.probe or args.describe_run):
+        client = SimpleNamespace(username=os.environ.get("TAPIS_USERNAME") or os.environ.get("USER") or "user")
+        print(f"[dry-run] not authenticating; using username={client.username!r} for staging path defaults")
+    else:
+        client = register._authenticate()
+        print(f"Authenticated against {register.DEFAULT_BASE_URL} as {client.username}")
 
     if args.probe:
         return _probe(client)
@@ -393,11 +696,49 @@ def main(argv: list[str] | None = None) -> int:
     for key in selected:
         pipeline_id = PIPELINES[key]
         run_args = _build_args(key, aoi_uri, netrc_uri, args.allocation or "<allocation>")
-        print(f"\n=== {pipeline_id} ===")
-        print("args:", json.dumps(run_args, indent=2))
+        if not args.direct_jobs and not args.dry_run:
+            _add_workflow_auth_args(run_args, client)
+        print(f"\n=== {pipeline_id}{' direct job' if args.direct_jobs else ''} ===")
+        print("args:", json.dumps(_redact_run_args(run_args), indent=2))
+
+        if args.direct_jobs:
+            job_body = _direct_job_body(key, run_args, args.allocation or "<allocation>")
+            shown_body = json.loads(json.dumps(job_body))
+            for file_input in shown_body.get("fileInputs", []):
+                if file_input.get("name") == "earthdata-netrc":
+                    file_input["sourceUrl"] = "***"
+            print("job:", json.dumps(shown_body, indent=2))
+            if args.dry_run:
+                results[pipeline_id] = "dry-run"
+                continue
+
+            print(f"[submit]  jobs.submitJob app={job_body['appId']} version={job_body['appVersion']}")
+            job_uuid = _submit_direct_job(client, job_body)
+            if not job_uuid:
+                print("[error]   could not resolve a job uuid; check the tenant UI.")
+                results[pipeline_id] = "submit-failed"
+                continue
+            print(f"[job]     uuid={job_uuid}")
+
+            if args.no_poll:
+                results[pipeline_id] = f"submitted:{job_uuid}"
+                continue
+            results[pipeline_id] = _poll_direct_job(client, job_uuid, args)
+            continue
 
         if args.dry_run:
             results[pipeline_id] = "dry-run"
+            continue
+
+        if not _hosted_workflow_supported(key):
+            print(
+                "[error]   hosted Workflows cannot run this dynamic pipeline definition: "
+                "the run task's tapis_job_def still contains local {{ args.* }} templates, "
+                "and the Workflows engine passes those literals through to Tapis Jobs. "
+                "Use --direct-jobs for this smoke test, or replace the hosted task with "
+                "a static job definition."
+            )
+            results[pipeline_id] = "unsupported-hosted-template"
             continue
 
         print(f"[trigger] POST /v3/workflows/groups/{args.group}/pipelines/{pipeline_id}/run")

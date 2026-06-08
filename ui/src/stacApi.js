@@ -1,7 +1,7 @@
 // Client for the stac-platform STAC API (search + asset helpers).
 //
 // The STAC API is a separate service from the SUBSIDE API. Point the UI at it
-// with VITE_STAC_API_BASE (e.g. https://stac-api.pods.portals.tapis.io). When
+// with VITE_STAC_API_BASE (e.g. https://stacapi.pods.portals.tapis.io). When
 // unset, STAC features are disabled (stacEnabled() === false).
 //
 // STAC responds with `application/geo+json` (not `application/json`), so we use

@@ -1,0 +1,53 @@
+{
+  "group": "subside-ops",
+  "pipeline_id": "subside-h2i-opera",
+  "run_uuid": "f94c740f-21b7-41f5-9755-323ed7bc03d4",
+  "run": {
+    "name": "f94c740f-21b7-41f5-9755-323ed7bc03d4",
+    "description": null,
+    "last_modified": "2026-06-04 21:51:31",
+    "logs": "[TASK]     subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera.publish\n[TASK]     subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera.run\n[TASK]     subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera.stac-publish\n[PIPELINE] subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera f94c740f-21b7-41f5-9755-323ed7bc03d4\n[PIPELINE] subside-ops.portals.subside-h2i-opera INITIALIZING NOTIFICATION HANDLERS subside-h2i-opera\n[PIPELINE] subside-ops.portals.subside-h2i-opera ACTIVE subside-h2i-opera\n[TASK]     subside-ops.portals.subside-h2i-opera ACTIVE subside-h2i-opera.run\n[TASK]     subside-ops.portals.subside-h2i-opera FAILED: ['message: RestrictedService workflows not allowed for user wmobley in portals tenant.'] subside-h2i-opera.run\n[PIPELINE] subside-ops.portals.subside-h2i-opera FAILED  subside-h2i-opera\n",
+    "pipeline": "f2242532-3c00-47f2-98e7-87ba8b560b46",
+    "status": "failed",
+    "started_at": "2026-06-04 21:51:25",
+    "uuid": "f94c740f-21b7-41f5-9755-323ed7bc03d4"
+  },
+  "task_executions": [
+    {
+      "last_modified": "2026-06-04T21:51:30.758Z",
+      "last_message": "Task Failed: ['message: RestrictedService workflows not allowed for user wmobley in portals tenant.']",
+      "pipeline_run": "f94c740f-21b7-41f5-9755-323ed7bc03d4",
+      "started_at": "2026-06-04T21:51:28.480Z",
+      "stdout": "",
+      "stderr": "",
+      "status": "failed",
+      "task": "6253588a-a04e-43e5-b264-005f9f990ce5",
+      "uuid": "4ba3bf43-739b-4a33-a0aa-adf43f810fa7",
+      "task_id": "run"
+    },
+    {
+      "last_modified": "2026-06-04T21:51:28.406Z",
+      "last_message": null,
+      "pipeline_run": "f94c740f-21b7-41f5-9755-323ed7bc03d4",
+      "started_at": "2026-06-04T21:51:28.406Z",
+      "stdout": null,
+      "stderr": null,
+      "status": "pending",
+      "task": "45e924dd-da2e-4c9a-ab51-8b3fb9186686",
+      "uuid": "e142cb3d-4532-44e9-be30-94564b04486a",
+      "task_id": "publish"
+    },
+    {
+      "last_modified": "2026-06-04T21:51:28.465Z",
+      "last_message": null,
+      "pipeline_run": "f94c740f-21b7-41f5-9755-323ed7bc03d4",
+      "started_at": "2026-06-04T21:51:28.465Z",
+      "stdout": null,
+      "stderr": null,
+      "status": "pending",
+      "task": "9818342c-0278-44bb-ba6f-7baa8d0f0590",
+      "uuid": "f035134a-da7b-41c7-95b8-e363e6f0ca24",
+      "task_id": "stac-publish"
+    }
+  ]
+}
