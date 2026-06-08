@@ -163,7 +163,7 @@ def main() -> int:
         print(f"  · {d}{marker}")
     if placeholder or target_db not in dbs:
         guess = next((d for d in dbs if d not in {"postgres", "template0", "template1"}), None)
-        print(f"\n  → Set the dbname in SUBSIDE_DATABASE_URL to one of the above"
+        print("\n  → Set the dbname in SUBSIDE_DATABASE_URL to one of the above"
               + (f" (likely '{guess}')." if guess else "."))
     print()
 

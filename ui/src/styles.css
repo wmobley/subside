@@ -1704,6 +1704,35 @@ button {
 .sap-dl {
   color: var(--tacc-text-medium) !important;
   font-weight: 400;
+  text-decoration: none;
+}
+
+.sap-downloads {
+  margin-top: 6px;
+}
+
+/* Run-details metadata: tight label/value rows from the STAC Item properties. */
+.sap-meta {
+  margin: 2px 0 8px;
+  font-size: 12px;
+}
+
+.sap-meta > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--tacc-gray-lighter);
+}
+
+.sap-meta dt {
+  color: var(--tacc-text-medium);
+}
+
+.sap-meta dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
 }
 
 /* Maps page: map fills the section once the MODFLOW sidebar is gone. */

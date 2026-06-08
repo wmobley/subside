@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useMap, useMapEvents } from 'react-leaflet'
 
-import { cogHref, cogRange, searchItems, stacEnabled } from '../../stacApi'
+import { itemLayers, itemMeta, searchItems, stacEnabled } from '../../stacApi'
 import { StacCogLayer } from './StacCogLayer'
 
 function itemLabel(item) {
@@ -30,19 +30,22 @@ export function StacResults() {
 
   // Re-search on pan/zoom end.
   useMapEvents({ moveend: refresh, zoomend: refresh })
-  useEffect(refresh, [map]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(refresh, [map])
 
   if (!stacEnabled()) return null
 
   const selectedItem = items.find((it) => it.id === selected)
-  const href = selectedItem && cogHref(selectedItem)
+  // Render the item's first COG layer. Use itemLayers (not cogHref) so werc
+  // items, whose COGs are keyed `cumulative`/`velocity` rather than `cog`, render.
+  const layer = selectedItem ? itemLayers(selectedItem).find((l) => l.type === 'cog') : null
+  const meta = selectedItem ? itemMeta(selectedItem) : null
 
   return (
     <>
-      {href && (
+      {layer && (
         <StacCogLayer
-          href={href}
-          range={cogRange(selectedItem)}
+          href={layer.href}
+          range={layer.range}
           onError={(m) => setError(m)}
         />
       )}
@@ -64,6 +67,18 @@ export function StacResults() {
               >
                 {itemLabel(it)}
               </button>
+              {it.id === selected && (
+                <div style={detailStyle}>
+                  {layer ? (
+                    <div>
+                      {layer.label}
+                      {layer.range ? ` · ${Number(layer.range.vmin).toPrecision(3)}–${Number(layer.range.vmax).toPrecision(3)}${layer.unit ? ` ${layer.unit}` : ''}` : ''}
+                    </div>
+                  ) : <div>No raster asset.</div>}
+                  {meta?.productCount != null && <div>{meta.productCount} OPERA products</div>}
+                  {meta?.frameIds?.length ? <div>Frame{meta.frameIds.length > 1 ? 's' : ''} {meta.frameIds.join(', ')}</div> : null}
+                </div>
+              )}
             </li>
           ))}
           {!items.length && !error && (
@@ -96,4 +111,10 @@ const rowStyle = {
   cursor: 'pointer',
   borderRadius: 4,
   font: 'inherit',
+}
+const detailStyle = {
+  padding: '2px 8px 6px',
+  fontSize: 11,
+  color: '#555',
+  lineHeight: 1.4,
 }

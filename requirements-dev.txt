@@ -1,0 +1,3 @@
+# Dev-only tooling (kept out of the API runtime image / api/requirements.txt).
+# Install into your local env:  pip install -r requirements-dev.txt
+ruff==0.15.16

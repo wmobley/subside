@@ -91,7 +91,7 @@ function AnnualChart({ annual }) {
 
   const band = [
     ...rows.map((a, i) => `${x(i)},${y(a.subsidence_max_ft || 0)}`),
-    ...rows.map((a, i) => a).reverse().map((a, j) => {
+    ...rows.map((a) => a).reverse().map((a, j) => {
       const i = rows.length - 1 - j
       return `${x(i)},${y(rows[i].subsidence_min_ft || 0)}`
     }),

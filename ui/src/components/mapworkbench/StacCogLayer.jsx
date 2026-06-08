@@ -1,9 +1,10 @@
 // Renders a STAC Item's COG asset (a public CKAN URL) as a raster on the map.
 //
-// Sibling to CogLayer.jsx: that one streams a workflow artifact through the
-// authenticated SUBSIDE API proxy; this one fetches a public STAC asset href
-// directly (the CKAN resource download URL must allow CORS + range requests).
-// Shares the viridis ramp + display-range scaling behavior.
+// This is the single COG renderer for the app: both the STAC discovery panel
+// (StacResults) and a finished run's results (SubsideAnalysis) point it at a
+// public STAC asset href (the CKAN resource download URL must allow CORS + range
+// requests). Parses the GeoTIFF client-side and colors it with a viridis ramp
+// scaled to the asset's display range.
 import { useEffect } from 'react'
 import { useMap } from 'react-leaflet'
 

@@ -14,11 +14,11 @@ import { createPortal } from 'react-dom'
 import { ImageOverlay, Rectangle, useMap } from 'react-leaflet'
 
 import {
-  bboxToAoiGeoJSON, fetchArtifactBlob, getRunResults, getRunStatus,
-  listRuns, submitRun,
+  bboxToAoiGeoJSON, getRunResults, getRunStatus, listRuns, submitRun,
 } from '../../subsideApi'
 import { useAuth } from '../../auth'
-import { CogLayer } from './CogLayer'
+import { findRunItem, itemDownloads, itemLayers, itemMeta, stacEnabled } from '../../stacApi'
+import { StacCogLayer } from './StacCogLayer'
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
 
@@ -40,12 +40,6 @@ const RUN_COPY = {
 
 function bboxToBounds(b) {
   return [[b[1], b[0]], [b[3], b[2]]] // [[s,w],[n,e]] for Leaflet
-}
-
-// "opera_disp_s1_cumulative.tif" -> "Cumulative"
-function layerLabel(name) {
-  const base = (name || '').replace(/\.tif$/i, '').replace(/^opera_disp_s1_/i, '').replace(/_/g, ' ').trim()
-  return base ? base.charAt(0).toUpperCase() + base.slice(1) : name
 }
 
 // Band the *observed* risk from the velocity layer's value range. LOS velocity
@@ -88,12 +82,10 @@ export function SubsideAnalysis({ picked }) {
   const [submitErr, setSubmitErr] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // Completed-run results: the displacement overlay + downloadable artifacts.
-  const [results, setResults] = useState(null)
-  const [selectedLayer, setSelectedLayer] = useState(null) // {type:'cog'|'png', name, path, label, bounds?}
-  const [pngUrl, setPngUrl] = useState(null)               // blob URL when a PNG layer is shown
-  const [cogRange, setCogRange] = useState(null)           // {min,max} reported by the COG layer
-  const [velocityRange, setVelocityRange] = useState(null) // cached range of the velocity layer, for the Observed risk card
+  // Completed-run results: the STAC Item the pipeline published for this run.
+  // All result rasters render from its public asset hrefs (no API proxy).
+  const [stacItem, setStacItem] = useState(null)
+  const [selectedLayer, setSelectedLayer] = useState(null) // {key, type:'cog'|'png', href, label, range?}
   const [resultsErr, setResultsErr] = useState('')
 
   // A frame was clicked on the map: adopt its footprint as the AOI and, when the
@@ -137,46 +129,49 @@ export function SubsideAnalysis({ picked }) {
     return () => clearInterval(id)
   }, [run?.runId, run?.status, token])
 
-  // When a run is completed, pull its results (the list of layers). Don't render
-  // anything until the user picks a layer. Clears when the run isn't completed.
+  // When a run completes, resolve the STAC Item the pipeline published for it,
+  // then render result rasters from its public asset hrefs. We get the run's
+  // AOI bbox + date window from the results manifest (a metadata call, not a
+  // raster proxy) so this also works for runs reattached from history. Clears
+  // when the run isn't completed.
   useEffect(() => {
-    if (!token || !run?.runId) { setResults(null); setSelectedLayer(null); return undefined }
-    if (run.status !== 'completed') { setSelectedLayer(null); return undefined }
+    if (!token || !run?.runId || run.status !== 'completed') {
+      setStacItem(null); setSelectedLayer(null); return undefined
+    }
     let cancelled = false
-    setResultsErr('')
+    setResultsErr(''); setStacItem(null); setSelectedLayer(null)
+    if (!stacEnabled()) {
+      setResultsErr('Map visualization needs the STAC API — set VITE_STAC_API_BASE.')
+      return undefined
+    }
     getRunResults(token, run.runId)
-      .then((res) => { if (!cancelled) { setResults(res); setSelectedLayer(null) } })
+      .then((res) => {
+        const m = res?.manifest || {}
+        const b = m.bbox
+        const bbox = b && b.lon_min != null
+          ? [b.lon_min, b.lat_min, b.lon_max, b.lat_max]
+          : aoi
+        const cfg = m.config || {}
+        return findRunItem({
+          bbox,
+          start: cfg.start_date || form.start_date,
+          end: cfg.end_date || form.end_date,
+        })
+      })
+      .then((item) => {
+        if (cancelled) return
+        setStacItem(item)
+        if (!item) setResultsErr('Results are still being published to the catalog — check back shortly.')
+      })
       .catch((err) => { if (!cancelled) setResultsErr(err.message) })
     return () => { cancelled = true }
-  }, [token, run?.runId, run?.status])
+  }, [token, run?.runId, run?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A selected PNG layer needs a blob URL for the ImageOverlay (COGs fetch
-  // themselves inside CogLayer). Revoke the URL when the selection changes.
+  // Fit the map to a selected PNG overlay (COGs fit themselves in StacCogLayer).
   useEffect(() => {
-    if (selectedLayer?.type !== 'png') { setPngUrl(null); return undefined }
-    let cancelled = false
-    let url
-    fetchArtifactBlob(token, run.runId, selectedLayer.path)
-      .then((u) => {
-        if (cancelled) { URL.revokeObjectURL(u); return }
-        url = u
-        setPngUrl(u)
-        try { map.fitBounds(selectedLayer.bounds) } catch { /* ignore */ }
-      })
-      .catch((err) => setResultsErr(err.message))
-    return () => { cancelled = true; if (url) URL.revokeObjectURL(url) }
-  }, [selectedLayer, token, run?.runId, map])
-
-  // Cache the velocity layer's value range so the Observed risk card can read a
-  // rate even back in the layer-list view (where no COG is rendered).
-  useEffect(() => {
-    if (cogRange && selectedLayer && /velocit/i.test(selectedLayer.label || selectedLayer.name || '')) {
-      setVelocityRange(cogRange)
-    }
-  }, [cogRange, selectedLayer])
-
-  // A fresh run starts with no known velocity range.
-  useEffect(() => { setVelocityRange(null) }, [run?.runId])
+    if (selectedLayer?.type !== 'png' || !stacItem?.bbox) return
+    try { map.fitBounds(bboxToBounds(stacItem.bbox)) } catch { /* ignore */ }
+  }, [selectedLayer, stacItem, map])
 
   // Pull the durable workflow history whenever we have a token (incl. after refresh).
   function refreshHistory(tok = token) {
@@ -198,19 +193,6 @@ export function SubsideAnalysis({ picked }) {
   // Re-attach the status poller to a pipeline run picked from history.
   function attachRun(item) {
     setRun({ runId: item.runId, status: item.status, tapisStatus: item.tapisStatus, lastMessage: '' })
-  }
-
-  async function downloadArtifact(art) {
-    try {
-      const url = await fetchArtifactBlob(token, run.runId, art.path)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = art.name
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 10000)
-    } catch (err) {
-      setResultsErr(err.message)
-    }
   }
 
   async function handleSubmit() {
@@ -244,29 +226,17 @@ export function SubsideAnalysis({ picked }) {
     setForm((f) => ({ ...f, [k]: e.target.value }))
   }
 
-  // Result layers (selectable rasters) + the archive zip, from the run manifest.
-  const artifacts = results?.artifacts || []
-  const mbbox = results?.manifest?.bbox
-  const layerOptions = [
-    ...artifacts
-      .filter((a) => /\.tif$/i.test(a.name || ''))
-      .map((a) => ({ type: 'cog', name: a.name, path: a.path, label: layerLabel(a.name) })),
-    ...(mbbox?.lat_min != null
-      ? artifacts
-        .filter((a) => /disp_overlay\.png$/i.test(a.name || ''))
-        .map((a) => ({
-          type: 'png', name: a.name, path: a.path, label: 'Displacement (preview)',
-          bounds: [[mbbox.lat_min, mbbox.lon_min], [mbbox.lat_max, mbbox.lon_max]],
-        }))
-      : []),
-  ]
-  const zipArt = artifacts.find((a) => /\.zip$/i.test(a.name || ''))
-  const legendRange = cogRange || (selectedLayer?.range)
+  // Result layers (selectable rasters) + downloads + metadata, from the STAC Item.
+  const layerOptions = itemLayers(stacItem)
+  const downloads = itemDownloads(stacItem)
+  const meta = itemMeta(stacItem)
+  const legendRange = selectedLayer?.range
 
-  // Risk-card inputs. A velocity layer in the manifest means this run measured a
-  // rate (werc); without one it's a displacement-only snapshot (h2i).
-  const velocityLayer = layerOptions.find((l) => /velocit/i.test(l.label) || /velocit/i.test(l.name))
-  const observed = observedRisk(velocityRange)
+  // Risk-card inputs. A velocity layer means this run measured a rate (werc);
+  // without one it's a displacement-only snapshot (h2i). The display range rides
+  // on the STAC asset, so we can read the rate without rendering the layer.
+  const velocityLayer = layerOptions.find((l) => l.key === 'velocity' || /velocit/i.test(l.label))
+  const observed = observedRisk(velocityLayer?.range)
 
   const panel = (
     <div className="subside-analysis-panel">
@@ -345,7 +315,7 @@ export function SubsideAnalysis({ picked }) {
 
               {selectedLayer ? (
                 <>
-                  <button type="button" className="sap-link" onClick={() => { setSelectedLayer(null); setCogRange(null) }}>
+                  <button type="button" className="sap-link" onClick={() => setSelectedLayer(null)}>
                     ← all results
                   </button>
                   <div className="sap-results-head">{selectedLayer.label}</div>
@@ -353,7 +323,7 @@ export function SubsideAnalysis({ picked }) {
                     <div className="sap-legend-bar" />
                     <div className="sap-legend-labels">
                       <span>{legendRange ? Number(legendRange.min ?? legendRange.vmin).toPrecision(3) : 'low'}</span>
-                      <span>{selectedLayer.label}</span>
+                      <span>{selectedLayer.unit || ''}</span>
                       <span>{legendRange ? Number(legendRange.max ?? legendRange.vmax).toPrecision(3) : 'high'}</span>
                     </div>
                   </div>
@@ -387,16 +357,46 @@ export function SubsideAnalysis({ picked }) {
                     Want a projection? The <strong>Forecast</strong> tab estimates potential future subsidence and a 0–10 risk score.
                   </div>
 
+                  {(meta.start || meta.productCount != null || meta.frameIds?.length) ? (
+                    <>
+                      <div className="sap-results-head">Run details</div>
+                      <dl className="sap-meta">
+                        {meta.start ? (
+                          <div>
+                            <dt>Acquisition window</dt>
+                            <dd>{meta.start.slice(0, 10)} → {(meta.end || '').slice(0, 10) || '—'}</dd>
+                          </div>
+                        ) : null}
+                        {meta.productCount != null ? (
+                          <div>
+                            <dt>OPERA products</dt>
+                            <dd>{meta.productCount}</dd>
+                          </div>
+                        ) : null}
+                        {meta.frameIds?.length ? (
+                          <div>
+                            <dt>{meta.frameIds.length > 1 ? 'Frames' : 'Frame'}</dt>
+                            <dd>{meta.frameIds.join(', ')}</dd>
+                          </div>
+                        ) : null}
+                      </dl>
+                    </>
+                  ) : null}
+
                   <div className="sap-results-head">Result layers</div>
                   {layerOptions.length ? layerOptions.map((l) => (
-                    <button type="button" key={l.path} className="sap-layer-row" onClick={() => { setCogRange(null); setSelectedLayer(l) }}>
+                    <button type="button" key={l.key} className="sap-layer-row" onClick={() => setSelectedLayer(l)}>
                       ▦ {l.label}
                     </button>
                   )) : (!resultsErr ? <div className="sap-hint">No raster layers in this run.</div> : null)}
-                  {zipArt ? (
-                    <button type="button" className="sap-dl" onClick={() => downloadArtifact(zipArt)}>
-                      ⤓ {zipArt.name}
-                    </button>
+                  {downloads.length ? (
+                    <div className="sap-downloads">
+                      {downloads.map((d) => (
+                        <a key={d.key} className="sap-dl" href={d.href} target="_blank" rel="noreferrer" download>
+                          ⤓ {d.name}
+                        </a>
+                      ))}
+                    </div>
                   ) : null}
                 </>
               )}
@@ -435,10 +435,10 @@ export function SubsideAnalysis({ picked }) {
     <>
       {aoi ? <Rectangle bounds={bboxToBounds(aoi)} pathOptions={{ color: '#005f86', weight: 2, fillOpacity: 0.08 }} /> : null}
       {selectedLayer?.type === 'cog' ? (
-        <CogLayer token={token} runId={run.runId} path={selectedLayer.path} onRange={setCogRange} onError={setResultsErr} />
+        <StacCogLayer href={selectedLayer.href} range={selectedLayer.range} onError={setResultsErr} />
       ) : null}
-      {selectedLayer?.type === 'png' && pngUrl ? (
-        <ImageOverlay url={pngUrl} bounds={selectedLayer.bounds} opacity={0.8} />
+      {selectedLayer?.type === 'png' && stacItem?.bbox ? (
+        <ImageOverlay url={selectedLayer.href} bounds={bboxToBounds(stacItem.bbox)} opacity={0.8} />
       ) : null}
       {createPortal(panel, controlEl)}
     </>

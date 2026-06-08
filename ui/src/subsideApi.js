@@ -128,24 +128,11 @@ export async function getRunResults(token, runId) {
   })
 }
 
-function fileUrl(runId, archivePath) {
-  return path(`/runs/${encodeURIComponent(runId)}/file?path=${encodeURIComponent(archivePath)}`)
-}
-
-// Fetch one archive file through the API proxy (same-origin + token header) and
-// return an object URL — usable as a Leaflet ImageOverlay/`<img>` src or download.
-export async function fetchArtifactBlob(token, runId, archivePath) {
-  const res = await fetch(fileUrl(runId, archivePath), { headers: { 'X-Tapis-Token': token } })
-  if (!res.ok) throw new Error(`File ${res.status} ${res.statusText}`)
-  return URL.createObjectURL(await res.blob())
-}
-
-// Same, but as an ArrayBuffer — for parsing a COG GeoTIFF client-side.
-export async function fetchArtifactArrayBuffer(token, runId, archivePath) {
-  const res = await fetch(fileUrl(runId, archivePath), { headers: { 'X-Tapis-Token': token } })
-  if (!res.ok) throw new Error(`File ${res.status} ${res.statusText}`)
-  return res.arrayBuffer()
-}
+// NOTE: result rasters are no longer streamed through the API /file proxy — the
+// UI renders them from the public STAC asset hrefs the pipeline publishes (see
+// stacApi.js + StacCogLayer). The /runs/{id}/file endpoint still exists server-
+// side for diagnostics/scripts; getRunResults above is kept only to read a run's
+// manifest (bbox + dates) so we can locate its published STAC Item.
 
 // Build a one-feature Polygon FeatureCollection from a [w, s, e, n] bbox.
 export function bboxToAoiGeoJSON(bbox) {
