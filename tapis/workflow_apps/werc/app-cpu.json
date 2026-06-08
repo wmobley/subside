@@ -109,8 +109,8 @@
         },
         {
           "key": "NUM_WORKERS",
-          "value": "2",
-          "description": "Number of parallel download workers.",
+          "value": "8",
+          "description": "Number of parallel download workers (I/O-bound; the job holds 16 cores).",
           "inputMode": "INCLUDE_BY_DEFAULT",
           "notes": {
             "label": "Download workers"

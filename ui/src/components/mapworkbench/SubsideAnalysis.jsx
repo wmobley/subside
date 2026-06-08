@@ -9,6 +9,8 @@
 // The control panel is portalled into a Leaflet control (top-left); the AOI
 // rectangle is a normal react-leaflet child.
 import L from 'leaflet'
+import '@geoman-io/leaflet-geoman-free'
+import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImageOverlay, Rectangle, useMap } from 'react-leaflet'
@@ -38,8 +40,145 @@ const RUN_COPY = {
   queued: 'Queued on TACC — waiting for a compute slot.',
 }
 
+// The pipeline's Tapis tasks, in order, with plain-language labels. The API
+// returns per-task status in `run.tasks` (taskId/status/lastMessage); we turn
+// that into a stepper so the user sees which phase is happening. The heavy
+// `run` task does the whole analysis, so its hint spells out the sub-steps.
+const RUN_PHASES = [
+  {
+    id: 'run',
+    label: 'Analyzing on TACC',
+    hint: 'Downloading OPERA products, building the time-series stack, and computing displacement/velocity. This is the long step — usually a few minutes.',
+  },
+  { id: 'publish', label: 'Preparing outputs', hint: 'Packaging the result rasters from the run.' },
+  { id: 'stac-publish', label: 'Publishing to the catalog', hint: 'Indexing the results so they appear on the map.' },
+]
+
+// Last non-empty line of a task message, trimmed — surfaces real job log output
+// without dumping a 2 KB stderr blob into the panel.
+function lastLogLine(msg) {
+  const line = String(msg || '').split('\n').map((s) => s.trim()).filter(Boolean).pop()
+  if (!line) return ''
+  return line.length > 160 ? `${line.slice(0, 159)}…` : line
+}
+
+// Phase stepper for an in-flight (or just-finished) run, driven by run.tasks.
+function RunProgress({ run }) {
+  const byId = {}
+  for (const t of run.tasks || []) byId[t.taskId] = t
+  const phases = RUN_PHASES.map((p) => ({ ...p, task: byId[p.id], status: byId[p.id]?.status || 'pending' }))
+  const failed = run.status === 'failed'
+  // The phase to narrate: the running one, else the failed one, else the first
+  // not-yet-done one. Undefined once every phase is complete.
+  const active = phases.find((p) => p.status === 'running')
+    || (failed && phases.find((p) => p.status === 'failed'))
+    || phases.find((p) => p.status !== 'completed')
+  const detail = active && active.task ? lastLogLine(active.task.lastMessage) : ''
+
+  return (
+    <div className="sap-run sap-runprogress">
+      <ol className="sap-phases">
+        {phases.map((p) => (
+          <li key={p.id} className={`sap-phase is-${p.status}${active && active.id === p.id ? ' is-active' : ''}`}>
+            <span className="sap-phase-mark" aria-hidden="true">
+              {p.status === 'completed' ? '✓'
+                : p.status === 'failed' ? '✕'
+                  : p.status === 'running' ? <span className="sap-spinner" />
+                    : '○'}
+            </span>
+            <span className="sap-phase-label">{p.label}</span>
+          </li>
+        ))}
+      </ol>
+      {active ? (
+        <div className="sap-phase-detail">
+          {failed ? (
+            <span className="sap-error">{detail || RUN_COPY.failed}</span>
+          ) : (
+            <>
+              <div>{active.status === 'queued' ? RUN_COPY.queued : active.hint}</div>
+              {detail ? <div className="sap-phase-msg">{detail}</div> : null}
+            </>
+          )}
+        </div>
+      ) : (
+        <span>{RUN_COPY[run.status] || run.status}</span>
+      )}
+    </div>
+  )
+}
+
 function bboxToBounds(b) {
   return [[b[1], b[0]], [b[3], b[2]]] // [[s,w],[n,e]] for Leaflet
+}
+
+// Wrap a bare geometry / Feature into a FeatureCollection (what the run API wants).
+function toFeatureCollection(gj) {
+  if (!gj) return null
+  if (gj.type === 'FeatureCollection') return gj
+  if (gj.type === 'Feature') return { type: 'FeatureCollection', features: [gj] }
+  return { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: gj }] }
+}
+
+// [w, s, e, n] envelope over any GeoJSON FeatureCollection's coordinates.
+function geometryBbox(fc) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  const visit = (coords) => {
+    if (typeof coords[0] === 'number') {
+      const [x, y] = coords
+      if (x < minX) minX = x
+      if (y < minY) minY = y
+      if (x > maxX) maxX = x
+      if (y > maxY) maxY = y
+    } else coords.forEach(visit)
+  }
+  for (const f of fc?.features || []) {
+    if (f?.geometry?.coordinates) visit(f.geometry.coordinates)
+  }
+  return minX === Infinity ? null : [minX, minY, maxX, maxY]
+}
+
+// Equirectangular shoelace area (km²) of a lon/lat ring, scaled at its latitude.
+// Approximate — enough to warn on AOI size, not for reporting.
+function ringAreaKm2(ring, lat) {
+  const kx = 111.32 * Math.cos((lat * Math.PI) / 180)
+  const ky = 110.574
+  let s = 0
+  for (let i = 0; i < ring.length - 1; i++) {
+    const [x1, y1] = ring[i]
+    const [x2, y2] = ring[i + 1]
+    s += x1 * kx * (y2 * ky) - x2 * kx * (y1 * ky)
+  }
+  return Math.abs(s) / 2
+}
+
+// AOI size/complexity stats + non-blocking warnings. OPERA runs over a large or
+// many-frame AOI cost more and take longer, so we flag it before submit.
+const AOI_AREA_WARN_KM2 = 15000 // ~122 km square; bigger likely spans frames
+const AOI_VERTEX_WARN = 100
+function aoiStats(fc) {
+  let vertices = 0
+  let area = 0
+  for (const f of fc?.features || []) {
+    const g = f?.geometry
+    if (!g) continue
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []
+    for (const poly of polys) {
+      const outer = poly[0] || []
+      vertices += Math.max(0, outer.length - 1)
+      const lat = outer.length ? outer.reduce((sum, p) => sum + p[1], 0) / outer.length : 0
+      area += ringAreaKm2(outer, lat)
+      for (let h = 1; h < poly.length; h++) area -= ringAreaKm2(poly[h], lat)
+    }
+  }
+  const warnings = []
+  if (area > AOI_AREA_WARN_KM2) {
+    warnings.push(`Large area (~${Math.round(area).toLocaleString()} km²) — this may span several OPERA frames and take longer.`)
+  }
+  if (vertices > AOI_VERTEX_WARN) {
+    warnings.push('Complex boundary — consider simplifying the polygon.')
+  }
+  return { area, vertices, warnings }
 }
 
 // Band the *observed* risk from the velocity layer's value range. LOS velocity
@@ -60,7 +199,12 @@ function observedRisk(range) {
 export function SubsideAnalysis({ picked }) {
   const map = useMap()
 
-  const [aoi, setAoi] = useState(null) // [w, s, e, n]
+  const [aoi, setAoi] = useState(null) // [w, s, e, n] envelope (all AOI sources set this)
+  // The real AOI geometry when drawn/uploaded (FeatureCollection); null for a
+  // frame-footprint AOI, which renders as the <Rectangle> below and submits via
+  // bboxToAoiGeoJSON. When set, the geometry is submitted verbatim.
+  const [aoiGeometry, setAoiGeometry] = useState(null)
+  const aoiLayerRef = useRef(null) // the Leaflet layer for a drawn/uploaded AOI
   const [frameId, setFrameId] = useState(null)
   const [datesFromFrame, setDatesFromFrame] = useState(false)
 
@@ -94,7 +238,12 @@ export function SubsideAnalysis({ picked }) {
   useEffect(() => {
     if (!picked || picked === lastPicked.current) return
     lastPicked.current = picked
-    if (picked.bbox) setAoi(picked.bbox)
+    if (picked.bbox) {
+      // A frame footprint replaces any drawn/uploaded geometry.
+      removeAoiLayer()
+      setAoiGeometry(null)
+      setAoi(picked.bbox)
+    }
     setFrameId(picked.frameId ?? null)
     if (picked.startDate && picked.endDate) {
       setForm((f) => ({ ...f, start_date: picked.startDate, end_date: picked.endDate }))
@@ -102,7 +251,7 @@ export function SubsideAnalysis({ picked }) {
     } else {
       setDatesFromFrame(false)
     }
-  }, [picked])
+  }, [picked]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Leaflet control to host the panel.
   const [controlEl] = useState(() => {
@@ -117,6 +266,101 @@ export function SubsideAnalysis({ picked }) {
     ctrl.addTo(map)
     return () => ctrl.remove()
   }, [map, controlEl])
+
+  // --- AOI by drawing / upload (leaflet-geoman) ----------------------------
+  // These only touch state setters, refs, and the (stable) map, so the geoman
+  // effect below can capture them once.
+  function removeAoiLayer() {
+    const prev = aoiLayerRef.current
+    if (prev) {
+      try { map.removeLayer(prev) } catch { /* already gone */ }
+      aoiLayerRef.current = null
+    }
+  }
+
+  function clearAoi() {
+    removeAoiLayer()
+    setAoiGeometry(null)
+    setAoi(null)
+    setFrameId(null)
+  }
+
+  // Adopt a drawn/uploaded Leaflet layer as the single AOI: drop any previous
+  // AOI layer, derive the geometry + envelope, and track edits.
+  function adoptAoiLayer(layer) {
+    const prev = aoiLayerRef.current
+    if (prev && prev !== layer) {
+      try { map.removeLayer(prev) } catch { /* already gone */ }
+    }
+    aoiLayerRef.current = layer
+    const sync = () => {
+      const fc = toFeatureCollection(layer.toGeoJSON())
+      setAoiGeometry(fc)
+      const bbox = geometryBbox(fc)
+      if (bbox) setAoi(bbox)
+    }
+    layer.on('pm:edit', sync)
+    sync()
+    setFrameId(null)
+    setDatesFromFrame(false)
+  }
+
+  function handleUploadFile(event) {
+    const file = event.target.files?.[0]
+    event.target.value = '' // let the same file be re-selected
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const fc = toFeatureCollection(JSON.parse(String(reader.result)))
+        if (!fc?.features?.length) throw new Error('no features found')
+        if (!geometryBbox(fc)) throw new Error('no coordinates found')
+        const layer = L.geoJSON(fc, {
+          pmIgnore: false,
+          style: { color: '#005f86', weight: 2, fillOpacity: 0.08 },
+        }).addTo(map)
+        adoptAoiLayer(layer)
+        try { map.fitBounds(layer.getBounds(), { padding: [18, 18] }) } catch { /* ignore */ }
+        setSubmitErr('')
+      } catch (err) {
+        setSubmitErr(`Could not read GeoJSON: ${err.message}`)
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  // Mount the geoman draw toolbar (top-right, clear of the analysis panel) and
+  // wire create/remove to the single-AOI model.
+  useEffect(() => {
+    if (!map.pm) return undefined
+    map.pm.addControls({
+      position: 'topright',
+      drawPolygon: true,
+      drawRectangle: true,
+      editMode: true,
+      dragMode: true,      // pan/move existing shapes
+      removalMode: true,
+      drawMarker: false,
+      drawCircle: false,
+      drawCircleMarker: false,
+      drawPolyline: false,
+      drawText: false,
+      rotateMode: false,
+      cutPolygon: false,
+    })
+    map.pm.setGlobalOptions({ snappable: false })
+
+    const onCreate = (e) => adoptAoiLayer(e.layer)
+    const onRemove = (e) => { if (e.layer === aoiLayerRef.current) clearAoi() }
+    map.on('pm:create', onCreate)
+    map.on('pm:remove', onRemove)
+    return () => {
+      map.off('pm:create', onCreate)
+      map.off('pm:remove', onRemove)
+      try { map.pm.removeControls() } catch { /* ignore */ }
+    }
+    // adoptAoiLayer/clearAoi are stable (setters + refs only).
+  }, [map]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll status until terminal.
   useEffect(() => {
@@ -190,6 +434,18 @@ export function SubsideAnalysis({ picked }) {
     if (!token) { setHistory([]); setRun(null) }
   }, [token])
 
+  // Survive a page refresh: component state resets, but the session (localStorage
+  // token) and the server-side run history persist. If a run is still in flight
+  // and we aren't already tracking one, re-attach the poller to the most recent
+  // live run so the progress stepper resumes on its own.
+  useEffect(() => {
+    if (run) return
+    const live = history
+      .filter((h) => !TERMINAL.has(h.status))
+      .sort((a, b) => String(b.created || '').localeCompare(String(a.created || '')))[0]
+    if (live) attachRun(live)
+  }, [history]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Re-attach the status poller to a pipeline run picked from history.
   function attachRun(item) {
     setRun({ runId: item.runId, status: item.status, tapisStatus: item.tapisStatus, lastMessage: '' })
@@ -197,7 +453,7 @@ export function SubsideAnalysis({ picked }) {
 
   async function handleSubmit() {
     if (!aoi) {
-      setSubmitErr('Click an availability frame on the map first.')
+      setSubmitErr('Pick an area first — click a frame, draw an area, or upload a GeoJSON.')
       return
     }
     setSubmitErr('')
@@ -207,7 +463,9 @@ export function SubsideAnalysis({ picked }) {
         pipeline: form.pipeline,
         start_date: form.start_date,
         end_date: form.end_date,
-        aoi_geojson: bboxToAoiGeoJSON(aoi),
+        // A drawn/uploaded geometry is submitted verbatim; a frame footprint is
+        // an envelope, sent as its bbox polygon.
+        aoi_geojson: aoiGeometry || bboxToAoiGeoJSON(aoi),
         min_overlap_percent: Number(form.min_overlap_percent),
       }
       if (form.allocation.trim()) body.allocation = form.allocation.trim()
@@ -238,6 +496,10 @@ export function SubsideAnalysis({ picked }) {
   const velocityLayer = layerOptions.find((l) => l.key === 'velocity' || /velocit/i.test(l.label))
   const observed = observedRisk(velocityLayer?.range)
 
+  // AOI size/complexity warnings, on the exact geometry that will be submitted.
+  const aoiFc = aoi ? (aoiGeometry || bboxToAoiGeoJSON(aoi)) : null
+  const aoiWarnings = aoiFc ? aoiStats(aoiFc).warnings : []
+
   const panel = (
     <div className="subside-analysis-panel">
       <div className="sap-title">Subsidence risk at this location</div>
@@ -254,11 +516,30 @@ export function SubsideAnalysis({ picked }) {
               <div className="sap-step-label">Where</div>
               {aoi ? (
                 <div className="sap-frame-ok">
-                  Area selected ✓{frameId != null ? <span className="sap-hint"> (frame {frameId})</span> : null}
+                  Area selected ✓
+                  {frameId != null ? <span className="sap-hint"> (frame {frameId})</span>
+                    : aoiGeometry ? <span className="sap-hint"> (custom area)</span> : null}
+                  <button type="button" className="sap-link" onClick={clearAoi}>clear</button>
                 </div>
               ) : (
-                <div className="sap-hint">Click a shaded frame on the map to choose your area.</div>
+                <div className="sap-hint">
+                  Click a shaded frame, draw an area with the map tools (top-right), or upload a GeoJSON.
+                </div>
               )}
+              <div className="sap-aoi-tools">
+                <button type="button" className="sap-link" onClick={() => map.pm?.enableDraw('Polygon')}>
+                  ✏ Draw area
+                </button>
+                <label className="sap-link sap-upload-aoi">
+                  ⤒ Upload GeoJSON
+                  <input
+                    type="file"
+                    accept=".geojson,.json,application/geo+json,application/json"
+                    onChange={handleUploadFile}
+                    hidden
+                  />
+                </label>
+              </div>
             </div>
           </div>
 
@@ -297,16 +578,24 @@ export function SubsideAnalysis({ picked }) {
             </label>
           </details>
 
+          {aoiWarnings.length ? (
+            <div className="sap-warn">{aoiWarnings.map((w) => <div key={w}>{w}</div>)}</div>
+          ) : null}
+
           <button type="button" className="sap-submit" disabled={submitting || !aoi} onClick={handleSubmit}>
             {submitting ? 'Submitting…' : 'Run analysis'}
           </button>
           {submitErr ? <div className="sap-error">{submitErr}</div> : null}
 
           {run ? (
-            <div className={`sap-run sap-${run.status}`}>
-              {!TERMINAL.has(run.status) ? <span className="sap-spinner" /> : null}
-              <span>{RUN_COPY[run.status] || run.status}</span>
-            </div>
+            run.tasks?.length ? (
+              <RunProgress run={run} />
+            ) : (
+              <div className={`sap-run sap-${run.status}`}>
+                {!TERMINAL.has(run.status) ? <span className="sap-spinner" /> : null}
+                <span>{RUN_COPY[run.status] || run.status}</span>
+              </div>
+            )
           ) : null}
 
           {run?.status === 'completed' ? (
@@ -433,7 +722,7 @@ export function SubsideAnalysis({ picked }) {
 
   return (
     <>
-      {aoi ? <Rectangle bounds={bboxToBounds(aoi)} pathOptions={{ color: '#005f86', weight: 2, fillOpacity: 0.08 }} /> : null}
+      {aoi && !aoiGeometry ? <Rectangle bounds={bboxToBounds(aoi)} pathOptions={{ color: '#005f86', weight: 2, fillOpacity: 0.08 }} /> : null}
       {selectedLayer?.type === 'cog' ? (
         <StacCogLayer href={selectedLayer.href} range={selectedLayer.range} onError={setResultsErr} />
       ) : null}

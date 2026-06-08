@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,16 @@ from rasterio.transform import from_bounds
 
 # DISP-S1 displacement is stored in meters; downstream consumers want mm.
 _M_TO_MM = 1000.0
+
+# Threads for the GDAL warp (reproject). run.sh pins OMP_NUM_THREADS to the
+# job's core allocation; fall back to the detected cpu count. The GeoTIFF
+# deflate compression itself parallelizes via the NUM_THREADS=ALL_CPUS creation
+# option below (honors GDAL_NUM_THREADS, also set in run.sh).
+_WARP_THREADS = int(os.environ.get("OMP_NUM_THREADS") or os.environ.get("OPENBLAS_NUM_THREADS") or (os.cpu_count() or 1))
+
+# float32 deflate: NUM_THREADS parallelizes compression; predictor=3 (floating-
+# point predictor) shrinks the output. Shared by both writers.
+_GTIFF_OPTS = {"num_threads": "ALL_CPUS", "predictor": 3}
 
 
 def write_cumulative_displacement_geotiff(
@@ -35,7 +46,7 @@ def write_cumulative_displacement_geotiff(
     epsg = pyproj.CRS(stack.spatial_ref.attrs["crs_wkt"]).to_epsg()
     da.rio.write_crs(epsg, inplace=True)
     da.rio.set_spatial_dims(x_dim="x", y_dim="y", inplace=True)
-    da_4326 = da.rio.reproject("EPSG:4326", resampling=Resampling.bilinear)
+    da_4326 = da.rio.reproject("EPSG:4326", resampling=Resampling.bilinear, num_threads=_WARP_THREADS)
 
     data = (da_4326.values * _M_TO_MM).astype(np.float32)
     p_low = float(np.nanpercentile(data, clip_percentiles[0]))
@@ -64,6 +75,7 @@ def write_cumulative_displacement_geotiff(
         tiled=True,
         blockxsize=256,
         blockysize=256,
+        **_GTIFF_OPTS,
     ) as dst:
         dst.write(data, 1)
         tags = {
@@ -105,7 +117,7 @@ def write_velocity_geotiff(
     vel_mm = (velocity_da * _M_TO_MM).where(mask)
     vel_mm.rio.write_crs(epsg, inplace=True)
     vel_mm.rio.set_spatial_dims(x_dim="x", y_dim="y", inplace=True)
-    vel_4326 = vel_mm.rio.reproject("EPSG:4326", resampling=Resampling.bilinear)
+    vel_4326 = vel_mm.rio.reproject("EPSG:4326", resampling=Resampling.bilinear, num_threads=_WARP_THREADS)
 
     data = vel_4326.values.astype(np.float32)
     xmin, ymin, xmax, ymax = vel_4326.rio.bounds()
@@ -130,6 +142,7 @@ def write_velocity_geotiff(
         tiled=True,
         blockxsize=256,
         blockysize=256,
+        **_GTIFF_OPTS,
     ) as dst:
         dst.write(data, 1)
         dst.update_tags(

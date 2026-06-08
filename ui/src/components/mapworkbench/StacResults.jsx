@@ -1,11 +1,28 @@
-// STAC discovery: searches the stac-platform API by viewport, lists matching
-// items, and renders the selected item's COG asset on the map. Renders nothing
-// when VITE_STAC_API_BASE is unset (stacEnabled() === false).
+// Previous runs: searches the stac-platform API by viewport, draws each already-
+// published run's footprint on the map (so users can see what's already been
+// analyzed before launching a new run), lists them, and renders the selected
+// run's COG. Renders nothing when VITE_STAC_API_BASE is unset.
 import { useEffect, useState } from 'react'
-import { useMap, useMapEvents } from 'react-leaflet'
+import { GeoJSON, ImageOverlay, useMap, useMapEvents } from 'react-leaflet'
 
-import { itemLayers, itemMeta, searchItems, stacEnabled } from '../../stacApi'
+import { itemLayers, itemMeta, overlayHref, searchItems, stacEnabled } from '../../stacApi'
 import { StacCogLayer } from './StacCogLayer'
+
+// Cap how many actual-image layers we auto-render per viewport so a dense area
+// doesn't fire too many loads at once. COGs now stream via range requests
+// (StacCogLayer reads only the overview/tiles in view), so the cap is mostly
+// about bounding concurrent header fetches, not whole-file downloads. Footprints
+// mark any runs beyond the cap.
+const MAX_OVERLAYS = 24
+const MAX_COGS = 24
+
+function bboxToBounds(b) {
+  return [[b[1], b[0]], [b[3], b[2]]] // [[s,w],[n,e]] for Leaflet
+}
+
+function hasBbox(item) {
+  return Array.isArray(item.bbox) && item.bbox.length === 4
+}
 
 function itemLabel(item) {
   const p = item.properties || {}
@@ -13,6 +30,17 @@ function itemLabel(item) {
     ? `${p.start_datetime.slice(0, 10)}…${(p.end_datetime || '').slice(0, 10)}`
     : (p.datetime || '').slice(0, 10)
   return `${item.id}${when ? ` · ${when}` : ''}`
+}
+
+// One FeatureCollection of all in-view run footprints, for a single GeoJSON
+// layer. Properties carry the id so styling can emphasize the selected run.
+function footprintCollection(items) {
+  return {
+    type: 'FeatureCollection',
+    features: items
+      .filter((it) => it.geometry)
+      .map((it) => ({ type: 'Feature', id: it.id, properties: { id: it.id }, geometry: it.geometry })),
+  }
 }
 
 export function StacResults() {
@@ -40,8 +68,49 @@ export function StacResults() {
   const layer = selectedItem ? itemLayers(selectedItem).find((l) => l.type === 'cog') : null
   const meta = selectedItem ? itemMeta(selectedItem) : null
 
+  // Footprints are non-interactive so they never intercept clicks meant for the
+  // availability frames (the AOI picker underneath). Selection stays in the list.
+  const footprintStyle = (feature) => {
+    const isSel = feature.properties?.id === selected
+    return {
+      color: isSel ? '#005f86' : '#8a6d3b',
+      weight: isSel ? 2.5 : 1.5,
+      fillColor: isSel ? '#00a9b7' : '#d9a441',
+      fillOpacity: isSel ? 0.12 : 0.06,
+      dashArray: isSel ? null : '4 3',
+      interactive: false,
+    }
+  }
+  const footprints = footprintCollection(items)
+  // Re-mount the layer when the in-view set or the selection changes so styles
+  // refresh (small N: searchItems caps at 50).
+  const footprintsKey = `${footprints.features.map((f) => f.id).join(',')}|${selected || ''}`
+
+  // Actual published imagery for in-view runs, so users see the real result, not
+  // just an outline. Skip the selected run (it renders below at full opacity).
+  // Prefer the cheap overlay PNG (h2i); otherwise render the run's COG (werc
+  // cumulative/velocity tifs) directly — they're cloud-optimized for exactly
+  // this. Keyed by item id so panning doesn't re-fetch runs that stay in view.
+  const others = items.filter((it) => it.id !== selected)
+  const pngRuns = others.filter((it) => overlayHref(it) && hasBbox(it)).slice(0, MAX_OVERLAYS)
+  const pngIds = new Set(pngRuns.map((it) => it.id))
+  const cogRuns = others
+    .filter((it) => !pngIds.has(it.id))
+    .map((it) => ({ it, cog: itemLayers(it).find((l) => l.type === 'cog') }))
+    .filter((x) => x.cog)
+    .slice(0, MAX_COGS)
+
   return (
     <>
+      {footprints.features.length > 0 && (
+        <GeoJSON key={footprintsKey} data={footprints} style={footprintStyle} interactive={false} />
+      )}
+      {pngRuns.map((it) => (
+        <ImageOverlay key={it.id} url={overlayHref(it)} bounds={bboxToBounds(it.bbox)} opacity={0.55} interactive={false} />
+      ))}
+      {cogRuns.map(({ it, cog }) => (
+        <StacCogLayer key={it.id} href={cog.href} range={cog.range} opacity={0.6} fit={false} />
+      ))}
       {layer && (
         <StacCogLayer
           href={layer.href}
@@ -51,7 +120,7 @@ export function StacResults() {
       )}
       <div className="stac-results leaflet-control" style={panelStyle}>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>
-          STAC results ({items.length})
+          Previous runs in view ({items.length})
         </div>
         {error && <div style={{ color: '#b00', fontSize: 12 }}>{error}</div>}
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxHeight: 220, overflow: 'auto' }}>
@@ -82,7 +151,7 @@ export function StacResults() {
             </li>
           ))}
           {!items.length && !error && (
-            <li style={{ fontSize: 12, color: '#666' }}>No items in view.</li>
+            <li style={{ fontSize: 12, color: '#666' }}>No previous runs here — this area hasn’t been analyzed yet.</li>
           )}
         </ul>
       </div>

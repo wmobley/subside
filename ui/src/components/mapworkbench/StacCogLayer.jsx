@@ -38,13 +38,13 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onError }
     if (!href) return undefined
     let layer
     let cancelled = false
-    fetch(href)
-      .then((r) => {
-        if (!r.ok) throw new Error(`COG fetch ${r.status}`)
-        return r.arrayBuffer()
-      })
-      .then((buf) => Promise.all([buf, loadGeoraster()]))
-      .then(([buf, [parseGeoraster, GeoRasterLayer]]) => parseGeoraster(buf).then((g) => [g, GeoRasterLayer]))
+    loadGeoraster()
+      // Pass the URL (not an ArrayBuffer): georaster opens the COG with
+      // geotiff.fromUrl, probes for an `.ovr` overview, parses only the header,
+      // and reads tiles via HTTP range requests on demand (GeoRasterLayer calls
+      // the lazy `getValues` per tile). So we stream the overview/tiles for the
+      // current view instead of downloading the whole file — the point of a COG.
+      .then(([parseGeoraster, GeoRasterLayer]) => parseGeoraster(href).then((g) => [g, GeoRasterLayer]))
       .then(([georaster, GeoRasterLayer]) => {
         if (cancelled) return
         const min = range?.vmin ?? georaster.mins?.[0] ?? 0

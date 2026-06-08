@@ -323,6 +323,7 @@ tasks:
       import requests
       from owe_python_sdk.runtime import execution_context as ctx
       from tapipy.tapis import Tapis
+      from stacmap.ckan import dataset_name
       from stacmap.manifest import parse_manifest
       from stacmap.publish import publish_from_dir
       from stacmap.stac_client import StacClient
@@ -583,14 +584,23 @@ tasks:
                   return None
               raise RuntimeError(f"CKAN package_show failed HTTP {response.status_code}: {payload}")
 
-          def ensure_dataset(self, name, *, title=None, notes=None):
+          def ensure_run_dataset(self, collection_id, item_id, *, title=None, notes=None):
+              # One CKAN dataset per run (= one STAC Item). The dataset is named
+              # deterministically from (collection, item) and tagged with
+              # stac_collection so the reconcile bridge can regroup runs into the
+              # (unchanged) STAC Collection via package_search.
+              name = dataset_name(collection_id, item_id)
               payload = dict(self.dataset_meta)
               payload["name"] = name
               payload["owner_org"] = self.org
-              if title:
-                  payload["title"] = title
+              base_title = self.dataset_meta.get("title", "SUBSIDE OPERA Subsidence Products")
+              payload["title"] = title or f"{base_title} - {self._run_label(item_id)} ({self._date_range()})"
               if notes:
                   payload["notes"] = notes
+              payload["extras"] = [
+                  {"key": "stac_collection", "value": collection_id},
+                  {"key": "stac_item_id", "value": item_id},
+              ]
               existing = self.get_dataset(name)
               if existing:
                   payload["id"] = existing["id"]

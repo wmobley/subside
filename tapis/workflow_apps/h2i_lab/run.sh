@@ -28,6 +28,17 @@ eval "$("${MAMBA_EXE}" shell hook --shell bash)"
 micromamba activate "${ENV_NAME}"
 set -u
 
+# Pin compute threads to the cores Slurm/Tapis actually allocated (the app
+# requests coresPerNode=16). Without this, OpenBLAS/GDAL inside the Singularity
+# container detect the full physical host and oversubscribe — slower, not faster.
+THREADS="${SLURM_CPUS_ON_NODE:-${NUM_THREADS:-16}}"
+export OMP_NUM_THREADS="${THREADS}"
+export OPENBLAS_NUM_THREADS="${THREADS}"
+export MKL_NUM_THREADS="${THREADS}"
+export NUMEXPR_NUM_THREADS="${THREADS}"
+export GDAL_NUM_THREADS=ALL_CPUS
+echo "Compute threads: OMP/OPENBLAS/MKL=${THREADS}, GDAL_NUM_THREADS=ALL_CPUS" >&2
+
 # Stage Earthdata netrc if Tapis supplied one alongside the job inputs.
 if [ -f ".netrc" ]; then
     cp ".netrc" "${HOME}/.netrc"
