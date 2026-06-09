@@ -74,7 +74,7 @@ export function StacResults({ panelHost }) {
       <div className="slp-section">Previous runs</div>
       <label className="slp-row">
         <input type="checkbox" checked={showDisplacement} onChange={(e) => setShowDisplacement(e.target.checked)} />
-        <span className="slp-swatch" style={{ background: '#00a9b7' }} />
+        <span className="slp-swatch" style={{ background: '#406d68' }} />
         <span className="slp-name">Displacement</span>
         <span className="slp-count">{dispRuns.length}</span>
       </label>

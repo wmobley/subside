@@ -1,17 +1,79 @@
 :root {
-  --tacc-primary-dark: #005f86;
-  --tacc-primary-x-dark: #004362;
-  --tacc-accent: #00a9b7;
-  --tacc-accent-dark: #008799;
-  --tacc-gray-light: #f8f9fa;
+  /* --------------------------------------------------------------------- */
+  /* TACC Core-Styles palette (@tacc/core-styles global color tokens).      */
+  /* Source: tacc.github.io/Core-Styles — dist/settings/color.css. These    */
+  /* are the canonical brand colors; the --tacc-* aliases below map the     */
+  /* site's existing variables onto them so every component picks them up.  */
+  /* --------------------------------------------------------------------- */
+
+  /* Primary — neutral gray ramp */
+  --global-color-primary--xx-light: #fff;
+  --global-color-primary--x-light: #f4f4f4;
+  --global-color-primary--light: #d7d7d7;
+  --global-color-primary--normal: #afafaf;
+  --global-color-primary--dark: #707070;
+  --global-color-primary--x-dark: #484848;
+  --global-color-primary--xx-dark: #222;
+
+  /* Accent — TACC navy (primary brand) */
+  --global-color-accent--xxx-light: #dfeafe;
+  --global-color-accent--xx-light: #caddfe;
+  --global-color-accent--x-light: #aac7ff;
+  --global-color-accent--light-alt: #6d8bda;
+  --global-color-accent--light: #3d6acc;
+  --global-color-accent--normal: #039;
+  --global-color-accent--dark: #026;
+  --global-color-accent--x-dark: #013;
+  --global-color-accent--xx-dark: #021230;
+
+  /* Secondary — tan / gold */
+  --global-color-secondary--xx-light: #fcf6ec;
+  --global-color-secondary--x-light: #e5d7c0;
+  --global-color-secondary--light: #d5b57c;
+  --global-color-secondary--normal: #877453;
+  --global-color-secondary--dark: #514328;
+
+  /* Tertiary — teal */
+  --global-color-tertiary--xx-light: #e7f1f0;
+  --global-color-tertiary--x-light: #b1d1ce;
+  --global-color-tertiary--light: #92ccc5;
+  --global-color-tertiary--normal: #61a39c;
+  --global-color-tertiary--dark: #406d68;
+  --global-color-tertiary--x-dark: #1e3331;
+
+  /* Semantic */
+  --global-color-danger--normal: #ed4c11;
+  --global-color-danger--dark: #c23a03;
+  --global-color-warning--normal: #f2b327;
+  --global-color-warning--dark: #cd971c;
+  --global-color-success--normal: #10f7a9;
+  --global-color-success--dark: #3dce92;
+  --global-color-background--app: #fff;
+
+  /* Border widths & radius — Core-Styles uses squared corners; small radius. */
+  --global-border-width--normal: 1px;
+  --global-border-width--thick: 2px;
+  --global-border-width--xx-thick: 4px;
+  --subside-radius: 2px;
+
+  /* --------------------------------------------------------------------- */
+  /* Site aliases — remapped onto Core-Styles tokens. Components reference  */
+  /* these, so the whole UI recolors from the mappings here.               */
+  /* --------------------------------------------------------------------- */
+  --tacc-primary-dark: var(--global-color-accent--normal);
+  --tacc-primary-x-dark: var(--global-color-accent--x-dark);
+  /* tertiary--dark (not --normal) so teal stays AA-legible as text on white */
+  --tacc-accent: var(--global-color-tertiary--dark);
+  --tacc-accent-dark: var(--global-color-tertiary--x-dark);
+  --tacc-gray-light: var(--global-color-primary--x-light);
   --tacc-gray-lighter: #e9ecef;
-  --tacc-border: #d9dee3;
-  --tacc-text-dark: #333;
-  --tacc-text-medium: #666;
-  --tacc-text-light: #999;
+  --tacc-border: var(--global-color-primary--light);
+  --tacc-text-dark: var(--global-color-primary--xx-dark);
+  --tacc-text-medium: var(--global-color-primary--dark);
+  --tacc-text-light: var(--global-color-primary--normal);
   --subside-risk: #b45309;
   --subside-research: #6d28d9;
-  --subside-surface: #fff;
+  --subside-surface: var(--global-color-background--app, #fff);
 }
 
 * {
@@ -236,13 +298,18 @@ button {
 }
 
 .subside-auth-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5ch;
   min-height: 32px;
-  padding: 6px 16px;
-  border: 1px solid rgb(255 255 255 / 35%);
-  border-radius: 18px;
+  padding: 6px 18px;
+  border: var(--global-border-width--normal) solid rgb(255 255 255 / 35%);
+  border-radius: var(--subside-radius);
   background: transparent;
   color: #fff;
   font-size: 13px;
+  line-height: 1.5;
   cursor: pointer;
   transition: background 160ms ease, border-color 160ms ease;
 }
@@ -303,7 +370,7 @@ button {
   flex: 1;
   min-width: 0;
   padding: 10px 20px;
-  border: 2px solid #e0e0e0;
+  border: 2px solid var(--tacc-border);
   border-radius: 25px;
   font-size: 15px;
 }
@@ -368,7 +435,7 @@ button {
 
 .stats-section {
   padding: 30px 0;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--tacc-border);
   background: #fff;
 }
 
@@ -427,29 +494,31 @@ button {
 .portal-card,
 .data-section,
 .map-section {
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
+  border: var(--global-border-width--normal) solid var(--tacc-border);
+  border-radius: var(--subside-radius);
+  background: var(--subside-surface);
+  box-shadow: 0 3px 6px #0003;
 }
 
 .portal-card {
   position: relative;
   overflow: hidden;
   padding: 30px;
-  transition: box-shadow 160ms ease;
+  transition: outline-color 160ms ease, box-shadow 160ms ease;
+  outline: var(--global-border-width--thick) solid transparent;
+  outline-offset: calc(-1 * var(--global-border-width--thick));
 }
 
 .portal-card::before {
   position: absolute;
   inset: 0 0 auto;
-  height: 3px;
+  height: var(--global-border-width--xx-thick);
   background: var(--tacc-accent);
   content: '';
 }
 
 .portal-card:hover {
-  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+  outline-color: var(--global-color-accent--normal);
 }
 
 .portal-card-icon {
@@ -584,7 +653,7 @@ button {
 .tag {
   padding: 3px 10px;
   border-radius: 12px;
-  background: rgb(0 169 183 / 10%);
+  background: rgb(64 109 104 / 10%);
   color: var(--tacc-accent-dark);
   font-size: 12px;
   font-weight: 600;
@@ -658,9 +727,9 @@ button {
 .portal-note {
   margin-top: 14px;
   padding: 10px 12px;
-  border: 1px solid rgb(0 169 183 / 28%);
+  border: 1px solid rgb(64 109 104 / 28%);
   border-radius: 6px;
-  background: rgb(0 169 183 / 8%);
+  background: rgb(64 109 104 / 8%);
   color: var(--tacc-text-medium);
   font-size: 13px;
 }
@@ -676,7 +745,7 @@ button {
   align-items: flex-start;
   gap: 20px;
   padding: 20px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--tacc-border);
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
@@ -699,7 +768,7 @@ button {
   gap: 12px;
   align-items: end;
   padding: 20px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--tacc-border);
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
@@ -790,9 +859,9 @@ button {
 
 .spatial-map-summary {
   padding: 10px 12px;
-  border: 1px solid rgb(0 169 183 / 24%);
+  border: 1px solid rgb(64 109 104 / 24%);
   border-radius: 6px;
-  background: rgb(0 169 183 / 7%);
+  background: rgb(64 109 104 / 7%);
   color: var(--tacc-text-medium);
   font-size: 13px;
 }
@@ -829,7 +898,7 @@ button {
   width: 16px;
   height: 16px;
   border: 2px solid var(--tacc-primary-dark);
-  background: rgb(0 169 183 / 12%);
+  background: rgb(64 109 104 / 12%);
 }
 
 .draw-bbox-button:hover,
@@ -839,7 +908,7 @@ button {
 
 .draw-bbox-button.active span {
   border-color: var(--tacc-accent-dark);
-  background: rgb(0 169 183 / 28%);
+  background: rgb(64 109 104 / 28%);
 }
 
 .bbox-region-label {
@@ -875,7 +944,7 @@ button {
   grid-template-columns: minmax(0, 1fr) minmax(160px, 240px);
   gap: 20px;
   padding: 20px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--tacc-border);
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
@@ -915,9 +984,9 @@ button {
 
 .dataset-card-meta span {
   padding: 3px 9px;
-  border: 1px solid rgb(0 169 183 / 24%);
+  border: 1px solid rgb(64 109 104 / 24%);
   border-radius: 12px;
-  background: rgb(0 169 183 / 7%);
+  background: rgb(64 109 104 / 7%);
   color: var(--tacc-text-medium);
   font-size: 12px;
   font-weight: 600;
@@ -960,7 +1029,7 @@ button {
 
 .api-card {
   padding: 24px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--tacc-border);
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
@@ -1078,9 +1147,9 @@ button {
 .inline-metrics span,
 .selection-strip span {
   padding: 4px 10px;
-  border: 1px solid rgb(0 169 183 / 28%);
+  border: 1px solid rgb(64 109 104 / 28%);
   border-radius: 14px;
-  background: rgb(0 169 183 / 8%);
+  background: rgb(64 109 104 / 8%);
   color: var(--tacc-text-medium);
   font-size: 12px;
   font-weight: 600;
@@ -1145,8 +1214,8 @@ button {
 
 .status-ribbon {
   padding: 14px 20px;
-  border-top: 1px solid rgb(0 169 183 / 30%);
-  background: rgb(0 169 183 / 8%);
+  border-top: 1px solid rgb(64 109 104 / 30%);
+  background: rgb(64 109 104 / 8%);
   color: var(--tacc-text-medium);
   font-size: 14px;
 }
@@ -1984,7 +2053,7 @@ button {
 .sap-fail-detail summary {
   cursor: pointer;
   font-size: 12px;
-  color: var(--tacc-primary, #005f86);
+  color: var(--tacc-primary-dark);
 }
 
 .sap-fail-log {
@@ -2139,11 +2208,12 @@ button {
 }
 
 .about-goal {
-  border: 1px solid var(--tacc-border);
-  border-left: 4px solid var(--tacc-accent);
-  border-radius: 8px;
+  border: var(--global-border-width--normal) solid var(--tacc-border);
+  border-top: var(--global-border-width--xx-thick) solid var(--tacc-accent);
+  border-radius: var(--subside-radius);
   padding: 16px 18px;
   background: var(--subside-surface);
+  box-shadow: 0 3px 6px #0003;
 }
 
 .about-goal h3 {
@@ -2166,19 +2236,22 @@ button {
 
 .about-partner {
   display: block;
-  border: 1px solid var(--tacc-border);
-  border-radius: 8px;
+  border: var(--global-border-width--normal) solid var(--tacc-border);
+  border-top: var(--global-border-width--xx-thick) solid var(--tacc-accent);
+  border-radius: var(--subside-radius);
   padding: 16px 18px;
   background: var(--subside-surface);
+  box-shadow: 0 3px 6px #0003;
   color: inherit;
   text-decoration: none;
   overflow-wrap: anywhere;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: var(--global-border-width--thick) solid transparent;
+  outline-offset: calc(-1 * var(--global-border-width--thick));
+  transition: outline-color 0.15s;
 }
 
 .about-partner:hover {
-  border-color: var(--tacc-accent);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+  outline-color: var(--global-color-accent--normal);
 }
 
 .about-partner-head {

@@ -1,7 +1,10 @@
+import { Fragment } from 'react'
+
 import { useAuth } from '../lib/auth'
 import { startTapisLogin } from '../lib/subsideApi'
 import { HERO } from '../lib/config'
 import { hashForPage } from '../lib/routes'
+import { getPartners } from '../lib/content'
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home' },
@@ -21,16 +24,27 @@ async function handleHeaderLogin() {
 
 export function PortalHeader({ activePage, onPageChange }) {
   const { isAuthed, username, logout } = useAuth()
+  // Partner institutions come from the same content the About page uses
+  // (content/partners/*.md), so the header stays in sync with one source.
+  const partners = getPartners()
   return (
     <header className="subside-header">
       <div className="subside-header-top">
         <div className="subside-container institution-bar">
           <div className="institutions" aria-label="Partner institutions">
-            <a href="https://www.utexas.edu/">UT Austin</a>
-            <span>|</span>
-            <a href="https://www.tacc.utexas.edu/">TACC</a>
-            <span>|</span>
-            <a href="https://www.twdb.texas.gov/">TWDB</a>
+            {partners.map((partner, i) => (
+              <Fragment key={partner.abbr || partner.name}>
+                {i > 0 ? <span>|</span> : null}
+                <a
+                  href={partner.url || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={partner.name}
+                >
+                  {partner.abbr || partner.name}
+                </a>
+              </Fragment>
+            ))}
           </div>
           <div className="contract-label">Contract #2401792868</div>
         </div>
@@ -112,7 +126,7 @@ export function PortalFooter() {
             <h3>Resources</h3>
             <ul className="footer-links">
               <li><a href={hashForPage('home')}>Guide</a></li>
-              <li><a href={hashForPage('datasets')}>Tutorials</a></li>
+              <li><a href="https://ptdatax.tacc.utexas.edu/workbench/applications/DSO-Institute-2026-app-cpu" target="_blank" rel="noreferrer">Tutorials</a></li>
               <li><a href={hashForPage('datasets')}>Publications</a></li>
             </ul>
           </section>

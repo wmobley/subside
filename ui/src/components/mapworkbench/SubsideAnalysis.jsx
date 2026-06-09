@@ -208,7 +208,7 @@ export function SubsideAnalysis({ picked, panelHost }) {
         if (!geometryBbox(fc)) throw new Error('no coordinates found')
         const layer = L.geoJSON(fc, {
           pmIgnore: false,
-          style: { color: '#005f86', weight: 2, fillOpacity: 0.08 },
+          style: { color: '#003399', weight: 2, fillOpacity: 0.08 },
         }).addTo(map)
         adoptAoiLayer(layer)
         try { map.fitBounds(layer.getBounds(), { padding: [18, 18] }) } catch { /* ignore */ }
@@ -655,7 +655,7 @@ export function SubsideAnalysis({ picked, panelHost }) {
 
   return (
     <>
-      {aoi && !aoiGeometry ? <Rectangle bounds={bboxToBounds(aoi)} pathOptions={{ color: '#005f86', weight: 2, fillOpacity: 0.08 }} /> : null}
+      {aoi && !aoiGeometry ? <Rectangle bounds={bboxToBounds(aoi)} pathOptions={{ color: '#003399', weight: 2, fillOpacity: 0.08 }} /> : null}
       {selectedLayer?.type === 'cog' ? (
         <StacCogLayer href={selectedLayer.href} range={selectedLayer.range} onError={setResultsErr} />
       ) : null}

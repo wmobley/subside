@@ -146,8 +146,8 @@ export function SpatialFilterMap({ bbox, extentLabel, onBboxChange, onBboxClear 
               <Rectangle
                 bounds={bboxToBounds(displayBbox)}
                 pathOptions={{
-                  color: '#005f86',
-                  fillColor: '#00a9b7',
+                  color: '#003399',
+                  fillColor: '#406d68',
                   fillOpacity: previewBbox ? 0.18 : 0.12,
                   weight: 2,
                 }}
