@@ -68,8 +68,9 @@ export function StacResults() {
   const layer = selectedItem ? itemLayers(selectedItem).find((l) => l.type === 'cog') : null
   const meta = selectedItem ? itemMeta(selectedItem) : null
 
-  // Footprints are non-interactive so they never intercept clicks meant for the
-  // availability frames (the AOI picker underneath). Selection stays in the list.
+  // Footprints are clickable: clicking one selects that run and renders its full
+  // COG/overlay (below), so you can pull up a previous result by clicking it on
+  // the map — no list or AOI buttons needed.
   const footprintStyle = (feature) => {
     const isSel = feature.properties?.id === selected
     return {
@@ -78,8 +79,13 @@ export function StacResults() {
       fillColor: isSel ? '#00a9b7' : '#d9a441',
       fillOpacity: isSel ? 0.12 : 0.06,
       dashArray: isSel ? null : '4 3',
-      interactive: false,
     }
+  }
+  // Toggle selection on click; a sticky tooltip hints it's clickable.
+  const onEachFootprint = (feature, lyr) => {
+    const id = feature.properties?.id
+    lyr.on('click', () => setSelected((cur) => (cur === id ? null : id)))
+    lyr.bindTooltip('Click to view this run', { sticky: true })
   }
   const footprints = footprintCollection(items)
   // Re-mount the layer when the in-view set or the selection changes so styles
@@ -103,7 +109,7 @@ export function StacResults() {
   return (
     <>
       {footprints.features.length > 0 && (
-        <GeoJSON key={footprintsKey} data={footprints} style={footprintStyle} interactive={false} />
+        <GeoJSON key={footprintsKey} data={footprints} style={footprintStyle} onEachFeature={onEachFootprint} />
       )}
       {pngRuns.map((it) => (
         <ImageOverlay key={it.id} url={overlayHref(it)} bounds={bboxToBounds(it.bbox)} opacity={0.55} interactive={false} />

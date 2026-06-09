@@ -1105,6 +1105,44 @@ button {
   font: inherit;
 }
 
+/* Map stage: scrollable analysis panel to the LEFT, outside the map itself. */
+.map-stage {
+  display: flex;
+  align-items: stretch;
+  min-height: 680px;
+}
+
+.map-side-panel {
+  flex: 0 0 300px;
+  max-height: 680px;
+  overflow-y: auto;            /* the panel scrolls on its own, independent of the map */
+  background: var(--subside-surface);
+  border-right: 1px solid var(--tacc-border);
+  font-size: 12px;
+  color: var(--tacc-text-dark);
+}
+
+.map-side-panel:empty {
+  display: none;               /* no empty 300px gap before the panel portals in */
+}
+
+.map-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 680px;
+}
+
+@media (max-width: 880px) {
+  .map-stage { flex-direction: column; }
+  .map-side-panel {
+    flex-basis: auto;
+    max-height: 320px;
+    border-right: 0;
+    border-bottom: 1px solid var(--tacc-border);
+  }
+}
+
 .status-ribbon {
   padding: 14px 20px;
   border-top: 1px solid rgb(0 169 183 / 30%);

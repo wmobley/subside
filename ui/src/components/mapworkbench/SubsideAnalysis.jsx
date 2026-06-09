@@ -230,7 +230,7 @@ function observedRisk(range) {
   return { rate: subsiding, label: 'Severe', color: '#dc2626' }
 }
 
-export function SubsideAnalysis({ picked }) {
+export function SubsideAnalysis({ picked, panelHost }) {
   const map = useMap()
 
   const [aoi, setAoi] = useState(null) // [w, s, e, n] envelope (all AOI sources set this)
@@ -340,20 +340,6 @@ export function SubsideAnalysis({ picked }) {
     })
   }, [avail])
 
-  // Leaflet control to host the panel.
-  const [controlEl] = useState(() => {
-    const el = L.DomUtil.create('div', 'subside-analysis-control')
-    L.DomEvent.disableClickPropagation(el)
-    L.DomEvent.disableScrollPropagation(el)
-    return el
-  })
-  useEffect(() => {
-    const ctrl = L.control({ position: 'topleft' })
-    ctrl.onAdd = () => controlEl
-    ctrl.addTo(map)
-    return () => ctrl.remove()
-  }, [map, controlEl])
-
   // --- AOI by drawing / upload (leaflet-geoman) ----------------------------
   // These only touch state setters, refs, and the (stable) map, so the geoman
   // effect below can capture them once.
@@ -421,12 +407,14 @@ export function SubsideAnalysis({ picked }) {
   useEffect(() => {
     if (!map.pm) return undefined
     map.pm.addControls({
-      position: 'topright',
+      position: 'topleft',  // below the zoom control; the analysis panel left the map
       drawPolygon: true,
       drawRectangle: true,
       editMode: true,
-      dragMode: true,      // pan/move existing shapes
       removalMode: true,
+      // No dragMode: geoman's "drag" moves shapes, not the map, and reads as a
+      // broken pan button. The map pans normally whenever no draw tool is active.
+      dragMode: false,
       drawMarker: false,
       drawCircle: false,
       drawCircleMarker: false,
@@ -435,7 +423,9 @@ export function SubsideAnalysis({ picked }) {
       rotateMode: false,
       cutPolygon: false,
     })
-    map.pm.setGlobalOptions({ snappable: false })
+    // tooltips:false removes the floating "Click to finish" hints; continueDrawing
+    // :false makes draw exit after one shape so panning works again immediately.
+    map.pm.setGlobalOptions({ snappable: false, tooltips: false, continueDrawing: false })
 
     const onCreate = (e) => adoptAoiLayer(e.layer)
     const onRemove = (e) => { if (e.layer === aoiLayerRef.current) clearAoi() }
@@ -618,11 +608,20 @@ export function SubsideAnalysis({ picked }) {
                 </div>
               ) : (
                 <div className="sap-hint">
-                  Click a shaded frame, draw an area with the map tools (top-right), or upload a GeoJSON.
+                  Click a shaded frame, draw an area with the polygon tool (top-right), or upload a GeoJSON.
+                  The map pans normally when you’re not drawing.
                 </div>
               )}
               <div className="sap-aoi-tools">
-                <button type="button" className="sap-link" onClick={() => map.pm?.enableDraw('Polygon')}>
+                <button
+                  type="button"
+                  className="sap-link"
+                  onClick={() => {
+                    // Toggle: start a polygon draw, or cancel one in progress (back to pan).
+                    if (map.pm?.globalDrawModeEnabled?.()) map.pm.disableDraw()
+                    else map.pm?.enableDraw('Polygon')
+                  }}
+                >
                   ✏ Draw area
                 </button>
                 <label className="sap-link sap-upload-aoi">
@@ -845,7 +844,7 @@ export function SubsideAnalysis({ picked }) {
       {selectedLayer?.type === 'png' && stacItem?.bbox ? (
         <ImageOverlay url={selectedLayer.href} bounds={bboxToBounds(stacItem.bbox)} opacity={0.8} />
       ) : null}
-      {createPortal(panel, controlEl)}
+      {panelHost ? createPortal(panel, panelHost) : null}
     </>
   )
 }
