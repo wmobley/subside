@@ -73,7 +73,7 @@ def _list_runs(client, group) -> int:
     if not rows:
         print("(no runs found — check auth / group / pipeline registration)")
     else:
-        print("\nDump one with:  python tapis/workflows/dump_run.py <uuid> --pipeline <h2i|werc>")
+        print("Dump one with:  python tapis/workflows/dump_run.py <uuid> --pipeline <h2i|werc>")
     return 0
 
 
