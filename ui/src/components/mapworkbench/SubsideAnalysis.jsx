@@ -74,6 +74,26 @@ function RunProgress({ run }) {
     || (failed && phases.find((p) => p.status === 'failed'))
     || phases.find((p) => p.status !== 'completed')
   const detail = active && active.task ? lastLogLine(active.task.lastMessage) : ''
+  // Full failure text: the failed task's message (stderr/stdout), falling back
+  // to the run-level message. The API caps this at ~2 KB (manager._last_message).
+  const failedTask = phases.find((p) => p.status === 'failed')?.task
+  const errorText = String(failedTask?.lastMessage || run.lastMessage || '').trim()
+
+  // Mirror the failure into the browser console (once per run) so it's grep-able
+  // in devtools and survives the panel collapsing. Re-runs if the error text
+  // arrives a poll after the status flips; the ref keeps it to one log per run.
+  const loggedRef = useRef(null)
+  useEffect(() => {
+    if (!failed || loggedRef.current === run.runId) return
+    loggedRef.current = run.runId
+    const where = active ? active.label : 'unknown phase'
+    console.group(`[SUBSIDE] run failed — ${run.runId}`)
+    console.error('phase:', where)
+    if (detail) console.error('reason:', detail)
+    if (errorText) console.error('full error:\n' + errorText)
+    else console.error('no error detail reported by Tapis')
+    console.groupEnd()
+  }, [failed, run.runId, errorText]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="sap-run sap-runprogress">
@@ -93,7 +113,21 @@ function RunProgress({ run }) {
       {active ? (
         <div className="sap-phase-detail">
           {failed ? (
-            <span className="sap-error">{detail || RUN_COPY.failed}</span>
+            <div className="sap-fail">
+              <div className="sap-error">
+                {RUN_COPY.failed}{active.label ? ` (failed at “${active.label}”)` : ''}
+              </div>
+              {detail ? <div className="sap-phase-msg">{detail}</div> : null}
+              {errorText && errorText !== detail ? (
+                <details className="sap-fail-detail">
+                  <summary>Show full error</summary>
+                  <pre className="sap-fail-log">{errorText}</pre>
+                </details>
+              ) : null}
+              {!errorText ? (
+                <div className="sap-hint">No error detail was reported. Run id: {run.runId}</div>
+              ) : null}
+            </div>
           ) : (
             <>
               <div>{active.status === 'queued' ? RUN_COPY.queued : active.hint}</div>

@@ -1910,6 +1910,34 @@ button {
   word-break: break-word;
 }
 
+.sap-fail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sap-fail-detail summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--tacc-primary, #005f86);
+}
+
+.sap-fail-log {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--tacc-gray-dark, #333);
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 4px;
+}
+
 /* --- Risk summary: Observed (now) vs Potential (forecast) ------------------ */
 .risk-summary {
   display: grid;
