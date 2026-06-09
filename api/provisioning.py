@@ -66,6 +66,27 @@ def _ckan_auth_header(token: str) -> dict:
     return {"Authorization": auth}
 
 
+def ensure_ckan_user(username: str, user_token: str | None) -> None:
+    """Provision the user's CKAN account by making one authenticated call AS them.
+
+    ckan.tacc maps a valid Tapis token to a CKAN user, creating it on first use —
+    so authenticating once with the user's own JWT "logs them in" and materializes
+    their account, which is what lets the admin org-add below find them. Needs the
+    user's token (only available at login); no-op without it.
+    """
+    if not (user_token and config.SUBSIDE_CKAN_URL):
+        return
+    url = f"{config.SUBSIDE_CKAN_URL.rstrip('/')}/api/3/action/user_show"
+    resp = requests.post(url, headers=_ckan_auth_header(user_token),
+                         json={"id": username}, timeout=30)
+    if resp.status_code < 300:
+        log.info("provision: CKAN account ensured for %s", username)
+    else:
+        # The authenticated request itself usually triggers provisioning even if
+        # this lookup 404s; logged so we can see if the org-add still can't find them.
+        log.info("provision: CKAN user_show for %s -> HTTP %s", username, resp.status_code)
+
+
 def ensure_ckan_org_member(username: str) -> None:
     """Idempotently add ``username`` to the CKAN org at the configured role.
 
@@ -108,14 +129,23 @@ def ensure_ckan_org_member(username: str) -> None:
         return
 
 
-def provision_user(username: str) -> None:
-    """Add the user to the group + CKAN org. Best-effort: never raises."""
+def provision_user(username: str, user_token: str | None = None) -> None:
+    """Add the user to the group + CKAN org. Best-effort: never raises.
+
+    ``user_token`` (their own login token) lets us provision their CKAN account
+    first by authenticating as them; without it the CKAN add still runs but only
+    succeeds if they already exist in CKAN.
+    """
     if not (config.PROVISION_ON_LOGIN and username):
         return
     try:
         ensure_group_member(username)
     except Exception as exc:  # noqa: BLE001 - provisioning must not break login
         log.warning("provision: group add error for %s: %s", username, exc)
+    try:
+        ensure_ckan_user(username, user_token)  # materialize their CKAN account first
+    except Exception as exc:  # noqa: BLE001
+        log.warning("provision: CKAN user provisioning error for %s: %s", username, exc)
     try:
         ensure_ckan_org_member(username)
     except Exception as exc:  # noqa: BLE001

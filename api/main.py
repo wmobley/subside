@@ -92,7 +92,7 @@ def auth_token(body: AuthCodeRequest, background_tasks: BackgroundTasks):
     # Add the user to the Workflows group + CKAN org so they can run/publish.
     # Runs after the response is sent (best-effort; never blocks or fails login).
     if res.get("username"):
-        background_tasks.add_task(provisioning.provision_user, res["username"])
+        background_tasks.add_task(provisioning.provision_user, res["username"], res.get("token"))
     return AuthTokenResponse(token=res["token"], username=res["username"], expires_at=res.get("expires_at"))
 
 
