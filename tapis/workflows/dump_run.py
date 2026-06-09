@@ -6,6 +6,10 @@ last_message / stderr / stdout), and the run logs, and writes them as JSON +
 a readable text report. Use this to attach to a ticket / hand to the Tapis devs.
 
 Usage (same env as smoke_test.py / orchestrate.py):
+    # Don't have the uuid? List recent runs across both pipelines first:
+    python tapis/workflows/dump_run.py --list
+
+    # Then dump the one you want (full, untruncated task stderr/stdout):
     python tapis/workflows/dump_run.py <run-uuid> [--pipeline h2i|werc] [--group subside-ops]
 
 Example (the RestrictedService failure):
@@ -36,16 +40,60 @@ def _to_jsonable(obj):
     return str(obj)
 
 
+def _attr(obj, key, default=None):
+    """Read a field from a tapipy object or a dict."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _list_runs(client, group) -> int:
+    """Print recent runs (uuid + status + date) for every SUBSIDE pipeline.
+
+    Use this to find a run uuid to dump when you only know it by date/pipeline
+    (e.g. the failed "Displacement" run in the UI = the h2i pipeline).
+    """
+    rows = []
+    for key, pipeline_id in smoke_test.PIPELINES.items():
+        try:
+            runs = client.workflows.listPipelineRuns(
+                group_id=group, pipeline_id=pipeline_id) or []
+        except Exception as exc:
+            print(f"  ! {key}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            continue
+        for run in runs:
+            created = str(_attr(run, "started_at") or _attr(run, "created_at") or "")
+            rows.append((created, key, str(_attr(run, "status") or ""),
+                         str(_attr(run, "uuid") or ""), str(_attr(run, "name") or "")))
+    rows.sort(reverse=True)  # newest first
+    print(f"{'created':25}  {'pipeline':6}  {'status':11}  {'uuid':36}  name")
+    print("-" * 110)
+    for created, key, status, uuid, name in rows:
+        print(f"{created:25}  {key:6}  {status:11}  {uuid:36}  {name}")
+    if not rows:
+        print("(no runs found — check auth / group / pipeline registration)")
+    else:
+        print(f"\nDump one with:  python tapis/workflows/dump_run.py <uuid> --pipeline <h2i|werc>")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("uuid")
+    p.add_argument("uuid", nargs="?", help="Pipeline run uuid. Omit (or pass --list) to list recent runs.")
+    p.add_argument("--list", "-l", action="store_true", help="List recent runs (uuid/status/date) and exit.")
     p.add_argument("--pipeline", choices=["h2i", "werc"], default="h2i")
     p.add_argument("--group", default=register.DEFAULT_GROUP)
     p.add_argument("--out", default=None, help="JSON output path (default: run-<uuid>.json next to cwd)")
     args = p.parse_args(argv)
 
-    pipeline_id = smoke_test.PIPELINES[args.pipeline]
     client = register._authenticate()
+
+    # No uuid -> list recent runs so the caller can find the one to dump.
+    if args.list or not args.uuid:
+        print(f"Authenticated as {client.username}; group={args.group}\n")
+        return _list_runs(client, args.group)
+
+    pipeline_id = smoke_test.PIPELINES[args.pipeline]
     print(f"Authenticated as {client.username}; group={args.group} pipeline={pipeline_id} run={args.uuid}\n")
 
     bundle: dict = {"group": args.group, "pipeline_id": pipeline_id, "run_uuid": args.uuid}

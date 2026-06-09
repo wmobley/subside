@@ -1,0 +1,53 @@
+{
+  "group": "subside-ops",
+  "pipeline_id": "subside-h2i-opera",
+  "run_uuid": "063cd543-45f4-4c33-af58-b198c519aa15",
+  "run": {
+    "name": "063cd543-45f4-4c33-af58-b198c519aa15",
+    "description": null,
+    "last_modified": "2026-06-08 22:42:09",
+    "logs": "[TASK]     subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera.stac-publish\n[TASK]     subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera.publish\n[TASK]     subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera.run\n[PIPELINE] subside-ops.portals.subside-h2i-opera STAGING subside-h2i-opera 063cd543-45f4-4c33-af58-b198c519aa15\n[PIPELINE] subside-ops.portals.subside-h2i-opera INITIALIZING NOTIFICATION HANDLERS subside-h2i-opera\n[PIPELINE] subside-ops.portals.subside-h2i-opera ACTIVE subside-h2i-opera\n[TASK]     subside-ops.portals.subside-h2i-opera ACTIVE subside-h2i-opera.run\n[TASK]     subside-ops.portals.subside-h2i-opera FAILED: [] subside-h2i-opera.run\n[PIPELINE] subside-ops.portals.subside-h2i-opera FAILED  subside-h2i-opera\n",
+    "pipeline": "0af546ba-085c-4be7-b899-da69c7efbdb0",
+    "status": "failed",
+    "started_at": "2026-06-08 22:38:37",
+    "uuid": "063cd543-45f4-4c33-af58-b198c519aa15"
+  },
+  "task_executions": [
+    {
+      "last_modified": "2026-06-08T22:42:08.417Z",
+      "last_message": "Task Failed: []",
+      "pipeline_run": "063cd543-45f4-4c33-af58-b198c519aa15",
+      "started_at": "2026-06-08T22:38:39.971Z",
+      "stdout": "submitted Tapis job 06442875-8cb5-4b66-b5b8-6fd937159bfd-007\njob 06442875-8cb5-4b66-b5b8-6fd937159bfd-007 status=PENDING\njob 06442875-8cb5-4b66-b5b8-6fd937159bfd-007 status=RUNNING\njob 06442875-8cb5-4b66-b5b8-6fd937159bfd-007 status=ARCHIVING\njob 06442875-8cb5-4b66-b5b8-6fd937159bfd-007 status=FAILED\n",
+      "stderr": "JOBS_USER_APP_FAILURE The user application (3217551) ended with remote status \"FAILED\" and returned exit code: 1:0.\n",
+      "status": "failed",
+      "task": "9c5b25da-125c-458d-a582-a244aca702e2",
+      "uuid": "31351cbc-7984-46d6-acc7-fed69f78ee97",
+      "task_id": "run"
+    },
+    {
+      "last_modified": "2026-06-08T22:38:39.803Z",
+      "last_message": null,
+      "pipeline_run": "063cd543-45f4-4c33-af58-b198c519aa15",
+      "started_at": "2026-06-08T22:38:39.803Z",
+      "stdout": null,
+      "stderr": null,
+      "status": "pending",
+      "task": "135c6beb-3f20-40f9-8137-bbac32bd559c",
+      "uuid": "89ae2688-e2b3-481f-848f-00b4f4e8e311",
+      "task_id": "publish"
+    },
+    {
+      "last_modified": "2026-06-08T22:38:39.808Z",
+      "last_message": null,
+      "pipeline_run": "063cd543-45f4-4c33-af58-b198c519aa15",
+      "started_at": "2026-06-08T22:38:39.808Z",
+      "stdout": null,
+      "stderr": null,
+      "status": "pending",
+      "task": "09ad8e12-bb98-4ca5-921b-0c047677a6f0",
+      "uuid": "929c0480-0ba8-4f95-bee0-8f1bdbcfc721",
+      "task_id": "stac-publish"
+    }
+  ]
+}

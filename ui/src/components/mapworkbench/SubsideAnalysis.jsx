@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom'
 import { ImageOverlay, Rectangle, useMap } from 'react-leaflet'
 
 import {
-  bboxToAoiGeoJSON, getRunResults, getRunStatus, listRuns, submitRun,
+  bboxToAoiGeoJSON, fetchAvailability, getRunResults, getRunStatus, listRuns, submitRun,
 } from '../../subsideApi'
 import { useAuth } from '../../auth'
 import { findRunItem, itemDownloads, itemLayers, itemMeta, stacEnabled } from '../../stacApi'
@@ -241,6 +241,10 @@ export function SubsideAnalysis({ picked }) {
   const aoiLayerRef = useRef(null) // the Leaflet layer for a drawn/uploaded AOI
   const [frameId, setFrameId] = useState(null)
   const [datesFromFrame, setDatesFromFrame] = useState(false)
+  // OPERA product availability for the current AOI, so the date picker can be
+  // constrained to dates that actually have data (avoids "no products in range"
+  // failures). { status: 'loading'|'ready'|'none'|'error', dates?, start?, end? }
+  const [avail, setAvail] = useState(null)
 
   // Shared session: token persists across the site and auto-expires (see auth.jsx).
   // Login/logout live in the header; logout() here is the 401 -> force re-login path.
@@ -286,6 +290,55 @@ export function SubsideAnalysis({ picked }) {
       setDatesFromFrame(false)
     }
   }, [picked]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Whenever the AOI changes, look up OPERA availability for it so we can pin the
+  // date picker to dates that have data. The /availability endpoint is viewport-
+  // lazy and may still be caching on the server, so retry once if it comes back
+  // empty. Union the per-frame product-date timelines into a single span.
+  useEffect(() => {
+    if (!aoi) { setAvail(null); return undefined }
+    let cancelled = false
+    let timer
+    setAvail({ status: 'loading' })
+    const bounds = L.latLngBounds([[aoi[1], aoi[0]], [aoi[3], aoi[2]]])
+    const attempt = (retriesLeft) => {
+      fetchAvailability(bounds)
+        .then((res) => {
+          if (cancelled) return
+          const items = (res.items || []).filter((i) => (i.product_count || 0) > 0)
+          const dates = [...new Set(
+            items.flatMap((i) => i.timeline || []).map((d) => String(d).slice(0, 10)),
+          )].filter(Boolean).sort()
+          if (dates.length) {
+            setAvail({ status: 'ready', dates, start: dates[0], end: dates[dates.length - 1] })
+          } else if (retriesLeft > 0) {
+            timer = setTimeout(() => attempt(retriesLeft - 1), 2500)
+          } else {
+            setAvail({ status: 'none', dates: [] })
+          }
+        })
+        .catch(() => { if (!cancelled) setAvail({ status: 'error' }) })
+    }
+    attempt(1)
+    return () => { cancelled = true; if (timer) clearTimeout(timer) }
+  }, [aoi])
+
+  // Snap the date window into the available span once we know it: if the current
+  // window is entirely outside the data, default to the full span; otherwise just
+  // clamp the endpoints. Runs only when availability resolves (not on keystrokes).
+  useEffect(() => {
+    if (avail?.status !== 'ready') return
+    setForm((f) => {
+      if (f.end_date < avail.start || f.start_date > avail.end) {
+        return { ...f, start_date: avail.start, end_date: avail.end }
+      }
+      return {
+        ...f,
+        start_date: f.start_date < avail.start ? avail.start : f.start_date,
+        end_date: f.end_date > avail.end ? avail.end : f.end_date,
+      }
+    })
+  }, [avail])
 
   // Leaflet control to host the panel.
   const [controlEl] = useState(() => {
@@ -534,6 +587,14 @@ export function SubsideAnalysis({ picked }) {
   const aoiFc = aoi ? (aoiGeometry || bboxToAoiGeoJSON(aoi)) : null
   const aoiWarnings = aoiFc ? aoiStats(aoiFc).warnings : []
 
+  // OPERA availability for the chosen AOI + window.
+  const availReady = avail?.status === 'ready'
+  const noData = avail?.status === 'none'
+  const inWindowCount = availReady
+    ? avail.dates.filter((d) => d >= form.start_date && d <= form.end_date).length
+    : null
+  const emptyWindow = availReady && inWindowCount === 0
+
   const panel = (
     <div className="subside-analysis-panel">
       <div className="sap-title">Subsidence risk at this location</div>
@@ -595,11 +656,32 @@ export function SubsideAnalysis({ picked }) {
             <div className="sap-step-body">
               <div className="sap-step-label">Over what time range</div>
               <div className="sap-dates">
-                <input type="date" value={form.start_date} onChange={setField('start_date')} />
+                <input
+                  type="date"
+                  value={form.start_date}
+                  min={availReady ? avail.start : undefined}
+                  max={availReady ? avail.end : undefined}
+                  onChange={setField('start_date')}
+                />
                 <span className="sap-dates-sep">→</span>
-                <input type="date" value={form.end_date} onChange={setField('end_date')} />
+                <input
+                  type="date"
+                  value={form.end_date}
+                  min={availReady ? avail.start : undefined}
+                  max={availReady ? avail.end : undefined}
+                  onChange={setField('end_date')}
+                />
               </div>
-              {datesFromFrame ? <div className="sap-hint">set from this area's available data</div> : null}
+              {avail?.status === 'loading' ? <div className="sap-hint">Checking OPERA availability for this area…</div> : null}
+              {availReady ? (
+                <div className="sap-hint">
+                  OPERA data here: {avail.start} → {avail.end}
+                  {inWindowCount != null ? ` · ${inWindowCount} product date${inWindowCount === 1 ? '' : 's'} in window` : ''}
+                </div>
+              ) : null}
+              {noData ? <div className="sap-warn">No OPERA DISP-S1 data found for this area. Pick a different area.</div> : null}
+              {emptyWindow ? <div className="sap-warn">No OPERA products in this window — widen the dates to the available range above.</div> : null}
+              {datesFromFrame && !availReady ? <div className="sap-hint">set from this area's available data</div> : null}
               {form.pipeline === 'werc' ? <div className="sap-hint">a multi-year range gives a more reliable rate</div> : null}
             </div>
           </div>
@@ -616,7 +698,7 @@ export function SubsideAnalysis({ picked }) {
             <div className="sap-warn">{aoiWarnings.map((w) => <div key={w}>{w}</div>)}</div>
           ) : null}
 
-          <button type="button" className="sap-submit" disabled={submitting || !aoi} onClick={handleSubmit}>
+          <button type="button" className="sap-submit" disabled={submitting || !aoi || noData || emptyWindow} onClick={handleSubmit}>
             {submitting ? 'Submitting…' : 'Run analysis'}
           </button>
           {submitErr ? <div className="sap-error">{submitErr}</div> : null}
