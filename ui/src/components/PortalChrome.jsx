@@ -1,6 +1,7 @@
 import { useAuth } from '../lib/auth'
 import { startTapisLogin } from '../lib/subsideApi'
 import { HERO } from '../lib/config'
+import { hashForPage } from '../lib/routes'
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home' },
@@ -31,7 +32,7 @@ export function PortalHeader({ activePage, onPageChange }) {
             <span>|</span>
             <a href="https://www.twdb.texas.gov/">TWDB</a>
           </div>
-          <div className="contract-label">Contract #2300012717</div>
+          <div className="contract-label">Contract #2401792868</div>
         </div>
       </div>
 
@@ -95,40 +96,40 @@ export function PortalFooter() {
           <section className="footer-section">
             <h3>Data</h3>
             <ul className="footer-links">
-              <li><a href="#datasets">Browse datasets</a></li>
-              <li><a href="#map">Download results</a></li>
+              <li><a href={hashForPage('datasets')}>Browse datasets</a></li>
+              <li><a href={hashForPage('maps')}>Download results</a></li>
             </ul>
           </section>
           <section className="footer-section">
             <h3>Tools</h3>
             <ul className="footer-links">
-              <li><a href="#map">Risk Explorer</a></li>
-              <li><a href="#map">Observed subsidence</a></li>
-              <li><a href="#map">Subsidence forecast</a></li>
+              <li><a href={hashForPage('maps')}>Risk Explorer</a></li>
+              <li><a href={hashForPage('maps')}>Observed subsidence</a></li>
+              <li><a href={hashForPage('forecast')}>Subsidence forecast</a></li>
             </ul>
           </section>
           <section className="footer-section">
             <h3>Resources</h3>
             <ul className="footer-links">
-              <li><a href="#home">Guide</a></li>
-              <li><a href="#datasets">Tutorials</a></li>
-              <li><a href="#datasets">Publications</a></li>
+              <li><a href={hashForPage('home')}>Guide</a></li>
+              <li><a href={hashForPage('datasets')}>Tutorials</a></li>
+              <li><a href={hashForPage('datasets')}>Publications</a></li>
             </ul>
           </section>
           <section className="footer-section">
             <h3>About</h3>
             <ul className="footer-links">
-              <li><a href="#about">Team</a></li>
-              <li><a href="#about">Contact</a></li>
-              <li><a href="#about">Terms</a></li>
+              <li><a href={hashForPage('about')}>Team</a></li>
+              <li><a href={hashForPage('about')}>Contact</a></li>
+              <li><a href={hashForPage('about')}>Terms</a></li>
             </ul>
           </section>
         </div>
         <div className="footer-bottom">
           <div>(c) 2026 TACC</div>
           <div className="footer-policy">
-            <a href="#about">Privacy</a>
-            <a href="#about">Access</a>
+            <a href={hashForPage('about')}>Privacy</a>
+            <a href={hashForPage('about')}>Access</a>
           </div>
         </div>
       </div>

@@ -5,7 +5,7 @@ import { useAuth } from './lib/auth'
 import { exchangeAuthCode, takeOAuthState } from './lib/subsideApi'
 import { pageFromHash, hashForPage } from './lib/routes'
 import { PortalPageContent } from './components/pages/PortalPageContent'
-import { PortalHeader } from './components/PortalChrome'
+import { PortalHeader, PortalFooter } from './components/PortalChrome'
 
 // Initial map view (Texas). The Risk Explorer's own layers + analysis panel
 // drive the map; no dataset backend is needed to render it.
@@ -69,6 +69,7 @@ export default function App() {
         onNavigate={navigate}
         mapWorkbenchProps={mapWorkbenchProps}
       />
+      <PortalFooter />
     </div>
   )
 }

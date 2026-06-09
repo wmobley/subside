@@ -4,8 +4,8 @@ import { CkanDatasets } from '../CkanDatasets'
 import { ForecastTool } from '../ForecastTool'
 import { MapWorkbench } from '../MapWorkbench'
 import { PortalCards } from '../PortalCards'
-import { PortalFooter, PortalHero } from '../PortalChrome'
-import { CONTRACT_FLAG, getAbout, getGoals, getPartners } from '../../lib/content'
+import { PortalHero } from '../PortalChrome'
+import { CONTRACT_LABEL, getAbout, getGoals, getPartners } from '../../lib/content'
 import { HOW_IT_WORKS } from '../../lib/config'
 
 function HomePage({ onNavigate }) {
@@ -124,9 +124,8 @@ function AboutPage() {
           </section>
         ) : null}
 
-        <p className="about-contract">{CONTRACT_FLAG}</p>
+        <p className="about-contract">{CONTRACT_LABEL}</p>
       </div>
-      <PortalFooter />
     </main>
   )
 }
