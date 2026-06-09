@@ -14,10 +14,12 @@ import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImageOverlay, Rectangle, useMap } from 'react-leaflet'
+import ReactMarkdown from 'react-markdown'
 
 import {
   bboxToAoiGeoJSON, fetchAvailability, getRunResults, getRunStatus, listRuns, submitRun,
 } from '../../lib/subsideApi'
+import { getWorkflowDocs } from '../../lib/content'
 import { useAuth } from '../../lib/auth'
 import { findRunItem, itemDownloads, itemLayers, itemMeta, stacEnabled } from '../../lib/stacApi'
 import { aoiStats, bboxToBounds, geometryBbox, toFeatureCollection } from './aoiGeometry'
@@ -25,6 +27,9 @@ import { RUN_COPY, RunProgress } from './RunProgress'
 import { StacCogLayer } from './StacCogLayer'
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
+
+// Per-workflow documentation, keyed by pipeline id (content/workflows/<id>.md).
+const WORKFLOW_DOCS = getWorkflowDocs()
 
 // What the user is asking for, phrased as an outcome rather than a pipeline name.
 // `pipeline` is what the API expects (h2i = acquire/preview, werc = + velocity).
@@ -81,6 +86,7 @@ export function SubsideAnalysis({ picked, panelHost }) {
   const [run, setRun] = useState(null)
   const [submitErr, setSubmitErr] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [docOpen, setDocOpen] = useState(false) // workflow documentation modal
 
   // Completed-run results: the STAC Item the pipeline published for this run.
   // All result rasters render from its public asset hrefs (no API proxy).
@@ -465,6 +471,11 @@ export function SubsideAnalysis({ picked, panelHost }) {
                 ))}
               </select>
               <div className="sap-hint">{OUTCOMES.find((o) => o.pipeline === form.pipeline)?.hint}</div>
+              {WORKFLOW_DOCS[form.pipeline] ? (
+                <button type="button" className="sap-link sap-doc-link" onClick={() => setDocOpen(true)}>
+                  Learn more about this analysis →
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -663,6 +674,35 @@ export function SubsideAnalysis({ picked, panelHost }) {
         <ImageOverlay url={selectedLayer.href} bounds={bboxToBounds(stacItem.bbox)} opacity={0.8} />
       ) : null}
       {panelHost ? createPortal(panel, panelHost) : null}
+      {docOpen && WORKFLOW_DOCS[form.pipeline]
+        ? createPortal(
+          <div className="workflow-modal-backdrop" role="presentation" onClick={() => setDocOpen(false)}>
+            <div
+              className="workflow-modal sap-doc-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={WORKFLOW_DOCS[form.pipeline].title || 'About this analysis'}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="workflow-modal-head">
+                <h2>{WORKFLOW_DOCS[form.pipeline].title || 'About this analysis'}</h2>
+                <button type="button" className="modal-close" aria-label="Close" onClick={() => setDocOpen(false)}>×</button>
+              </div>
+              <div className="sap-doc-body">
+                <ReactMarkdown>{WORKFLOW_DOCS[form.pipeline].body}</ReactMarkdown>
+              </div>
+              {WORKFLOW_DOCS[form.pipeline].labUrl ? (
+                <p className="sap-doc-lab">
+                  <a href={WORKFLOW_DOCS[form.pipeline].labUrl} target="_blank" rel="noreferrer">
+                    {WORKFLOW_DOCS[form.pipeline].lab || 'Project site'} →
+                  </a>
+                </p>
+              ) : null}
+            </div>
+          </div>,
+          document.body,
+        )
+        : null}
     </>
   )
 }

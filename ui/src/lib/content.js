@@ -10,6 +10,7 @@
 const ABOUT = import.meta.glob('../../content/about.md', { eager: true, query: '?raw', import: 'default' })
 const PARTNERS = import.meta.glob('../../content/partners/*.md', { eager: true, query: '?raw', import: 'default' })
 const GOALS = import.meta.glob('../../content/goals/*.md', { eager: true, query: '?raw', import: 'default' })
+const WORKFLOWS = import.meta.glob('../../content/workflows/*.md', { eager: true, query: '?raw', import: 'default' })
 
 // Split a Markdown file into its frontmatter fields and body text.
 function parse(raw) {
@@ -45,6 +46,19 @@ export function getPartners() {
 
 export function getGoals() {
   return load(GOALS).map(({ data, body }) => ({ title: data.title, description: body }))
+}
+
+// Per-workflow documentation, keyed by the file's stem so callers fetch by
+// pipeline id (e.g. content/workflows/h2i.md -> docs.h2i). Drop a new
+// <pipeline>.md in content/workflows/ and that workflow gets docs automatically.
+export function getWorkflowDocs() {
+  const out = {}
+  for (const [path, raw] of Object.entries(WORKFLOWS)) {
+    const id = path.split('/').pop().replace(/\.md$/, '')
+    const { data, body } = parse(raw)
+    out[id] = { ...data, body }
+  }
+  return out
 }
 
 // Confirmed TWDB contract number for SUBSIDE. Shown on the About page and the

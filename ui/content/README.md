@@ -11,8 +11,9 @@ live shortly after.
 ```
 content/
   about.md        ← the mission / goal paragraph at the top of the About page
-  partners/       ← one file per Partner Organization card
+  partners/       ← one file per Partner Organization card (also feeds the header bar)
   goals/          ← one file per "What we're building" card
+  workflows/      ← one file per Risk Explorer analysis ("Learn more about this analysis")
 ```
 
 ## How a file is structured
@@ -43,6 +44,22 @@ title: Centralize the data
 Bring Texas's scattered subsidence datasets into one open catalog.
 ```
 
+A workflow file (`workflows/`) documents one Risk Explorer analysis. The
+**filename must match the pipeline id** (`h2i.md`, `werc.md`) — that's how the
+right doc is shown when a user clicks "Learn more about this analysis". `title`
+is the modal heading; `lab` + `labUrl` become the footer link:
+
+```markdown
+---
+title: See surface displacement
+pipeline: h2i
+lab: H2I Lab, UT Arlington
+labUrl: https://www.adnanrajib.com/
+---
+What this analysis does, what you get, and any caveats — free prose with
+**bold**, [links](https://example.com), and bullet lists.
+```
+
 ## Common edits
 
 - **Change wording:** edit the body text or a frontmatter field. Keep the
@@ -57,6 +74,8 @@ Bring Texas's scattered subsidence datasets into one open catalog.
 
 - Keep the `---` lines and the `key:` labels — only change what comes after the
   colon, or the body text below.
-- Don't rename the `about.md` file or the `partners/` and `goals/` folders.
+- Don't rename the `about.md` file or the `partners/`, `goals/`, and
+  `workflows/` folders. In `workflows/`, keep the filename equal to the pipeline
+  id (`h2i.md`, `werc.md`) or that workflow's "Learn more" link won't find it.
 - If something looks broken after an edit, check that both `---` lines are still
   there.

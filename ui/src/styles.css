@@ -1287,11 +1287,62 @@ button {
 .workflow-modal {
   width: min(100%, 560px);
   padding: 24px;
-  border: 1px solid var(--tacc-border);
-  border-top: 4px solid var(--tacc-accent);
-  border-radius: 8px;
-  background: #fff;
+  border: var(--global-border-width--normal) solid var(--tacc-border);
+  border-top: var(--global-border-width--xx-thick) solid var(--tacc-accent);
+  border-radius: var(--subside-radius);
+  background: var(--subside-surface);
   box-shadow: 0 24px 60px rgb(15 23 42 / 22%);
+}
+
+/* Workflow documentation modal (Risk Explorer "Learn more about this analysis"). */
+.sap-doc-modal {
+  width: min(100%, 640px);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+
+.sap-doc-body {
+  overflow-y: auto;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--tacc-text-dark);
+}
+
+.sap-doc-body h3 {
+  margin: 18px 0 6px;
+  font-size: 15px;
+  color: var(--tacc-primary-dark);
+}
+
+.sap-doc-body ul {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.sap-doc-body li {
+  margin: 3px 0;
+}
+
+.sap-doc-body a {
+  color: var(--tacc-accent);
+}
+
+.sap-doc-lab {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: var(--global-border-width--normal) solid var(--tacc-border);
+  font-weight: 600;
+}
+
+.sap-doc-lab a {
+  color: var(--tacc-accent);
+  text-decoration: none;
+}
+
+.sap-doc-link {
+  margin-top: 6px;
 }
 
 .workflow-modal-head {
