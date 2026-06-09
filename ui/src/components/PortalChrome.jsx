@@ -143,7 +143,7 @@ export function PortalFooter() {
           <div>(c) 2026 TACC</div>
           <div className="footer-policy">
             <a href={hashForPage('about')}>Privacy</a>
-            <a href={hashForPage('about')}>Access</a>
+            <a href="https://accounts.tacc.utexas.edu/" target="_blank" rel="noreferrer">Access</a>
           </div>
         </div>
       </div>
