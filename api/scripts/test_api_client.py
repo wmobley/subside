@@ -44,7 +44,7 @@ except ImportError:
     sys.exit("pip install requests  (or run with the project .venv)")
 
 TERMINAL = {"completed", "failed", "cancelled"}
-DEFAULT_AOI = Path(__file__).resolve().parent.parent / "examples" / "sample_aoi.geojson"
+DEFAULT_AOI = Path(__file__).resolve().parents[2] / "examples" / "sample_aoi.geojson"
 
 
 def _die(msg: str, resp: requests.Response | None = None) -> None:

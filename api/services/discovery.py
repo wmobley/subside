@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .config import SUBSIDE_ROOT
+from ..config import SUBSIDE_ROOT
 
 # analysis lives at subside/analysis.
 if str(SUBSIDE_ROOT) not in sys.path:

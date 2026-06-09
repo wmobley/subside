@@ -16,7 +16,7 @@ from __future__ import annotations
 import threading
 from contextlib import contextmanager
 
-from . import config
+from .. import config
 
 
 class DbUnavailable(RuntimeError):

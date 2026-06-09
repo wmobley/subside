@@ -1,4 +1,4 @@
-import { REGION_PRESETS } from '../../ckan'
+import { REGION_PRESETS } from '../../lib/ckan'
 import { SpatialFilterMap } from './SpatialFilterMap'
 
 export function DatasetFilters({

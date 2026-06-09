@@ -5,8 +5,8 @@ import { ForecastTool } from '../ForecastTool'
 import { MapWorkbench } from '../MapWorkbench'
 import { PortalCards } from '../PortalCards'
 import { PortalFooter, PortalHero } from '../PortalChrome'
-import { CONTRACT_FLAG, getAbout, getGoals, getPartners } from '../../content'
-import { HOW_IT_WORKS } from '../../config'
+import { CONTRACT_FLAG, getAbout, getGoals, getPartners } from '../../lib/content'
+import { HOW_IT_WORKS } from '../../lib/config'
 
 function HomePage({ onNavigate }) {
   return (

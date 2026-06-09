@@ -1,5 +1,5 @@
-import { AUDIENCE_CARDS } from '../config'
-import { startTapisLogin } from '../subsideApi'
+import { AUDIENCE_CARDS } from '../lib/config'
+import { startTapisLogin } from '../lib/subsideApi'
 
 // The landing-page audience chooser. Public goes straight to the map; the
 // professional path starts TACC login (and still lands on the map afterward,

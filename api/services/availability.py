@@ -29,8 +29,9 @@ import json
 import sys
 from typing import Any
 
-from . import config, db
-from .config import SUBSIDE_ROOT
+from .. import config
+from . import db
+from ..config import SUBSIDE_ROOT
 from .discovery import DiscoveryUnavailable
 
 # analysis lives at subside/analysis (same hook discovery.py uses).

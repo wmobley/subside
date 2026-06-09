@@ -23,11 +23,11 @@ import urllib.request
 from pathlib import Path
 
 # Make `api` importable whether run as `python api/seed_layers.py` or `-m`.
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from api import db, layers  # noqa: E402
+from api.services import db, layers  # noqa: E402
 
 # Layer name -> source. `path` (repo-local) is tried first, then `url` as the
 # canonical/fallback source. The name is what the frontend references; the

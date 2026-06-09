@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImageOverlay, useMap, useMapEvents } from 'react-leaflet'
 
-import { itemLayers, overlayHref, searchItems, stacEnabled } from '../../stacApi'
+import { itemLayers, overlayHref, searchItems, stacEnabled } from '../../lib/stacApi'
 import { StacCogLayer } from './StacCogLayer'
 
 // Cap rendered runs per category per viewport so a dense area can't fire an

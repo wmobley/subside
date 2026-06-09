@@ -4,7 +4,7 @@
 // pods the browser calls the API directly (CORS) — set the API origin via the
 // runtime config (SUBSIDE_API_BASE env -> window.__SUBSIDE_CONFIG__) or, for a
 // build-time default, VITE_SUBSIDE_API_BASE. Empty => same-origin (dev proxy).
-import { requestJson } from './api'
+import { requestJson } from './http'
 import { getConfig } from './runtimeConfig'
 
 const BASE = getConfig('VITE_SUBSIDE_API_BASE').replace(/\/$/, '')

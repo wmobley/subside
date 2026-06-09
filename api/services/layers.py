@@ -21,7 +21,8 @@ import json
 import re
 from typing import Any
 
-from . import config, db
+from .. import config
+from . import db
 
 _IDENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _RESERVED_COLS = {"id", "geom", "props"}

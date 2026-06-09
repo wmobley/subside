@@ -17,9 +17,9 @@ from typing import Any
 
 import yaml
 
-from . import config
-from .config import PIPELINE_DIR, PIPELINES, STAGING_PREFIX, STAGING_SYSTEM, TAPIS_BASE_URL
-from .models import Artifact, RunRequest
+from .. import config
+from ..config import PIPELINE_DIR, PIPELINES, STAGING_PREFIX, STAGING_SYSTEM, TAPIS_BASE_URL
+from ..models import Artifact, RunRequest
 
 _STATUS_MAP = {
     "SUBMITTED": "queued",

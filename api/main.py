@@ -16,7 +16,7 @@ from __future__ import annotations
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import availability, db, discovery, forecast, layers, manager, provisioning, tapis
+from .services import availability, db, discovery, forecast, layers, manager, provisioning, tapis
 from .config import CORS_ORIGINS
 from .models import (
     AuthCodeRequest, AuthConfigResponse, AuthTokenResponse,

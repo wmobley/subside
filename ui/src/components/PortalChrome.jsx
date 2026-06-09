@@ -1,6 +1,6 @@
-import { useAuth } from '../auth'
-import { startTapisLogin } from '../subsideApi'
-import { HERO } from '../config'
+import { useAuth } from '../lib/auth'
+import { startTapisLogin } from '../lib/subsideApi'
+import { HERO } from '../lib/config'
 
 const NAV_ITEMS = [
   { id: 'home', label: 'Home' },

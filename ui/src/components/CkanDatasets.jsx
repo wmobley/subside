@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { REGION_PRESETS, fetchSubsideDatasets, filterDatasets, getActiveBbox, getFilterOptions } from '../ckan'
+import { REGION_PRESETS, fetchSubsideDatasets, filterDatasets, getActiveBbox, getFilterOptions } from '../lib/ckan'
 import { DatasetFilters } from './datasets/DatasetFilters'
 import { DatasetResults } from './datasets/DatasetResults'
 

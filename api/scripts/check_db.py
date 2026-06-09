@@ -28,7 +28,7 @@ import sys
 from urllib.parse import parse_qsl, urlsplit
 
 HERE = pathlib.Path(__file__).resolve().parent
-ENV_FILE = HERE.parent / ".env"   # subside/.env
+ENV_FILE = HERE.parent.parent / ".env"   # api/scripts -> api -> subside   # subside/.env
 PLACEHOLDER_DBNAMES = {"", "dbname"}
 
 

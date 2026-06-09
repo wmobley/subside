@@ -16,7 +16,7 @@ import logging
 
 import requests
 
-from . import config
+from .. import config
 from . import tapis as tapis_mod
 
 log = logging.getLogger("subside.provision")

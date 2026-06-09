@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMap } from 'react-leaflet'
 
-import { fetchAvailability, listLayers, tileUrlTemplate } from '../../subsideApi'
+import { fetchAvailability, listLayers, tileUrlTemplate } from '../../lib/subsideApi'
 import { REFERENCE_LAYERS, ReferenceGeoJSON } from './ReferenceLayers'
 import { VectorTileLayer } from './VectorTileLayer'
 

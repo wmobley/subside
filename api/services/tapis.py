@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import json
 
-from .config import (
+from ..config import (
     TAPIS_BASE_URL, TAPIS_CLIENT_ID, TAPIS_CLIENT_KEY, TAPIS_OAUTH_CALLBACK_URL,
 )
 

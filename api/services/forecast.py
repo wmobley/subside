@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from .config import SUBSIDE_ROOT
+from ..config import SUBSIDE_ROOT
 
 if str(SUBSIDE_ROOT) not in sys.path:
     sys.path.insert(0, str(SUBSIDE_ROOT))

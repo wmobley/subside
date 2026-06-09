@@ -10,7 +10,7 @@
 // spatial layers at a clicked location, leaving this form for overrides.
 import { useEffect, useState } from 'react'
 
-import { getForecastTemplate, runForecast } from '../subsideApi'
+import { getForecastTemplate, runForecast } from '../lib/subsideApi'
 import { RiskGauge } from './mapworkbench/RiskGauge'
 
 const LITHOLOGY = ['Unconsolidated Clastic', 'Consolidated Clastic', 'Carbonate', 'Igneous']
