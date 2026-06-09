@@ -1447,6 +1447,33 @@ button {
   font-weight: 600;
 }
 
+/* Previous-runs (STAC) list, portalled into the Layers panel by StacResults. */
+.slp-prevruns:empty { display: none; }   /* no empty section when STAC is off */
+
+.slp-prevruns-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.slp-prevruns-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 400;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.slp-prevruns-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
 /* Popup for reference (aquifer) features. */
 .ref-popup-title {
   font-weight: 700;

@@ -20,6 +20,9 @@ export function ModelMap({ mapData, zoom, setZoom }) {
   // SubsideAnalysis portals its UI into this host while keeping its map layers
   // inside the MapContainer. Callback ref so the portal target is available.
   const [panelHost, setPanelHost] = useState(null)
+  // Previous-runs list lives inside the Layers panel: SubsideLayers renders a
+  // mount point, StacResults portals its list/toggle into it.
+  const [prevRunsHost, setPrevRunsHost] = useState(null)
   return (
     <div className="map-canvas">
       <div className="map-stage">
@@ -31,10 +34,11 @@ export function ModelMap({ mapData, zoom, setZoom }) {
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <SubsideLayers onPickFrame={setPickedFrame} />
+            <SubsideLayers onPickFrame={setPickedFrame} prevRunsHostRef={setPrevRunsHost} />
             <SubsideAnalysis picked={pickedFrame} panelHost={panelHost} />
-            {/* STAC discovery panel + COG render (no-op unless VITE_STAC_API_BASE set) */}
-            <StacResults />
+            {/* Previous-runs layers on the map + list portalled into the Layers panel
+                (no-op unless VITE_STAC_API_BASE set) */}
+            <StacResults panelHost={prevRunsHost} />
           </MapContainer>
         </div>
       </div>

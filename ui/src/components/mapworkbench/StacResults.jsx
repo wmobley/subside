@@ -3,6 +3,7 @@
 // analyzed before launching a new run), lists them, and renders the selected
 // run's COG. Renders nothing when VITE_STAC_API_BASE is unset.
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { GeoJSON, ImageOverlay, useMap, useMapEvents } from 'react-leaflet'
 
 import { itemLayers, itemMeta, overlayHref, searchItems, stacEnabled } from '../../stacApi'
@@ -43,7 +44,7 @@ function footprintCollection(items) {
   }
 }
 
-export function StacResults() {
+export function StacResults({ panelHost }) {
   const map = useMap()
   const [items, setItems] = useState([])
   const [selected, setSelected] = useState(null)
@@ -110,6 +111,49 @@ export function StacResults() {
     .filter((x) => x.cog)
     .slice(0, MAX_COGS)
 
+  // The list + toggle, portalled into the Layers panel (SubsideLayers provides
+  // the mount point). Styled with the panel's slp-* classes to match.
+  const panelContent = (
+    <>
+      <div className="slp-section slp-prevruns-head">
+        <span>Previous runs ({items.length})</span>
+        <label className="slp-prevruns-toggle">
+          <input type="checkbox" checked={showOnMap} onChange={(e) => setShowOnMap(e.target.checked)} />
+          map
+        </label>
+      </div>
+      {error && <div className="slp-error">{error}</div>}
+      <ul className="slp-prevruns-list">
+        {items.map((it) => (
+          <li key={it.id}>
+            <button
+              type="button"
+              onClick={() => setSelected(it.id === selected ? null : it.id)}
+              style={{ ...rowStyle, background: it.id === selected ? '#e6f0ff' : 'transparent' }}
+            >
+              {itemLabel(it)}
+            </button>
+            {it.id === selected && (
+              <div style={detailStyle}>
+                {layer ? (
+                  <div>
+                    {layer.label}
+                    {layer.range ? ` · ${Number(layer.range.vmin).toPrecision(3)}–${Number(layer.range.vmax).toPrecision(3)}${layer.unit ? ` ${layer.unit}` : ''}` : ''}
+                  </div>
+                ) : <div>No raster asset.</div>}
+                {meta?.productCount != null && <div>{meta.productCount} OPERA products</div>}
+                {meta?.frameIds?.length ? <div>Frame{meta.frameIds.length > 1 ? 's' : ''} {meta.frameIds.join(', ')}</div> : null}
+              </div>
+            )}
+          </li>
+        ))}
+        {!items.length && !error && (
+          <li className="slp-empty">No previous runs here — this area hasn’t been analyzed yet.</li>
+        )}
+      </ul>
+    </>
+  )
+
   return (
     <>
       {showOnMap && footprints.features.length > 0 && (
@@ -128,63 +172,11 @@ export function StacResults() {
           onError={(m) => setError(m)}
         />
       )}
-      <div className="stac-results leaflet-control" style={panelStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontWeight: 600 }}>Previous runs in view ({items.length})</span>
-          <label style={{ fontSize: 11, fontWeight: 400, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-            <input type="checkbox" checked={showOnMap} onChange={(e) => setShowOnMap(e.target.checked)} />
-            show on map
-          </label>
-        </div>
-        {error && <div style={{ color: '#b00', fontSize: 12 }}>{error}</div>}
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxHeight: 220, overflow: 'auto' }}>
-          {items.map((it) => (
-            <li key={it.id}>
-              <button
-                type="button"
-                onClick={() => setSelected(it.id === selected ? null : it.id)}
-                style={{
-                  ...rowStyle,
-                  background: it.id === selected ? '#e6f0ff' : 'transparent',
-                }}
-              >
-                {itemLabel(it)}
-              </button>
-              {it.id === selected && (
-                <div style={detailStyle}>
-                  {layer ? (
-                    <div>
-                      {layer.label}
-                      {layer.range ? ` · ${Number(layer.range.vmin).toPrecision(3)}–${Number(layer.range.vmax).toPrecision(3)}${layer.unit ? ` ${layer.unit}` : ''}` : ''}
-                    </div>
-                  ) : <div>No raster asset.</div>}
-                  {meta?.productCount != null && <div>{meta.productCount} OPERA products</div>}
-                  {meta?.frameIds?.length ? <div>Frame{meta.frameIds.length > 1 ? 's' : ''} {meta.frameIds.join(', ')}</div> : null}
-                </div>
-              )}
-            </li>
-          ))}
-          {!items.length && !error && (
-            <li style={{ fontSize: 12, color: '#666' }}>No previous runs here — this area hasn’t been analyzed yet.</li>
-          )}
-        </ul>
-      </div>
+      {panelHost ? createPortal(panelContent, panelHost) : null}
     </>
   )
 }
 
-const panelStyle = {
-  position: 'absolute',
-  top: 12,
-  right: 12,
-  zIndex: 1000,
-  width: 260,
-  padding: '8px 10px',
-  background: 'rgba(255,255,255,0.95)',
-  borderRadius: 6,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-  font: '13px system-ui, sans-serif',
-}
 const rowStyle = {
   display: 'block',
   width: '100%',

@@ -56,7 +56,7 @@ function debounce(fn, ms) {
   return wrapped
 }
 
-export function SubsideLayers({ onPickFrame }) {
+export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
   const map = useMap()
   const [layers, setLayers] = useState([])
   const [enabled, setEnabled] = useState(() => new Set())
@@ -261,6 +261,9 @@ export function SubsideLayers({ onPickFrame }) {
           ) : null}
         </div>
       ) : null}
+
+      {/* Previous runs (STAC) — StacResults portals its list/toggle in here. */}
+      <div ref={prevRunsHostRef} className="slp-prevruns" />
 
       <div className="slp-section">Reference</div>
       {REFERENCE_LAYERS.map((l) => (
