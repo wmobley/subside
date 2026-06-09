@@ -16,7 +16,7 @@ from __future__ import annotations
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import availability, db, discovery, forecast, layers, manager, tapis
+from . import availability, db, discovery, forecast, layers, manager, provisioning, tapis
 from .config import CORS_ORIGINS
 from .models import (
     AuthCodeRequest, AuthConfigResponse, AuthTokenResponse,
@@ -80,7 +80,7 @@ def auth_config():
 
 
 @app.post("/api/subside/auth/token", response_model=AuthTokenResponse)
-def auth_token(body: AuthCodeRequest):
+def auth_token(body: AuthCodeRequest, background_tasks: BackgroundTasks):
     """Exchange the OAuth2 authorization code for a Tapis token (client_key
     stays server-side). CSRF `state` is validated client-side before this call."""
     try:
@@ -89,6 +89,10 @@ def auth_token(body: AuthCodeRequest):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=401, detail=f"Token exchange failed: {exc}") from exc
+    # Add the user to the Workflows group + CKAN org so they can run/publish.
+    # Runs after the response is sent (best-effort; never blocks or fails login).
+    if res.get("username"):
+        background_tasks.add_task(provisioning.provision_user, res["username"])
     return AuthTokenResponse(token=res["token"], username=res["username"], expires_at=res.get("expires_at"))
 
 

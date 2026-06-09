@@ -45,6 +45,24 @@ DEFAULT_ALLOCATION = os.environ.get("SUBSIDE_DEFAULT_ALLOCATION")
 #   python tapis/workflows/register.py --pipelines-only --recreate-pipelines
 SUBSIDE_WORKFLOW_GROUP = os.environ.get("SUBSIDE_WORKFLOW_GROUP", "subside-ops")
 
+# Auto-provisioning on login: a NEW user can't add themselves, so the API acts
+# as a dedicated SERVICE ACCOUNT that owns/admins the workflow group and is an
+# admin of the CKAN org. On login the API idempotently (a) adds the user to
+# SUBSIDE_WORKFLOW_GROUP and (b) makes them a CKAN org member at PROVISION_CKAN_ROLE.
+# Because ckan.tacc accepts a Tapis JWT as a bearer token, the SAME service
+# account covers both: SUBSIDE_CKAN_ADMIN_TOKEN is an OPTIONAL override; when
+# unset, the CKAN add reuses the service account's own Tapis token. All optional —
+# unset creds skip that step (logged) so login still works.
+SUBSIDE_ADMIN_USERNAME = os.environ.get("SUBSIDE_ADMIN_USERNAME")
+SUBSIDE_ADMIN_PASSWORD = os.environ.get("SUBSIDE_ADMIN_PASSWORD")
+SUBSIDE_CKAN_ADMIN_TOKEN = os.environ.get("SUBSIDE_CKAN_ADMIN_TOKEN")
+# CKAN org role granted to new users (editor = can create the run's dataset).
+PROVISION_CKAN_ROLE = os.environ.get("SUBSIDE_PROVISION_CKAN_ROLE", "editor")
+# Toggle the whole hook off without unsetting creds.
+PROVISION_ON_LOGIN = os.environ.get("SUBSIDE_PROVISION_ON_LOGIN", "true").strip().lower() in (
+    "1", "true", "yes", "on",
+)
+
 # Where the API stages run inputs (run-config, AOI, .netrc). cloud.data rootDir
 # is "/", so the writable path is the user's $HOME minus the leading slash:
 # /home/<user> -> home/<user>.
