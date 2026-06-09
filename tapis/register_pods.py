@@ -105,11 +105,19 @@ UI_POD_ID = "subsideui"
 
 def _ui_env(api_url: str) -> dict[str, str]:
     """Env for the UI pod: the API origin the browser calls (rewritten into
-    /runtime-config.js at container start) plus optional STAC settings."""
+    /runtime-config.js at container start) plus optional STAC settings.
+
+    The UI's map visualization reads ``SUBSIDE_STAC_API_BASE`` (-> the browser's
+    ``VITE_STAC_API_BASE``). It falls back to ``SUBSIDE_STAC_URL`` — the same STAC
+    API the publish step writes to — so one setting drives both server-side
+    publish and the browser map, instead of two names for one URL.
+    """
     env = {"SUBSIDE_API_BASE": api_url}
-    for k in ("SUBSIDE_STAC_API_BASE", "SUBSIDE_STAC_COLLECTION"):
-        if os.environ.get(k):
-            env[k] = os.environ[k]
+    stac_base = os.environ.get("SUBSIDE_STAC_API_BASE") or os.environ.get("SUBSIDE_STAC_URL")
+    if stac_base:
+        env["SUBSIDE_STAC_API_BASE"] = stac_base
+    if os.environ.get("SUBSIDE_STAC_COLLECTION"):
+        env["SUBSIDE_STAC_COLLECTION"] = os.environ["SUBSIDE_STAC_COLLECTION"]
     return env
 
 
@@ -163,7 +171,7 @@ def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
     return {"api": api, "ui": ui, "_urls": {"api": api_url, "ui": ui_url}}
 
 
-def upsert_pod(t, spec: dict, *, recreate: bool, start: bool) -> None:
+def upsert_pod(t, spec: dict, *, recreate: bool, start: bool, restart: bool = False) -> None:
     pid = spec["pod_id"]
     exists = True
     try:
@@ -180,6 +188,16 @@ def upsert_pod(t, spec: dict, *, recreate: bool, start: bool) -> None:
         print(f"  [{pid}] updating…")
         # Best-effort in-place update; some fields may require --recreate.
         t.pods.update_pod(**spec)
+        # update_pod changes the stored spec, but a running pod keeps its old
+        # container + env. Restart so env changes (e.g. SUBSIDE_STAC_API_BASE ->
+        # the UI's /runtime-config.js) actually take effect.
+        if restart:
+            try:
+                t.pods.restart_pod(pod_id=pid)
+                print(f"  [{pid}] restart requested (applying env changes)")
+            except Exception as exc:
+                print(f"  [{pid}] restart failed: {exc}")
+            return
     else:
         print(f"  [{pid}] creating…")
         t.pods.create_pod(**spec)
@@ -209,6 +227,8 @@ def main(argv=None) -> int:
     parser.add_argument("--image-tag", default="latest")
     parser.add_argument("--pods", choices=("both", "api", "ui"), default="both")
     parser.add_argument("--recreate", action="store_true", help="Delete + recreate instead of update.")
+    parser.add_argument("--restart", action="store_true",
+                        help="Restart updated pods so env changes (e.g. SUBSIDE_STAC_API_BASE) take effect.")
     parser.add_argument("--no-start", action="store_true", help="Create/update but don't start.")
     parser.add_argument("--dry-run", action="store_true", help="Print specs; don't call Tapis.")
     # OAuth client: registered (rotating its key) right before deploying, so the
@@ -287,7 +307,8 @@ def main(argv=None) -> int:
         print("         For production, move them to Tapis secrets (${pods:secrets:KEY}).\n")
 
     for key in selected:
-        upsert_pod(t, specs[key], recreate=args.recreate, start=not args.no_start)
+        upsert_pod(t, specs[key], recreate=args.recreate, start=not args.no_start,
+                   restart=args.restart)
 
     print("\nDone. Pods (once started):")
     if "api" in selected:

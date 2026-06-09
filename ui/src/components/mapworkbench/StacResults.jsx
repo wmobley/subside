@@ -48,6 +48,10 @@ export function StacResults() {
   const [items, setItems] = useState([])
   const [selected, setSelected] = useState(null)
   const [error, setError] = useState(null)
+  // Footprints + auto-rendered run imagery overlap the OPERA availability layer
+  // (and each other) when many runs share an area. This toggles them off the map
+  // to declutter; the list stays, and a selected run still renders on click.
+  const [showOnMap, setShowOnMap] = useState(true)
 
   const refresh = () => {
     if (!stacEnabled() || !map) return
@@ -108,13 +112,13 @@ export function StacResults() {
 
   return (
     <>
-      {footprints.features.length > 0 && (
+      {showOnMap && footprints.features.length > 0 && (
         <GeoJSON key={footprintsKey} data={footprints} style={footprintStyle} onEachFeature={onEachFootprint} />
       )}
-      {pngRuns.map((it) => (
+      {showOnMap && pngRuns.map((it) => (
         <ImageOverlay key={it.id} url={overlayHref(it)} bounds={bboxToBounds(it.bbox)} opacity={0.55} interactive={false} />
       ))}
-      {cogRuns.map(({ it, cog }) => (
+      {showOnMap && cogRuns.map(({ it, cog }) => (
         <StacCogLayer key={it.id} href={cog.href} range={cog.range} opacity={0.6} fit={false} />
       ))}
       {layer && (
@@ -125,8 +129,12 @@ export function StacResults() {
         />
       )}
       <div className="stac-results leaflet-control" style={panelStyle}>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>
-          Previous runs in view ({items.length})
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontWeight: 600 }}>Previous runs in view ({items.length})</span>
+          <label style={{ fontSize: 11, fontWeight: 400, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input type="checkbox" checked={showOnMap} onChange={(e) => setShowOnMap(e.target.checked)} />
+            show on map
+          </label>
         </div>
         {error && <div style={{ color: '#b00', fontSize: 12 }}>{error}</div>}
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxHeight: 220, overflow: 'auto' }}>
