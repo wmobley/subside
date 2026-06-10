@@ -45,6 +45,7 @@ function fromStacItem(item) {
     color: ctx.color || '#1d4ed8',
     style: ctx.style || null,
     role: ctx.role || null, // e.g. 'availability' for the OPERA frame layer
+    visibleWhen: ctx.visible_when || null, // 'authed' | 'anon' | 'always' | 'never'
     opacity: ctx.opacity ?? null,
     minZoom: ctx.min_zoom ?? null,
     maxZoom: ctx.max_zoom ?? null,
@@ -75,6 +76,9 @@ function fromApiRow(row, i) {
     color,
     style: styleForGeom(row.geom_type, color),
     role: isAvailability ? 'availability' : null,
+    // Mirror the STAC policy in the fallback: the OPERA frame layer defaults on
+    // only for logged-in users.
+    visibleWhen: isAvailability ? 'authed' : null,
     opacity: null,
     minZoom: null,
     maxZoom: null,
@@ -102,6 +106,8 @@ function aquiferFallback() {
     color: l.color,
     style: null,
     role: null,
+    // Major aquifers stand in for anonymous users (when the OPERA layer is hidden).
+    visibleWhen: l.id === 'major-aquifers' ? 'anon' : null,
     opacity: 0.35,
     minZoom: null,
     maxZoom: null,

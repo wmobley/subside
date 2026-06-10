@@ -12,12 +12,30 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMap } from 'react-leaflet'
 
+import { useAuth } from '../../lib/auth'
 import { fetchAvailability } from '../../lib/subsideApi'
 import { listContextLayers } from '../../lib/stacContext'
 import { ContextLayer } from './ContextLayer'
 import { VectorTileLayer } from './VectorTileLayer'
 
 const AVAILABILITY_ROLE = 'availability' // STAC role marking the OPERA frame layer
+
+// Resolve a layer's default-on state against auth: `visible_when` (authed/anon/
+// always/never) wins; otherwise the plain `default_visible` boolean applies.
+function isDefaultOn(layer, isAuthed) {
+  switch (layer.visibleWhen) {
+    case 'authed':
+      return isAuthed
+    case 'anon':
+      return !isAuthed
+    case 'always':
+      return true
+    case 'never':
+      return false
+    default:
+      return Boolean(layer.defaultVisible)
+  }
+}
 
 // Availability shading buckets, by recency of the latest product.
 const AVAIL = {
@@ -54,6 +72,12 @@ function debounce(fn, ms) {
 
 export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
   const map = useMap()
+  const { isAuthed } = useAuth()
+  // Latest auth, read when the catalog resolves so the default-on set reflects
+  // login at navigation time — without re-running the fetch (which would clobber
+  // the user's manual toggles) every time auth changes.
+  const isAuthedRef = useRef(isAuthed)
+  isAuthedRef.current = isAuthed
   const [catalog, setCatalog] = useState([]) // all vector layers, from STAC (or fallback)
   const [enabled, setEnabled] = useState(() => new Set())
   const [error, setError] = useState('')
@@ -85,7 +109,7 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
       .then((rows) => {
         if (cancelled) return
         setCatalog(rows)
-        setEnabled(new Set(rows.filter((r) => r.defaultVisible).map((r) => r.id)))
+        setEnabled(new Set(rows.filter((r) => isDefaultOn(r, isAuthedRef.current)).map((r) => r.id)))
         if (!rows.length) setError('No layers registered.')
       })
       .catch((err) => !cancelled && setError(err.message))

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { MapContainer, TileLayer, useMapEvents } from 'react-leaflet'
+import { AddressSearch } from './AddressSearch'
 import { SubsideAnalysis } from './SubsideAnalysis'
 import { SubsideLayers } from './SubsideLayers'
 import { StacResults } from './StacResults'
@@ -34,6 +35,7 @@ export function ModelMap({ mapData, zoom, setZoom }) {
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
+            <AddressSearch />
             <SubsideLayers onPickFrame={setPickedFrame} prevRunsHostRef={setPrevRunsHost} />
             <SubsideAnalysis picked={pickedFrame} panelHost={panelHost} />
             {/* Previous-runs layers on the map + list portalled into the Layers panel
