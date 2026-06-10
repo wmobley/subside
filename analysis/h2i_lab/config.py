@@ -22,7 +22,7 @@ class H2IRunConfig:
     end_date: str
     output_dir: str = "outputs"
     results_dir: str = "OPERA_L3_DISP-S1"
-    num_workers: int = 2
+    num_workers: int = 8
     aoi_geojson_path: str | None = None
     aoi_shapefile_path: str | None = None
     bbox: list[float] | None = None
@@ -33,14 +33,17 @@ class H2IRunConfig:
     require_products: bool = True
     preview_only: bool = False
     archive_name: str | None = None
-    # Performance experiment knobs (see analysis/h2i_lab/benchmark.py):
-    #   bbox_mode="sample": download urls[0] in full to derive the pixel bbox
-    #     AND re-download it in the worker pool (current production behavior).
-    #   bbox_mode="prime": download urls[0] once, reuse it for the bbox and as
-    #     the first cropped output, removing one redundant full-file download.
-    #   remote_subset: transfer only the AOI chunks of each product via HTTP
-    #     range reads instead of pulling the whole file and cropping after.
-    bbox_mode: str = "sample"
+    # Download tuning (see analysis/h2i_lab/benchmark.py; defaults chosen from
+    # an ls6 vm-small ablation over 32 products):
+    #   bbox_mode="prime" (default): download urls[0] once, reuse it for the
+    #     pixel bbox AND as the first cropped output. ~1.5x faster than the
+    #     legacy "sample" mode, which re-downloaded urls[0] in the worker pool.
+    #   remote_subset (default off): HTTP range-read only the AOI chunks. Sound
+    #     in theory but measured ~17x SLOWER on ls6 (latency-bound: every block
+    #     re-pays the cumulus->URS->S3 redirect). Kept for research, off in prod.
+    # num_workers=8 was the throughput sweet spot (~97 MB/s); 16 was slower and
+    # used 2x the RAM, and the stage is I/O-bound so cores sit idle regardless.
+    bbox_mode: str = "prime"
     remote_subset: bool = False
     # Cap the number of products downloaded (None = all). Handy for quick,
     # bounded benchmark/stress runs without widening the date range.
@@ -63,7 +66,7 @@ class H2IRunConfig:
             end_date=str(payload["end_date"]),
             output_dir=str(payload.get("output_dir") or "outputs"),
             results_dir=str(payload.get("results_dir") or "OPERA_L3_DISP-S1"),
-            num_workers=int(payload.get("num_workers") or 2),
+            num_workers=int(payload.get("num_workers") or 8),
             aoi_geojson_path=payload.get("aoi_geojson_path"),
             aoi_shapefile_path=payload.get("aoi_shapefile_path"),
             bbox=bbox,
@@ -74,7 +77,7 @@ class H2IRunConfig:
             require_products=bool(payload.get("require_products", True)),
             preview_only=bool(payload.get("preview_only", False)),
             archive_name=payload.get("archive_name"),
-            bbox_mode=str(payload.get("bbox_mode") or "sample"),
+            bbox_mode=str(payload.get("bbox_mode") or "prime"),
             remote_subset=bool(payload.get("remote_subset", False)),
             max_products=(int(payload["max_products"]) if payload.get("max_products") else None),
         )

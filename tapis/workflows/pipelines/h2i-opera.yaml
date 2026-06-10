@@ -23,7 +23,7 @@ params:
   end_date:            {type: string, required: true}
   aoi_geojson_uri:     {type: string, required: true, description: "tapis:// URI to the AOI GeoJSON"}
   earthdata_netrc_uri: {type: string, default: "", required: false, description: "Optional tapis:// URI to a protected .netrc"}
-  num_workers:         {type: integer, default: 4}
+  num_workers:         {type: integer, default: 8}
   min_overlap_percent: {type: number, default: 50.0}
   allocation:          {type: string, required: true, description: "TACC allocation to charge"}
   update_conda_env:    {type: string, default: "false"}
@@ -101,7 +101,7 @@ tasks:
           {"key": "UPDATE_CONDA_ENV", "value": str(val("UPDATE_CONDA_ENV", "false"))},
           {"key": "START_DATE", "value": start},
           {"key": "END_DATE", "value": end},
-          {"key": "NUM_WORKERS", "value": str(val("NUM_WORKERS", 2))},
+          {"key": "NUM_WORKERS", "value": str(val("NUM_WORKERS", 8))},
           {"key": "MIN_OVERLAP_PERCENT", "value": str(val("MIN_OVERLAP_PERCENT", 50.0))},
       ]
 

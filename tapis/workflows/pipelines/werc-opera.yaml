@@ -30,7 +30,7 @@ params:
   reference_lon:       {type: string, default: "", required: false}
   anchor_radius_m:     {type: integer, default: 5000}
   n_reference_pixels:  {type: integer, default: 25}
-  num_workers:         {type: integer, default: 4}
+  num_workers:         {type: integer, default: 8}
   min_overlap_percent: {type: number, default: 50.0}
   allocation:          {type: string, required: true}
   update_conda_env:    {type: string, default: "false"}
@@ -113,7 +113,7 @@ tasks:
           {"key": "UPDATE_CONDA_ENV", "value": str(val("UPDATE_CONDA_ENV", "false"))},
           {"key": "START_DATE", "value": start},
           {"key": "END_DATE", "value": end},
-          {"key": "NUM_WORKERS", "value": str(val("NUM_WORKERS", 2))},
+          {"key": "NUM_WORKERS", "value": str(val("NUM_WORKERS", 8))},
           {"key": "MIN_OVERLAP_PERCENT", "value": str(val("MIN_OVERLAP_PERCENT", 50.0))},
           {"key": "REFERENCE_MODE", "value": str(val("REFERENCE_MODE", "auto"))},
           {"key": "REFERENCE_LAT", "value": str(val("REFERENCE_LAT", ""))},
