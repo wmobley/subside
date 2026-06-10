@@ -1,6 +1,9 @@
-// Programmatically renders every registered SUBSIDE layer (GET /api/subside/layers)
-// as an MVT vector-tile overlay on the map, plus a viewport-driven availability
-// shading for the OPERA frame-footprint layer ("satellite").
+// Renders the map's vector layers from a single STAC-driven catalog
+// (lib/stacContext.js): the SUBSIDE PostGIS layers served as MVT by the API, plus
+// external WMS / XYZ / GeoJSON overlays — all discovered from one place. The
+// OPERA frame-footprint layer (role "availability") additionally gets viewport
+// availability shading + click-to-pick-frame; every other layer renders through
+// the generic <ContextLayer> adapter.
 //
 // Mounted *inside* a react-leaflet <MapContainer>. The toggle/legend panel is
 // rendered into a Leaflet control via a React portal so it lives in the map corner.
@@ -9,13 +12,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMap } from 'react-leaflet'
 
-import { fetchAvailability, listLayers, tileUrlTemplate } from '../../lib/subsideApi'
+import { fetchAvailability } from '../../lib/subsideApi'
 import { listContextLayers } from '../../lib/stacContext'
 import { ContextLayer } from './ContextLayer'
 import { VectorTileLayer } from './VectorTileLayer'
 
-const AVAILABILITY_LAYER = 'satellite' // the OPERA frame-footprint layer
-const PALETTE = ['#2563eb', '#7c3aed', '#0d9488', '#c2410c', '#9333ea', '#0891b2', '#4d7c0f']
+const AVAILABILITY_ROLE = 'availability' // STAC role marking the OPERA frame layer
 
 // Availability shading buckets, by recency of the latest product.
 const AVAIL = {
@@ -40,13 +42,6 @@ function availabilityBucket(info, nowMs) {
   return 'stale'
 }
 
-function isPolygon(geomType) {
-  return /polygon|geometry/i.test(geomType || '')
-}
-function isLine(geomType) {
-  return /linestring/i.test(geomType || '')
-}
-
 function debounce(fn, ms) {
   let t
   const wrapped = (...args) => {
@@ -59,10 +54,8 @@ function debounce(fn, ms) {
 
 export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
   const map = useMap()
-  const [layers, setLayers] = useState([])
+  const [catalog, setCatalog] = useState([]) // all vector layers, from STAC (or fallback)
   const [enabled, setEnabled] = useState(() => new Set())
-  const [contextLayers, setContextLayers] = useState([]) // STAC-registered reference overlays
-  const [refEnabled, setRefEnabled] = useState(() => new Set()) // which context overlays are visible
   const [error, setError] = useState('')
   const [styleVersion, setStyleVersion] = useState(0)
   const [availStats, setAvailStats] = useState(null)
@@ -85,14 +78,15 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
     return () => ctrl.remove()
   }, [map, controlEl])
 
-  // Load the registry once; enable everything by default.
+  // Load the catalog once from STAC; default-visible layers start toggled on.
   useEffect(() => {
     let cancelled = false
-    listLayers()
+    listContextLayers()
       .then((rows) => {
         if (cancelled) return
-        setLayers(rows)
-        setEnabled(new Set(rows.map((r) => r.name)))
+        setCatalog(rows)
+        setEnabled(new Set(rows.filter((r) => r.defaultVisible).map((r) => r.id)))
+        if (!rows.length) setError('No layers registered.')
       })
       .catch((err) => !cancelled && setError(err.message))
     return () => {
@@ -100,30 +94,20 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
     }
   }, [])
 
-  // Load context/reference overlays from STAC (resolves to a built-in fallback if
-  // STAC is unavailable). Default-visible layers start toggled on.
-  useEffect(() => {
-    let cancelled = false
-    listContextLayers()
-      .then((rows) => {
-        if (cancelled) return
-        setContextLayers(rows)
-        setRefEnabled(new Set(rows.filter((r) => r.defaultVisible).map((r) => r.id)))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const satelliteEnabled = enabled.has(AVAILABILITY_LAYER) && layers.some((l) => l.name === AVAILABILITY_LAYER)
+  // The OPERA frame layer (if registered) drives the availability overlay.
+  const availLayer = useMemo(
+    () => catalog.find((l) => l.role === AVAILABILITY_ROLE) || null,
+    [catalog],
+  )
+  const availId = availLayer?.id
+  const satelliteEnabled = Boolean(availId && enabled.has(availId))
 
   // Viewport-driven availability: fetch for the current bounds, accumulate, redraw.
   useEffect(() => {
-    if (!satelliteEnabled) return undefined
+    if (!satelliteEnabled || !availId) return undefined
     let cancelled = false
     const run = () => {
-      fetchAvailability(map.getBounds(), { layer: AVAILABILITY_LAYER })
+      fetchAvailability(map.getBounds(), { layer: availId })
         .then((res) => {
           if (cancelled) return
           const store = availabilityRef.current
@@ -146,14 +130,14 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
       onMove.cancel()
       map.off('moveend', onMove)
     }
-  }, [map, satelliteEnabled])
+  }, [map, satelliteEnabled, availId])
 
   // While frames are still refreshing on the server, re-poll a few times so the
   // colors fill in without the user having to pan.
   useEffect(() => {
-    if (!satelliteEnabled || !availStats?.refreshing) return undefined
+    if (!satelliteEnabled || !availId || !availStats?.refreshing) return undefined
     const id = setTimeout(() => {
-      fetchAvailability(map.getBounds(), { layer: AVAILABILITY_LAYER })
+      fetchAvailability(map.getBounds(), { layer: availId })
         .then((res) => {
           const store = availabilityRef.current
           for (const item of res.items || []) store.set(item.frame_id, item)
@@ -167,15 +151,9 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
         .catch(() => {})
     }, 6000)
     return () => clearTimeout(id)
-  }, [map, satelliteEnabled, availStats?.refreshing, styleVersion])
+  }, [map, satelliteEnabled, availId, availStats?.refreshing, styleVersion])
 
   const nowMs = useMemo(() => Date.now(), [styleVersion])
-
-  // Stable palette index per layer name (filtered render order must not change colors).
-  const colorIndex = useMemo(
-    () => Object.fromEntries(layers.map((l, i) => [l.name, i])),
-    [layers],
-  )
 
   // Click -> popup with feature properties (and availability for satellite frames).
   const handleFeatureClick = useCallback(
@@ -213,35 +191,19 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
     [map, onPickFrame],
   )
 
-  // Build a VectorGrid style function for a given registry row.
-  const styleFor = useCallback((row, index) => {
-    if (row.name === AVAILABILITY_LAYER) {
-      return (props) => {
-        const info = availabilityRef.current.get(Number(props.frame_id))
-        const color = AVAIL[availabilityBucket(info, nowMs)].color
-        return { weight: 1, color, fill: true, fillColor: color, fillOpacity: 0.35 }
-      }
-    }
-    const color = PALETTE[index % PALETTE.length]
-    if (isLine(row.geom_type)) return () => ({ weight: 2, color })
-    if (isPolygon(row.geom_type)) {
-      return () => ({ weight: 1, color, fill: true, fillColor: color, fillOpacity: 0.15 })
-    }
-    return () => ({ radius: 4, color, fill: true, fillColor: color, fillOpacity: 0.8 }) // point
-  }, [nowMs])
+  // VectorGrid style for the availability layer: color each OPERA frame by the
+  // recency of its latest product (live, from availabilityRef + styleVersion).
+  const availabilityStyle = useCallback(
+    (props) => {
+      const info = availabilityRef.current.get(Number(props.frame_id))
+      const color = AVAIL[availabilityBucket(info, nowMs)].color
+      return { weight: 1, color, fill: true, fillColor: color, fillOpacity: 0.35 }
+    },
+    [nowMs],
+  )
 
-  function toggle(name) {
+  function toggle(id) {
     setEnabled((current) => {
-      const next = new Set(current)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }
-
-  function toggleRef(id) {
-    setError('')
-    setRefEnabled((current) => {
       const next = new Set(current)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -249,19 +211,51 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
     })
   }
 
+  // Render one catalog layer: the availability layer gets the special shaded MVT
+  // path; everything else goes through the generic adapter.
+  function renderLayer(layer) {
+    if (layer.role === AVAILABILITY_ROLE) {
+      const sourceKey = (layer.sourceLayers && layer.sourceLayers[0]) || layer.id
+      return (
+        <VectorTileLayer
+          key={layer.id}
+          url={layer.href}
+          styleVersion={styleVersion}
+          vectorTileLayerStyles={{ [sourceKey]: availabilityStyle }}
+          onFeatureClick={handleFeatureClick}
+          maxNativeZoom={layer.maxZoom || 14}
+        />
+      )
+    }
+    return (
+      <ContextLayer key={layer.id} layer={layer} onError={setError} onFeatureClick={handleFeatureClick} />
+    )
+  }
+
+  // Panel rows, grouped by `group` with a header whenever the group changes.
+  let lastGroup = null
+  const rows = catalog.map((layer) => {
+    const header = layer.group !== lastGroup ? layer.group : null
+    lastGroup = layer.group
+    return (
+      <div key={layer.id}>
+        {header ? <div className="slp-section">{header}</div> : null}
+        <label className="slp-row">
+          <input type="checkbox" checked={enabled.has(layer.id)} onChange={() => toggle(layer.id)} />
+          <span className="slp-swatch" style={{ background: layer.color }} />
+          <span className="slp-name">{layer.label}</span>
+          {layer.featureCount != null ? <span className="slp-count">{layer.featureCount}</span> : null}
+        </label>
+      </div>
+    )
+  })
+
   const panel = (
     <div className="subside-layer-panel">
       <div className="slp-title">Layers</div>
       {error ? <div className="slp-error">{error}</div> : null}
-      {!layers.length && !error ? <div className="slp-empty">No registered layers.</div> : null}
-      {layers.map((row) => (
-        <label key={row.name} className="slp-row">
-          <input type="checkbox" checked={enabled.has(row.name)} onChange={() => toggle(row.name)} />
-          <span className="slp-swatch" style={{ background: PALETTE[colorIndex[row.name] % PALETTE.length] }} />
-          <span className="slp-name">{row.name}</span>
-          <span className="slp-count">{row.feature_count}</span>
-        </label>
-      ))}
+      {!catalog.length && !error ? <div className="slp-empty">Loading layers…</div> : null}
+      {rows}
       {satelliteEnabled ? (
         <div className="slp-legend">
           <div className="slp-legend-title">OPERA availability</div>
@@ -282,38 +276,12 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
 
       {/* Previous runs (STAC) — StacResults portals its list/toggle in here. */}
       <div ref={prevRunsHostRef} className="slp-prevruns" />
-
-      {contextLayers.length ? <div className="slp-section">Reference</div> : null}
-      {contextLayers.map((l) => (
-        <label key={l.id} className="slp-row">
-          <input type="checkbox" checked={refEnabled.has(l.id)} onChange={() => toggleRef(l.id)} />
-          <span className="slp-swatch" style={{ background: l.color }} />
-          <span className="slp-name">{l.label}</span>
-        </label>
-      ))}
-      {contextLayers.length ? (
-        <div className="slp-stats">{contextLayers.length} context layer(s) · from STAC</div>
-      ) : null}
     </div>
   )
 
   return (
     <>
-      {layers
-        .filter((row) => enabled.has(row.name))
-        .map((row) => (
-          <VectorTileLayer
-            key={row.name}
-            url={tileUrlTemplate(row.name)}
-            styleVersion={row.name === AVAILABILITY_LAYER ? styleVersion : 0}
-            vectorTileLayerStyles={{ [row.name]: styleFor(row, colorIndex[row.name]) }}
-            onFeatureClick={handleFeatureClick}
-            maxNativeZoom={14}
-          />
-        ))}
-      {contextLayers.filter((l) => refEnabled.has(l.id)).map((l) => (
-        <ContextLayer key={l.id} layer={l} onError={setError} onFeatureClick={handleFeatureClick} />
-      ))}
+      {catalog.filter((l) => enabled.has(l.id)).map(renderLayer)}
       {createPortal(panel, controlEl)}
     </>
   )

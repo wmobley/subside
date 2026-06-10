@@ -1,22 +1,34 @@
-// Dynamic *context* layers (basemap / reference overlays) discovered from STAC.
+// The map's vector-layer catalog, discovered from STAC.
 //
-// The stac-platform `subside-context` Collection holds one Item per renderable
-// map service (WMS / XYZ raster / MVT vector tiles / remote GeoJSON). Registering
-// an Item there makes the layer appear in the map's Reference panel with no
-// frontend deploy — see stac-platform/stacmap/context.py for the Item shape.
+// STAC is the *meta repo*: one `subside-context` Collection holds an Item per
+// renderable layer (the SUBSIDE PostGIS layers served as MVT by the API, plus
+// external WMS / XYZ / GeoJSON overlays). Each Item carries where the tiles are
+// served (`assets.service.href`) and how to present it (title, style, group,
+// visibility) in a self-contained `subside:context` property block. Registering
+// an Item makes a layer appear on the map with no frontend deploy — see
+// stac-platform/stacmap/context.py.
 //
-// Each Item carries a self-contained `subside:context` property block (the
-// contract we control) plus a web-map-links link (for generic STAC clients). We
-// read the property block and normalize every service kind to one flat config the
-// ContextLayer adapter renders.
-//
-// When STAC is disabled or the collection can't be reached, we fall back to the
-// previously-hardcoded ArcGIS aquifer overlays so the panel never goes empty.
+// Fallback: if STAC is disabled or unreachable we rebuild the catalog from the
+// SUBSIDE API's own layer registry (GET /api/subside/layers) plus the built-in
+// ArcGIS aquifer overlays, so the map degrades to its pre-STAC behavior.
 import { getConfig } from './runtimeConfig'
 import { REFERENCE_LAYERS } from '../components/mapworkbench/ReferenceLayers'
+import { listLayers, tileUrlTemplate } from './subsideApi'
 
 const BASE = getConfig('VITE_STAC_API_BASE').replace(/\/$/, '')
 const COLLECTION = getConfig('VITE_STAC_CONTEXT_COLLECTION') || 'subside-context'
+
+// Categorical palette for fallback layers that carry no explicit color.
+const FALLBACK_PALETTE = ['#2563eb', '#7c3aed', '#0d9488', '#c2410c', '#9333ea', '#0891b2', '#4d7c0f']
+
+// A default VectorGrid style hint for a geometry type (used by the API fallback).
+function styleForGeom(geomType, color) {
+  if (/linestring/i.test(geomType || '')) return { geomType: 'LineString', color, weight: 2 }
+  if (/polygon|geometry/i.test(geomType || '')) {
+    return { geomType: 'Polygon', color, weight: 1, fillColor: color, fillOpacity: 0.15 }
+  }
+  return { geomType: 'Point', color, radius: 4, fillColor: color, fillOpacity: 0.8 }
+}
 
 // Normalize one STAC context Item -> the flat layer config the UI renders.
 function fromStacItem(item) {
@@ -32,6 +44,7 @@ function fromStacItem(item) {
     href,
     color: ctx.color || '#1d4ed8',
     style: ctx.style || null,
+    role: ctx.role || null, // e.g. 'availability' for the OPERA frame layer
     opacity: ctx.opacity ?? null,
     minZoom: ctx.min_zoom ?? null,
     maxZoom: ctx.max_zoom ?? null,
@@ -43,12 +56,42 @@ function fromStacItem(item) {
     wmsTransparent: ctx.wms_transparent ?? null,
     format: ctx.format || null,
     sourceLayers: ctx.source_layers || null,
+    featureCount: ctx.feature_count ?? null,
   }
 }
 
-// The pre-STAC hardcoded aquifer overlays, in the same flat shape, so the panel
-// behaves identically when STAC is unavailable.
-function fallbackLayers() {
+// Normalize a SUBSIDE API registry row (GET /api/subside/layers) -> the same
+// flat shape, for the no-STAC fallback. `satellite` keeps its availability role.
+function fromApiRow(row, i) {
+  const isAvailability = row.name === 'satellite'
+  const color = isAvailability ? '#16a34a' : FALLBACK_PALETTE[i % FALLBACK_PALETTE.length]
+  return {
+    id: row.name,
+    label: row.name,
+    group: 'SUBSIDE',
+    kind: null,
+    service: 'mvt',
+    href: tileUrlTemplate(row.name),
+    color,
+    style: styleForGeom(row.geom_type, color),
+    role: isAvailability ? 'availability' : null,
+    opacity: null,
+    minZoom: null,
+    maxZoom: null,
+    attribution: null,
+    legend: null,
+    defaultVisible: true,
+    wmsLayers: null,
+    wmsStyles: null,
+    wmsTransparent: null,
+    format: null,
+    sourceLayers: [row.name],
+    featureCount: row.feature_count ?? null,
+  }
+}
+
+// The built-in ArcGIS aquifer overlays in the flat shape (off by default).
+function aquiferFallback() {
   return REFERENCE_LAYERS.map((l) => ({
     id: l.id,
     label: l.label,
@@ -58,6 +101,7 @@ function fallbackLayers() {
     href: l.url,
     color: l.color,
     style: null,
+    role: null,
     opacity: 0.35,
     minZoom: null,
     maxZoom: null,
@@ -69,20 +113,36 @@ function fallbackLayers() {
     wmsTransparent: null,
     format: null,
     sourceLayers: null,
+    featureCount: null,
   }))
 }
 
-// Fetch and normalize the context layers. Never rejects: on any failure it
-// resolves to the hardcoded fallback so the Reference panel stays populated.
-export async function listContextLayers({ collection = COLLECTION } = {}) {
-  if (!BASE) return fallbackLayers()
+// Rebuild the catalog without STAC: the API's own layers + the aquifer overlays.
+async function fallbackCatalog() {
+  let apiLayers = []
   try {
-    const resp = await fetch(`${BASE}/collections/${collection}/items?limit=100`)
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    const payload = await resp.json()
-    const layers = (payload.features || []).map(fromStacItem).filter(Boolean)
-    return layers.length ? layers : fallbackLayers()
+    apiLayers = await listLayers()
   } catch {
-    return fallbackLayers()
+    apiLayers = []
   }
+  return [...apiLayers.map(fromApiRow), ...aquiferFallback()]
+}
+
+// Discover every vector layer the map should offer. Prefers the STAC catalog;
+// resolves to the API+aquifer fallback when STAC is disabled, unreachable, or
+// empty. Never rejects.
+export async function listContextLayers({ collection = COLLECTION } = {}) {
+  if (BASE) {
+    try {
+      const resp = await fetch(`${BASE}/collections/${collection}/items?limit=200`)
+      if (resp.ok) {
+        const payload = await resp.json()
+        const layers = (payload.features || []).map(fromStacItem).filter(Boolean)
+        if (layers.length) return layers
+      }
+    } catch {
+      // fall through to the fallback catalog
+    }
+  }
+  return fallbackCatalog()
 }
