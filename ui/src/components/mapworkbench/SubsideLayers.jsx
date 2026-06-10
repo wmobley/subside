@@ -10,7 +10,8 @@ import { createPortal } from 'react-dom'
 import { useMap } from 'react-leaflet'
 
 import { fetchAvailability, listLayers, tileUrlTemplate } from '../../lib/subsideApi'
-import { REFERENCE_LAYERS, ReferenceGeoJSON } from './ReferenceLayers'
+import { listContextLayers } from '../../lib/stacContext'
+import { ContextLayer } from './ContextLayer'
 import { VectorTileLayer } from './VectorTileLayer'
 
 const AVAILABILITY_LAYER = 'satellite' // the OPERA frame-footprint layer
@@ -60,7 +61,8 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
   const map = useMap()
   const [layers, setLayers] = useState([])
   const [enabled, setEnabled] = useState(() => new Set())
-  const [refEnabled, setRefEnabled] = useState(() => new Set()) // ArcGIS reference overlays (off by default)
+  const [contextLayers, setContextLayers] = useState([]) // STAC-registered reference overlays
+  const [refEnabled, setRefEnabled] = useState(() => new Set()) // which context overlays are visible
   const [error, setError] = useState('')
   const [styleVersion, setStyleVersion] = useState(0)
   const [availStats, setAvailStats] = useState(null)
@@ -93,6 +95,22 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
         setEnabled(new Set(rows.map((r) => r.name)))
       })
       .catch((err) => !cancelled && setError(err.message))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Load context/reference overlays from STAC (resolves to a built-in fallback if
+  // STAC is unavailable). Default-visible layers start toggled on.
+  useEffect(() => {
+    let cancelled = false
+    listContextLayers()
+      .then((rows) => {
+        if (cancelled) return
+        setContextLayers(rows)
+        setRefEnabled(new Set(rows.filter((r) => r.defaultVisible).map((r) => r.id)))
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -265,15 +283,17 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
       {/* Previous runs (STAC) — StacResults portals its list/toggle in here. */}
       <div ref={prevRunsHostRef} className="slp-prevruns" />
 
-      <div className="slp-section">Reference</div>
-      {REFERENCE_LAYERS.map((l) => (
+      {contextLayers.length ? <div className="slp-section">Reference</div> : null}
+      {contextLayers.map((l) => (
         <label key={l.id} className="slp-row">
           <input type="checkbox" checked={refEnabled.has(l.id)} onChange={() => toggleRef(l.id)} />
           <span className="slp-swatch" style={{ background: l.color }} />
           <span className="slp-name">{l.label}</span>
         </label>
       ))}
-      <div className="slp-stats">Texas aquifers · live from ArcGIS</div>
+      {contextLayers.length ? (
+        <div className="slp-stats">{contextLayers.length} context layer(s) · from STAC</div>
+      ) : null}
     </div>
   )
 
@@ -291,8 +311,8 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
             maxNativeZoom={14}
           />
         ))}
-      {REFERENCE_LAYERS.filter((l) => refEnabled.has(l.id)).map((l) => (
-        <ReferenceGeoJSON key={l.id} url={l.url} kind={l.kind} onError={setError} />
+      {contextLayers.filter((l) => refEnabled.has(l.id)).map((l) => (
+        <ContextLayer key={l.id} layer={l} onError={setError} onFeatureClick={handleFeatureClick} />
       ))}
       {createPortal(panel, controlEl)}
     </>
