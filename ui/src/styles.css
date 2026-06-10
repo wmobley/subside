@@ -1708,6 +1708,18 @@ button {
   display: inline-block;
 }
 
+/* Attribute rows for a feature-server popup (e.g. a well report). */
+.ref-popup-row {
+  font-size: 12px;
+  color: var(--tacc-text-medium);
+  margin-top: 2px;
+}
+
+.ref-popup-key {
+  font-weight: 600;
+  color: var(--tacc-text-dark);
+}
+
 /* --- SUBSIDE analysis runner (draw AOI -> submit Tapis job) --------------- */
 .leaflet-container.is-drawing {
   cursor: crosshair;

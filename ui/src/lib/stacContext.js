@@ -40,7 +40,7 @@ function fromStacItem(item) {
     label: item?.properties?.title || item.id,
     group: ctx.group || 'Reference',
     kind: ctx.kind || null,
-    service: ctx.service, // 'geojson' | 'wms' | 'xyz' | 'mvt'
+    service: ctx.service, // 'geojson' | 'feature-server' | 'wms' | 'xyz' | 'mvt'
     href,
     color: ctx.color || '#1d4ed8',
     style: ctx.style || null,
@@ -58,6 +58,10 @@ function fromStacItem(item) {
     format: ctx.format || null,
     sourceLayers: ctx.source_layers || null,
     featureCount: ctx.feature_count ?? null,
+    // feature-server (Esri FeatureServer): outFields requested per viewport query
+    // (drives the popup) + an optional server-side WHERE filter.
+    queryFields: ctx.query_fields || null,
+    where: ctx.where || null,
   }
 }
 
@@ -91,6 +95,8 @@ function fromApiRow(row, i) {
     format: null,
     sourceLayers: [row.name],
     featureCount: row.feature_count ?? null,
+    queryFields: null,
+    where: null,
   }
 }
 
@@ -120,6 +126,8 @@ function aquiferFallback() {
     format: null,
     sourceLayers: null,
     featureCount: null,
+    queryFields: null,
+    where: null,
   }))
 }
 

@@ -2,8 +2,9 @@
 // PostGIS (nothing to re-seed, no DB load). This module exposes the layer
 // config + a renderer; the toggle UI lives in the unified Layers panel
 // (SubsideLayers), so there's a single on-map control.
-import { useEffect, useMemo, useState } from 'react'
-import { GeoJSON } from 'react-leaflet'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import L from 'leaflet'
+import { GeoJSON, useMap, useMapEvents } from 'react-leaflet'
 
 // Categorical palette — one color per distinct aquifer name.
 const PALETTE = [
@@ -52,6 +53,107 @@ function makeColorScale(geojson) {
   )].sort()
   const byName = new Map(names.map((n, i) => [n, PALETTE[i % PALETTE.length]]))
   return (name) => byName.get(name) || '#888888'
+}
+
+// --- Esri FeatureServer (viewport-driven) ----------------------------------
+// A FeatureServer layer can hold far more features than its maxRecordCount (TWDB
+// Well Reports is ~680k points, cap 2000). So instead of one static fetch we
+// re-query the layer's /query endpoint with the current map-bounds envelope on
+// each pan/zoom, fetching only what's in view — what esri-leaflet's featureLayer
+// does, but with zero new deps. A `minZoom` gate avoids trying to draw the whole
+// state at once.
+
+// Build the FeatureServer /query URL for the current bounds (lon/lat, f=geojson).
+function featureQueryUrl(base, bounds, { where, queryFields } = {}) {
+  const env = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+  const params = new URLSearchParams({
+    where: where || '1=1',
+    geometry: env,
+    geometryType: 'esriGeometryEnvelope',
+    inSR: '4326',
+    spatialRel: 'esriSpatialRelIntersects',
+    outFields: (queryFields && queryFields.length ? queryFields : ['*']).join(','),
+    outSR: '4326',
+    returnGeometry: 'true',
+    resultRecordCount: '2000',
+    f: 'geojson',
+  })
+  return `${base.replace(/\/$/, '')}/query?${params.toString()}`
+}
+
+// Epoch-ms fields (Esri returns dates as ms) -> a plain date; everything else verbatim.
+function formatValue(key, value) {
+  if (value == null || value === '') return null
+  if (/date/i.test(key) && typeof value === 'number') {
+    return new Date(value).toISOString().slice(0, 10)
+  }
+  return String(value)
+}
+
+function featurePopupHtml(props = {}, title, color) {
+  const rows = Object.entries(props)
+    .map(([k, v]) => [k, formatValue(k, v)])
+    .filter(([, v]) => v != null)
+    .map(([k, v]) => `<div class="ref-popup-row"><span class="ref-popup-key">${k}</span> ${v}</div>`)
+    .join('')
+  return (
+    `<div class="ref-popup">`
+    + `<div class="ref-popup-title"><span class="ref-popup-dot" style="background:${color}"></span>${title}</div>`
+    + rows
+    + `</div>`
+  )
+}
+
+export function ReferenceFeatureServer({
+  url, label, style, color, opacity, minZoom, queryFields, where, onError,
+}) {
+  const map = useMap()
+  const [data, setData] = useState(null)
+  const [version, setVersion] = useState(0)
+  const abortRef = useRef(null)
+
+  const refresh = useCallback(() => {
+    // Below the gate, drawing the whole extent would blow past maxRecordCount —
+    // clear instead so the map shows nothing until the user zooms in.
+    if (minZoom != null && map.getZoom() < minZoom) {
+      setData(null)
+      return
+    }
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    fetch(featureQueryUrl(url, map.getBounds(), { where, queryFields }), { signal: controller.signal })
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+      .then((gj) => { setData(gj); setVersion((v) => v + 1) })
+      .catch((e) => { if (e.name !== 'AbortError') onError?.(e.message) })
+  }, [map, url, where, queryFields, minZoom, onError])
+
+  // Initial load + reload on every pan/zoom settle.
+  useEffect(() => { refresh() }, [refresh])
+  useMapEvents({ moveend: refresh, zoomend: refresh })
+  useEffect(() => () => abortRef.current?.abort(), [])
+
+  const c = style?.color || color || '#b45309'
+  const radius = style?.radius ?? 3
+  const fillColor = style?.fillColor || c
+  const fillOpacity = (style?.fillOpacity ?? 0.85) * (opacity ?? 1)
+
+  if (!data) return null
+  return (
+    <GeoJSON
+      key={version}
+      data={data}
+      pointToLayer={(feature, latlng) =>
+        L.circleMarker(latlng, {
+          radius, color: c, weight: style?.weight ?? 1,
+          fill: true, fillColor, fillOpacity,
+        })
+      }
+      onEachFeature={(feature, layer) => {
+        layer.bindPopup(featurePopupHtml(feature.properties || {}, label || 'Feature', c))
+      }}
+    />
+  )
 }
 
 export function ReferenceGeoJSON({ url, kind, onError }) {

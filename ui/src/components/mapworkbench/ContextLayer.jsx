@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react'
 import { GeoJSON, TileLayer, WMSTileLayer } from 'react-leaflet'
 
-import { ReferenceGeoJSON } from './ReferenceLayers'
+import { ReferenceFeatureServer, ReferenceGeoJSON } from './ReferenceLayers'
 import { VectorTileLayer } from './VectorTileLayer'
 
 // Turn a layer's style hint ({color, fillColor, fillOpacity, weight, radius,
@@ -96,6 +96,24 @@ export function ContextLayer({ layer, onError, onFeatureClick }) {
         vectorTileLayerStyles={vectorTileLayerStyles}
         onFeatureClick={onFeatureClick}
         maxNativeZoom={layer.maxZoom || 14}
+      />
+    )
+  }
+
+  // feature-server: an Esri FeatureServer layer loaded viewport-by-viewport
+  // (handles layers larger than the server's maxRecordCount; gated by minZoom).
+  if (service === 'feature-server') {
+    return (
+      <ReferenceFeatureServer
+        url={href}
+        label={layer.label}
+        style={layer.style}
+        color={layer.color}
+        opacity={layer.opacity}
+        minZoom={layer.minZoom}
+        queryFields={layer.queryFields}
+        where={layer.where}
+        onError={onError}
       />
     )
   }

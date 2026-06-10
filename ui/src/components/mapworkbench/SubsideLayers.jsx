@@ -256,23 +256,32 @@ export function SubsideLayers({ onPickFrame, prevRunsHostRef }) {
     )
   }
 
-  // Panel rows, grouped by `group` with a header whenever the group changes.
-  let lastGroup = null
-  const rows = catalog.map((layer) => {
-    const header = layer.group !== lastGroup ? layer.group : null
-    lastGroup = layer.group
-    return (
-      <div key={layer.id}>
-        {header ? <div className="slp-section">{header}</div> : null}
-        <label className="slp-row">
+  // Panel rows, grouped by `group`. Consolidate by group name (not just when the
+  // group changes between consecutive items) so each group renders one header even
+  // when the catalog interleaves groups (STAC item order isn't group-contiguous).
+  const orderedGroups = []
+  const byGroup = new Map()
+  for (const layer of catalog) {
+    const g = layer.group || 'Reference'
+    if (!byGroup.has(g)) {
+      byGroup.set(g, [])
+      orderedGroups.push(g)
+    }
+    byGroup.get(g).push(layer)
+  }
+  const rows = orderedGroups.map((g) => (
+    <div key={`group-${g}`}>
+      <div className="slp-section">{g}</div>
+      {byGroup.get(g).map((layer) => (
+        <label key={layer.id} className="slp-row">
           <input type="checkbox" checked={enabled.has(layer.id)} onChange={() => toggle(layer.id)} />
           <span className="slp-swatch" style={{ background: layer.color }} />
           <span className="slp-name">{layer.label}</span>
           {layer.featureCount != null ? <span className="slp-count">{layer.featureCount}</span> : null}
         </label>
-      </div>
-    )
-  })
+      ))}
+    </div>
+  ))
 
   const panel = (
     <div className="subside-layer-panel">
