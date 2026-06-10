@@ -33,6 +33,18 @@ class H2IRunConfig:
     require_products: bool = True
     preview_only: bool = False
     archive_name: str | None = None
+    # Performance experiment knobs (see analysis/h2i_lab/benchmark.py):
+    #   bbox_mode="sample": download urls[0] in full to derive the pixel bbox
+    #     AND re-download it in the worker pool (current production behavior).
+    #   bbox_mode="prime": download urls[0] once, reuse it for the bbox and as
+    #     the first cropped output, removing one redundant full-file download.
+    #   remote_subset: transfer only the AOI chunks of each product via HTTP
+    #     range reads instead of pulling the whole file and cropping after.
+    bbox_mode: str = "sample"
+    remote_subset: bool = False
+    # Cap the number of products downloaded (None = all). Handy for quick,
+    # bounded benchmark/stress runs without widening the date range.
+    max_products: int | None = None
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "H2IRunConfig":
@@ -62,6 +74,9 @@ class H2IRunConfig:
             require_products=bool(payload.get("require_products", True)),
             preview_only=bool(payload.get("preview_only", False)),
             archive_name=payload.get("archive_name"),
+            bbox_mode=str(payload.get("bbox_mode") or "sample"),
+            remote_subset=bool(payload.get("remote_subset", False)),
+            max_products=(int(payload["max_products"]) if payload.get("max_products") else None),
         )
 
     @classmethod
@@ -84,5 +99,7 @@ class H2IRunConfig:
             "num_workers": self.num_workers,
             "min_overlap_percent": self.min_overlap_percent,
             "preview_only": self.preview_only,
+            "bbox_mode": self.bbox_mode,
+            "remote_subset": self.remote_subset,
         }
 

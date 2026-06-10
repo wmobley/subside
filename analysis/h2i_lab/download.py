@@ -1,4 +1,16 @@
-"""DISP-S1 download and subset helpers from the H2I notebook."""
+"""DISP-S1 download and subset helpers from the H2I notebook.
+
+Two transfer strategies share one HDF5->NetCDF writer:
+
+* full download (``remote_subset=False``) — pull the whole product into memory
+  and crop afterward. Simple, but transfers bytes the AOI never uses.
+* remote subset (``remote_subset=True``) — open the product over HTTP range
+  reads (:class:`HttpRangeFile`) so only the chunks overlapping the AOI window
+  cross the wire. Wins scale with how small the AOI is relative to the frame.
+
+Both paths feed byte/stage counters into an optional :class:`Profiler` so the
+benchmark harness can attribute wall time and transfer volume.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +18,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-import gc
 import os
+
+from analysis.etl.profiling import Profiler
 
 
 def clip_bbox(ds: Any, bbox: list[int] | None):
@@ -26,25 +39,112 @@ def clip_bbox(ds: Any, bbox: list[int] | None):
     return slice(y_start, y_stop), slice(x_start, x_stop)
 
 
-def copy_group_h5py(source_h5: Any, target_path: str | Path, group_name: str) -> None:
-    """Copy a nested HDF5 group to a NetCDF/HDF5 target file."""
+class HttpRangeFile:
+    """Seekable, read-only file object backed by HTTP range requests.
 
-    import h5py
+    h5py can open any Python file-like with ``read``/``seek``/``tell``; backing
+    those by ``Range`` GETs means an HDF5 reader only pulls the bytes it touches
+    (superblock, b-trees, and the chunks under the AOI window) instead of the
+    whole product. Reuses the OAuth-redirect-surviving ``EarthdataSession`` so
+    auth Just Works against URS-protected DAACs.
 
-    try:
-        with h5py.File(target_path, "a") as target_h5:
-            src_group = source_h5[group_name]
-            tgt_group = target_h5.require_group(group_name)
-            for name, dataset in src_group.items():
-                if name in tgt_group:
-                    del tgt_group[name]
-                tgt_ds = tgt_group.create_dataset(name, data=dataset[()])
-                for key, val in dataset.attrs.items():
-                    tgt_ds.attrs[key] = val
-            for key, val in src_group.attrs.items():
-                tgt_group.attrs[key] = val
-    except Exception as exc:
-        print(f"Failed to copy {group_name} with h5py: {exc}")
+    Falls back transparently to a single full GET when the origin ignores
+    ``Range`` (HTTP 200 instead of 206) — correctness is preserved, savings are
+    not.
+    """
+
+    def __init__(self, session: Any, url: str, *, block: int = 4 * 1024 * 1024, profiler: Profiler | None = None) -> None:
+        self.session = session
+        self.url = url
+        self.block = block
+        self.profiler = profiler
+        self.pos = 0
+        self._blocks: dict[int, bytes] = {}
+        self._whole: bytes | None = None
+        self.size = self._probe()
+
+    # --- byte accounting -------------------------------------------------
+    def _count(self, n: int) -> None:
+        if self.profiler is not None:
+            self.profiler.add("bytes_downloaded", n)
+
+    def _probe(self) -> int:
+        """Fetch the first block and learn the total size from Content-Range."""
+
+        headers = {"Range": f"bytes=0-{self.block - 1}"}
+        with self.session.get(self.url, headers=headers, timeout=600) as resp:
+            resp.raise_for_status()
+            content = resp.content
+            self._count(len(content))
+            if resp.status_code == 206 and "Content-Range" in resp.headers:
+                total = int(resp.headers["Content-Range"].split("/")[-1])
+                self._blocks[0] = content
+                return total
+            # Range unsupported: we just downloaded the whole object.
+            self._whole = content
+            return len(content)
+
+    def _get_block(self, index: int) -> bytes:
+        if self._whole is not None:
+            start = index * self.block
+            return self._whole[start : start + self.block]
+        cached = self._blocks.get(index)
+        if cached is not None:
+            return cached
+        start = index * self.block
+        stop = min(self.size, start + self.block) - 1
+        headers = {"Range": f"bytes={start}-{stop}"}
+        with self.session.get(self.url, headers=headers, timeout=600) as resp:
+            resp.raise_for_status()
+            content = resp.content
+        self._count(len(content))
+        self._blocks[index] = content
+        return content
+
+    # --- file-like protocol ---------------------------------------------
+    def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
+        if whence == os.SEEK_SET:
+            self.pos = offset
+        elif whence == os.SEEK_CUR:
+            self.pos += offset
+        elif whence == os.SEEK_END:
+            self.pos = self.size + offset
+        return self.pos
+
+    def tell(self) -> int:
+        return self.pos
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            size = self.size - self.pos
+        start = self.pos
+        end = min(self.size, start + size)
+        if start >= end:
+            return b""
+        out = bytearray()
+        first = start // self.block
+        last = (end - 1) // self.block
+        for index in range(first, last + 1):
+            block = self._get_block(index)
+            base = index * self.block
+            lo = max(start, base) - base
+            hi = min(end, base + len(block)) - base
+            out += block[lo:hi]
+        self.pos = end
+        return bytes(out)
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def writable(self) -> bool:
+        return False
+
+    def close(self) -> None:  # noqa: D401 - file-like no-op
+        self._blocks.clear()
+        self._whole = None
 
 
 def _subset_to_netcdf(ds: Any, outname: str | Path, clipped: tuple[slice, slice] | None, *, mode: str = "w", group: str | None = None) -> None:
@@ -64,11 +164,103 @@ def _subset_to_netcdf(ds: Any, outname: str | Path, clipped: tuple[slice, slice]
     subset.to_netcdf(outname, mode=mode, group=group, engine="h5netcdf", encoding=encoding)
 
 
-def process_file(url: str, bbox: list[int] | None, outdir: str | Path, username: str, password: str) -> Path | None:
-    """Download one DISP-S1 product and optionally crop it to a pixel bbox."""
+def _copy_aux_groups(source_h5: Any, dest_path: str | Path) -> None:
+    """Copy metadata/identification/orbit groups in a single dest open.
+
+    Previously each group cost its own ``h5py.File(outname, "a")`` open/flush
+    cycle (four per product); one open does the lot.
+    """
 
     import h5py
+
+    with h5py.File(dest_path, "a") as dest_hf:
+        for group in ("metadata", "identification"):
+            try:
+                if group in dest_hf:
+                    del dest_hf[group]
+                source_h5.copy(group, dest_hf, name=group)
+            except Exception as exc:
+                print(f"Failed to copy group {group!r}: {exc}")
+        for group in ("metadata/reference_orbit", "metadata/secondary_orbit"):
+            try:
+                src_group = source_h5[group]
+                tgt_group = dest_hf.require_group(group)
+                for name, dataset in src_group.items():
+                    if name in tgt_group:
+                        del tgt_group[name]
+                    tgt_ds = tgt_group.create_dataset(name, data=dataset[()])
+                    for key, val in dataset.attrs.items():
+                        tgt_ds.attrs[key] = val
+                for key, val in src_group.attrs.items():
+                    tgt_group.attrs[key] = val
+            except Exception as exc:
+                print(f"Failed to copy {group} with h5py: {exc}")
+
+
+def _write_product(h5f: Any, outname: Path, bbox: list[int] | None, filename: str) -> Path | None:
+    """Crop the open product (h5py source) and write the cropped NetCDF."""
+
     import xarray as xr
+
+    with xr.open_dataset(h5f, engine="h5netcdf") as ds:
+        clipped = clip_bbox(ds, bbox)
+        if bbox is not None and clipped is None:
+            print(f"Skipped (bbox out of bounds): {filename}")
+            return None
+        _subset_to_netcdf(ds, outname, clipped)
+
+    with xr.open_dataset(h5f, engine="h5netcdf", group="corrections") as ds_corr:
+        clipped = clip_bbox(ds_corr, bbox)
+        if bbox is None or clipped is not None:
+            _subset_to_netcdf(ds_corr, outname, clipped, mode="a", group="corrections")
+
+    _copy_aux_groups(h5f, outname)
+    return outname
+
+
+def process_bytes(file_bytes: BytesIO, url: str, bbox: list[int] | None, outdir: str | Path) -> Path | None:
+    """Crop and write a product whose bytes are already in memory.
+
+    Lets the runner reuse the sample it downloaded to derive the pixel bbox as
+    the first cropped output, instead of fetching that product a second time.
+    """
+
+    import h5py
+
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    filename = url.split("/")[-1]
+    base, _ext = os.path.splitext(filename)
+    outname = outdir / f"{base}.nc"
+    if outname.exists():
+        print(f"Skipped (exists): {filename}")
+        return outname
+    file_bytes.seek(0)
+    with h5py.File(file_bytes, "r") as h5f:
+        result = _write_product(h5f, outname, bbox, filename)
+    if result is not None:
+        print(f"Done: {filename}")
+    return result
+
+
+def process_file(
+    url: str,
+    bbox: list[int] | None,
+    outdir: str | Path,
+    username: str,
+    password: str,
+    *,
+    remote_subset: bool = False,
+    profiler: Profiler | None = None,
+) -> Path | None:
+    """Download one DISP-S1 product and optionally crop it to a pixel bbox.
+
+    With ``remote_subset`` the product is read over HTTP range requests so only
+    the AOI chunks transfer; otherwise the whole product is pulled into memory
+    and cropped afterward.
+    """
+
+    import h5py
 
     from analysis.etl.auth import earthdata_session
 
@@ -83,41 +275,31 @@ def process_file(url: str, bbox: list[int] | None, outdir: str | Path, username:
 
     session = earthdata_session(username, password)
     try:
-        with session.get(url, stream=True, timeout=600) as response:
-            response.raise_for_status()
-            file_bytes = BytesIO(response.content)
+        if remote_subset:
+            range_file = HttpRangeFile(session, url, profiler=profiler)
             try:
-                with h5py.File(file_bytes, "r") as h5f:
-                    with xr.open_dataset(h5f, engine="h5netcdf") as ds:
-                        clipped = clip_bbox(ds, bbox)
-                        if bbox is not None and clipped is None:
-                            print(f"Skipped (bbox out of bounds): {filename}")
-                            return None
-                        _subset_to_netcdf(ds, outname, clipped)
-
-                    with xr.open_dataset(h5f, engine="h5netcdf", group="corrections") as ds_corr:
-                        clipped = clip_bbox(ds_corr, bbox)
-                        if bbox is None or clipped is not None:
-                            _subset_to_netcdf(ds_corr, outname, clipped, mode="a", group="corrections")
-
-                    for group in ["metadata", "identification"]:
-                        try:
-                            with h5py.File(outname, "a") as dest_hf:
-                                if group in dest_hf:
-                                    del dest_hf[group]
-                                h5f.copy(group, dest_hf, name=group)
-                        except Exception as exc:
-                            print(f"Failed to copy group {group!r}: {exc}")
-                    copy_group_h5py(h5f, outname, "metadata/reference_orbit")
-                    copy_group_h5py(h5f, outname, "metadata/secondary_orbit")
+                with h5py.File(range_file, "r") as h5f:
+                    result = _write_product(h5f, outname, bbox, filename)
             finally:
-                file_bytes.close()
-                gc.collect()
+                range_file.close()
+        else:
+            with session.get(url, stream=True, timeout=600) as response:
+                response.raise_for_status()
+                payload = response.content
+                if profiler is not None:
+                    profiler.add("bytes_downloaded", len(payload))
+                file_bytes = BytesIO(payload)
+                try:
+                    with h5py.File(file_bytes, "r") as h5f:
+                        result = _write_product(h5f, outname, bbox, filename)
+                finally:
+                    file_bytes.close()
     finally:
         session.close()
 
-    print(f"Done: {filename}")
-    return outname
+    if result is not None:
+        print(f"Done: {filename}")
+    return result
 
 
 def download_disp_files(
@@ -127,13 +309,25 @@ def download_disp_files(
     username: str,
     password: str,
     num_workers: int = 3,
+    *,
+    remote_subset: bool = False,
+    profiler: Profiler | None = None,
 ) -> list[Path]:
     """Download and optionally crop DISP NetCDF files in parallel."""
 
     outputs: list[Path] = []
     with ThreadPoolExecutor(max_workers=int(num_workers)) as executor:
         future_to_url = {
-            executor.submit(process_file, url, bbox, outdir, username, password): url
+            executor.submit(
+                process_file,
+                url,
+                bbox,
+                outdir,
+                username,
+                password,
+                remote_subset=remote_subset,
+                profiler=profiler,
+            ): url
             for url in nc_urls
         }
         for future in as_completed(future_to_url):
@@ -141,4 +335,3 @@ def download_disp_files(
             if result is not None:
                 outputs.append(result)
     return sorted(outputs)
-

@@ -1,0 +1,30 @@
+{
+  "base": {
+    "start_date": "2024-06-01",
+    "end_date": "2024-12-01",
+    "aoi_geojson_path": "examples/sample_aoi.geojson",
+    "max_products": 2,
+    "min_overlap_percent": 50.0
+  },
+  "results": [
+    {
+      "variant": "prime+w4",
+      "rep": 1,
+      "workers": 4,
+      "wall_seconds": 57.38,
+      "files": 2,
+      "mb_downloaded": 852.0,
+      "avg_cores_busy": 0.28,
+      "peak_cores_busy": 0.99,
+      "n_cpus": 16,
+      "stage_seconds": {
+        "preflight": 19.582,
+        "prime_bbox": 18.046,
+        "download": 17.463,
+        "preview": 2.289
+      },
+      "peak_rss_mb": 1332.7,
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "bbox": {
+    "lat_max": 29.75,
+    "lat_min": 29.55,
+    "lon_max": -95.35,
+    "lon_min": -95.55
+  },
+  "config": {
+    "bbox": null,
+    "bbox_mode": "sample",
+    "end_date": "2024-12-01",
+    "frame_ids": [],
+    "min_overlap_percent": 50.0,
+    "num_workers": 2,
+    "preview_only": false,
+    "remote_subset": false,
+    "start_date": "2024-06-01"
+  },
+  "frame_ids": [
+    8882,
+    38238,
+    38239
+  ],
+  "frame_records": [],
+  "product_count": 3,
+  "product_urls": [
+    "https://cumulus.asf.earthdatacloud.nasa.gov/OPERA/OPERA_L3_DISP-S1_V1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240816T002700Z_v1.0_20260306T000831Z/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240816T002700Z_v1.0_20260306T000831Z.nc",
+    "https://cumulus.asf.earthdatacloud.nasa.gov/OPERA/OPERA_L3_DISP-S1_V1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240921T002701Z_v1.0_20260306T000831Z/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240921T002701Z_v1.0_20260306T000831Z.nc",
+    "https://cumulus.asf.earthdatacloud.nasa.gov/OPERA/OPERA_L3_DISP-S1_V1/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240909T002700Z_v1.0_20260306T000831Z/OPERA_L3_DISP-S1_IW_F08882_VV_20240804T002700Z_20240909T002700Z_v1.0_20260306T000831Z.nc"
+  ],
+  "source": "h2i_lab",
+  "stage": "preflight",
+  "warnings": []
+}

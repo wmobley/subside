@@ -8,6 +8,7 @@ from typing import Any
 
 from analysis.etl.auth import earthdata_credentials as _earthdata_credentials
 from analysis.etl.manifest import write_json as _write_json
+from analysis.etl.profiling import CpuSampler, Profiler
 
 from .aoi import (
     bbox_dict_from_list,
@@ -19,7 +20,7 @@ from .aoi import (
     search_products_for_frames,
 )
 from .config import H2IRunConfig
-from .download import download_disp_files
+from .download import download_disp_files, process_bytes
 from .metadata import estimate_subset_size, fetch_product_bytes, pixel_bbox_from_product_bytes
 from .preview import (
     archive_results,
@@ -66,6 +67,8 @@ def preflight(config: H2IRunConfig) -> dict[str, Any]:
     products_df = search_products_for_frames(frame_ids)
     filtered_df = filter_products_by_date(products_df, config.start_date, config.end_date) if not products_df.empty else products_df
     urls = product_urls(filtered_df)
+    if config.max_products:
+        urls = urls[: config.max_products]
 
     manifest = {
         "source": "h2i_lab",
@@ -90,7 +93,9 @@ def preflight(config: H2IRunConfig) -> dict[str, Any]:
 def run(config: H2IRunConfig) -> dict[str, Any]:
     """Run the H2I download/subset/preview workflow."""
 
-    manifest = preflight(config)
+    prof = Profiler()
+    with prof.stage("preflight"):
+        manifest = preflight(config)
     urls = manifest.get("product_urls") or []
     if not urls:
         raise RuntimeError("Cannot run H2I workflow without product URLs.")
@@ -100,20 +105,55 @@ def run(config: H2IRunConfig) -> dict[str, Any]:
     if bbox is None:
         raise RuntimeError("Cannot run H2I workflow without an AOI bbox.")
 
-    sample_bytes = fetch_product_bytes(urls[0], username, password)
-    pixel_bbox = pixel_bbox_from_product_bytes(sample_bytes, bbox)
-    size_estimate = estimate_subset_size(sample_bytes, pixel_bbox, len(urls))
-    sample_bytes.close()
+    # Prime the pixel bbox + size estimate from the first product. This sample
+    # download is unavoidable (the bbox needs the product's geotransform), but
+    # in "prime"/remote modes we reuse it as the first cropped output instead
+    # of fetching urls[0] a second time in the worker pool ("sample" mode is
+    # the legacy double-download behavior, kept for A/B comparison).
+    with prof.stage("prime_bbox"):
+        sample_bytes = fetch_product_bytes(urls[0], username, password)
+        prof.add("bytes_downloaded", sample_bytes.getbuffer().nbytes)
+        pixel_bbox = pixel_bbox_from_product_bytes(sample_bytes, bbox)
+        size_estimate = estimate_subset_size(sample_bytes, pixel_bbox, len(urls))
 
     results_path = config.results_path()
-    downloaded = [] if config.preview_only else download_disp_files(
-        urls,
-        pixel_bbox,
-        results_path,
-        username,
-        password,
-        num_workers=config.num_workers,
-    )
+    reuse_sample = config.bbox_mode == "prime" or config.remote_subset
+
+    if config.preview_only:
+        sample_bytes.close()
+        downloaded: list[Path] = []
+    elif reuse_sample:
+        cpu = CpuSampler()
+        with prof.stage("download"), cpu:
+            first = process_bytes(sample_bytes, urls[0], pixel_bbox, results_path)
+            sample_bytes.close()
+            rest = download_disp_files(
+                urls[1:],
+                pixel_bbox,
+                results_path,
+                username,
+                password,
+                num_workers=config.num_workers,
+                remote_subset=config.remote_subset,
+                profiler=prof,
+            )
+        prof.note("download_cpu", cpu.result())
+        downloaded = sorted(([first] if first is not None else []) + rest)
+    else:
+        sample_bytes.close()
+        cpu = CpuSampler()
+        with prof.stage("download"), cpu:
+            downloaded = download_disp_files(
+                urls,
+                pixel_bbox,
+                results_path,
+                username,
+                password,
+                num_workers=config.num_workers,
+                remote_subset=False,
+                profiler=prof,
+            )
+        prof.note("download_cpu", cpu.result())
 
     artifacts: dict[str, Any] = {
         "results_dir": str(results_path),
@@ -121,15 +161,16 @@ def run(config: H2IRunConfig) -> dict[str, Any]:
     }
     aoi_path = _aoi_path(config)
     if downloaded and aoi_path:
-        latest = latest_netcdf(results_path)
-        overlay_path = config.output_path() / "disp_overlay.png"
-        ranges = make_displacement_overlay_png(latest, overlay_path)
-        cog_path = config.output_path() / "disp_displacement.tif"
-        make_displacement_cog(latest, cog_path)
-        preview_path = results_path / "Example_Map.html"
-        write_folium_preview(overlay_path, aoi_path, preview_path, vmin=ranges["vmin"], vmax=ranges["vmax"])
-        archive_base = config.output_path() / (config.archive_name or config.results_dir)
-        archive_path = archive_results(results_path, archive_base)
+        with prof.stage("preview"):
+            latest = latest_netcdf(results_path)
+            overlay_path = config.output_path() / "disp_overlay.png"
+            ranges = make_displacement_overlay_png(latest, overlay_path)
+            cog_path = config.output_path() / "disp_displacement.tif"
+            make_displacement_cog(latest, cog_path)
+            preview_path = results_path / "Example_Map.html"
+            write_folium_preview(overlay_path, aoi_path, preview_path, vmin=ranges["vmin"], vmax=ranges["vmax"])
+            archive_base = config.output_path() / (config.archive_name or config.results_dir)
+            archive_path = archive_results(results_path, archive_base)
         artifacts.update(
             {
                 "overlay_png": str(overlay_path),
@@ -146,6 +187,7 @@ def run(config: H2IRunConfig) -> dict[str, Any]:
         "pixel_bbox": pixel_bbox,
         "size_estimate": size_estimate,
         "artifacts": artifacts,
+        "timings": prof.summary(),
     }
     _write_json(config.output_path() / "run-manifest.json", run_manifest)
     return run_manifest
