@@ -2093,6 +2093,25 @@ button {
   line-height: 1.4;
 }
 
+.sap-avail-guide {
+  margin: 8px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #14532d;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sap-avail-guide strong {
+  font-size: 14px;
+}
+
+.sap-avail-guide .sap-hint {
+  margin-top: 2px;
+}
+
 .sap-upload-aoi {
   cursor: pointer;
 }

@@ -18,6 +18,16 @@ import { listLayers, tileUrlTemplate } from './subsideApi'
 const BASE = getConfig('VITE_STAC_API_BASE').replace(/\/$/, '')
 const COLLECTION = getConfig('VITE_STAC_CONTEXT_COLLECTION') || 'subside-context'
 
+// The OPERA frame-footprint layer (role 'availability') is no longer a map
+// overlay: its frames are too large to select as a run AOI (they time out the
+// workflow). The data now drives an advisory "products available to download"
+// guide in the analysis panel instead — see SubsideAnalysis. Drop it from the
+// rendered catalog here, at the single chokepoint, so it's hidden whether the
+// catalog comes from STAC or the API fallback (and regardless of any stale
+// registration still present in the STAC collection).
+const HIDDEN_ROLE = 'availability'
+const isShown = (l) => l && l.role !== HIDDEN_ROLE
+
 // Categorical palette for fallback layers that carry no explicit color.
 const FALLBACK_PALETTE = ['#2563eb', '#7c3aed', '#0d9488', '#c2410c', '#9333ea', '#0891b2', '#4d7c0f']
 
@@ -139,7 +149,7 @@ async function fallbackCatalog() {
   } catch {
     apiLayers = []
   }
-  return [...apiLayers.map(fromApiRow), ...aquiferFallback()]
+  return [...apiLayers.map(fromApiRow), ...aquiferFallback()].filter(isShown)
 }
 
 // Discover every vector layer the map should offer. Prefers the STAC catalog;
@@ -151,7 +161,7 @@ export async function listContextLayers({ collection = COLLECTION } = {}) {
       const resp = await fetch(`${BASE}/collections/${collection}/items?limit=200`)
       if (resp.ok) {
         const payload = await resp.json()
-        const layers = (payload.features || []).map(fromStacItem).filter(Boolean)
+        const layers = (payload.features || []).map(fromStacItem).filter(isShown)
         if (layers.length) return layers
       }
     } catch {

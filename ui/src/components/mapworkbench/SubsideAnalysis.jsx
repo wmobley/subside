@@ -1,19 +1,21 @@
-// End-to-end "pick a frame -> run analysis on TACC" panel for the maps page.
+// End-to-end "draw an area -> run analysis on TACC" panel for the maps page.
 //
-// Mounted inside a react-leaflet <MapContainer>. The user clicks an OPERA
-// availability frame (handled by SubsideLayers, lifted through ModelMap as
-// `picked`); that frame's footprint becomes the AOI and its product date range
-// pre-fills start/end. The panel then logs in to the SUBSIDE API, submits the
-// chosen Tapis Workflows pipeline over that AOI, and polls status to completion.
+// Mounted inside a react-leaflet <MapContainer>. The user draws a polygon or
+// uploads a GeoJSON to define the AOI. We then look up OPERA DISP-S1 availability
+// for that area and show it as a guide — how many products are available to
+// download in the chosen window — so the user can size the area/window before a
+// run (whole OPERA frames are too large and time out the workflow). The panel
+// then logs in to the SUBSIDE API, submits the chosen Tapis Workflows pipeline
+// over that AOI, and polls status to completion.
 //
-// The control panel is portalled into a Leaflet control (top-left); the AOI
-// rectangle is a normal react-leaflet child.
+// The control panel is portalled into a Leaflet control (top-left); the AOI is a
+// normal react-leaflet child.
 import L from 'leaflet'
 import '@geoman-io/leaflet-geoman-free'
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ImageOverlay, Rectangle, useMap } from 'react-leaflet'
+import { ImageOverlay, useMap } from 'react-leaflet'
 import ReactMarkdown from 'react-markdown'
 
 import {
@@ -53,20 +55,19 @@ function observedRisk(range) {
   return { rate: subsiding, label: 'Severe', color: '#dc2626' }
 }
 
-export function SubsideAnalysis({ picked, panelHost }) {
+export function SubsideAnalysis({ panelHost }) {
   const map = useMap()
 
-  const [aoi, setAoi] = useState(null) // [w, s, e, n] envelope (all AOI sources set this)
-  // The real AOI geometry when drawn/uploaded (FeatureCollection); null for a
-  // frame-footprint AOI, which renders as the <Rectangle> below and submits via
-  // bboxToAoiGeoJSON. When set, the geometry is submitted verbatim.
+  const [aoi, setAoi] = useState(null) // [w, s, e, n] envelope of the drawn/uploaded AOI
+  // The AOI geometry (FeatureCollection), submitted verbatim. Set by drawing or
+  // uploading; the bbox envelope above rides along for availability lookups.
   const [aoiGeometry, setAoiGeometry] = useState(null)
-  const aoiLayerRef = useRef(null) // the Leaflet layer for a drawn/uploaded AOI
-  const [frameId, setFrameId] = useState(null)
-  const [datesFromFrame, setDatesFromFrame] = useState(false)
-  // OPERA product availability for the current AOI, so the date picker can be
-  // constrained to dates that actually have data (avoids "no products in range"
-  // failures). { status: 'loading'|'ready'|'none'|'error', dates?, start?, end? }
+  const aoiLayerRef = useRef(null) // the Leaflet layer for the drawn/uploaded AOI
+  // OPERA product availability for the current AOI. Drives the date-picker bounds
+  // (so a window can't be set outside the data) and the "products available to
+  // download" guide. `frames` keeps each intersecting frame's product-date
+  // timeline so we can count granules (= frame-dates) in the chosen window.
+  // { status: 'loading'|'ready'|'none'|'error', dates?, frames?, start?, end? }
   const [avail, setAvail] = useState(null)
 
   // Shared session: token persists across the site and auto-expires (see auth.jsx).
@@ -94,31 +95,12 @@ export function SubsideAnalysis({ picked, panelHost }) {
   const [selectedLayer, setSelectedLayer] = useState(null) // {key, type:'cog'|'png', href, label, range?}
   const [resultsErr, setResultsErr] = useState('')
 
-  // A frame was clicked on the map: adopt its footprint as the AOI and, when the
-  // frame has products, pre-fill the date window from its timeline range.
-  const lastPicked = useRef(null)
-  useEffect(() => {
-    if (!picked || picked === lastPicked.current) return
-    lastPicked.current = picked
-    if (picked.bbox) {
-      // A frame footprint replaces any drawn/uploaded geometry.
-      removeAoiLayer()
-      setAoiGeometry(null)
-      setAoi(picked.bbox)
-    }
-    setFrameId(picked.frameId ?? null)
-    if (picked.startDate && picked.endDate) {
-      setForm((f) => ({ ...f, start_date: picked.startDate, end_date: picked.endDate }))
-      setDatesFromFrame(true)
-    } else {
-      setDatesFromFrame(false)
-    }
-  }, [picked]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // Whenever the AOI changes, look up OPERA availability for it so we can pin the
-  // date picker to dates that have data. The /availability endpoint is viewport-
-  // lazy and may still be caching on the server, so retry once if it comes back
-  // empty. Union the per-frame product-date timelines into a single span.
+  // date picker to dates that have data and tell the user how many products are
+  // available to download. The /availability endpoint is viewport-lazy and may
+  // still be caching on the server, so retry once if it comes back empty. We keep
+  // each intersecting frame's product-date timeline (every frame-date is one
+  // DISP-S1 granule) so the guide can count granules in the chosen window.
   useEffect(() => {
     if (!aoi) { setAvail(null); return undefined }
     let cancelled = false
@@ -130,15 +112,17 @@ export function SubsideAnalysis({ picked, panelHost }) {
         .then((res) => {
           if (cancelled) return
           const items = (res.items || []).filter((i) => (i.product_count || 0) > 0)
-          const dates = [...new Set(
-            items.flatMap((i) => i.timeline || []).map((d) => String(d).slice(0, 10)),
-          )].filter(Boolean).sort()
+          // Per-frame product-date timelines (normalized to YYYY-MM-DD).
+          const frames = items.map(
+            (i) => (i.timeline || []).map((d) => String(d).slice(0, 10)).filter(Boolean),
+          )
+          const dates = [...new Set(frames.flat())].sort()
           if (dates.length) {
-            setAvail({ status: 'ready', dates, start: dates[0], end: dates[dates.length - 1] })
+            setAvail({ status: 'ready', dates, frames, start: dates[0], end: dates[dates.length - 1] })
           } else if (retriesLeft > 0) {
             timer = setTimeout(() => attempt(retriesLeft - 1), 2500)
           } else {
-            setAvail({ status: 'none', dates: [] })
+            setAvail({ status: 'none', dates: [], frames: [] })
           }
         })
         .catch(() => { if (!cancelled) setAvail({ status: 'error' }) })
@@ -179,7 +163,6 @@ export function SubsideAnalysis({ picked, panelHost }) {
     removeAoiLayer()
     setAoiGeometry(null)
     setAoi(null)
-    setFrameId(null)
   }
 
   // Adopt a drawn/uploaded Leaflet layer as the single AOI: drop any previous
@@ -198,8 +181,6 @@ export function SubsideAnalysis({ picked, panelHost }) {
     }
     layer.on('pm:edit', sync)
     sync()
-    setFrameId(null)
-    setDatesFromFrame(false)
   }
 
   function handleUploadFile(event) {
@@ -354,7 +335,7 @@ export function SubsideAnalysis({ picked, panelHost }) {
 
   async function handleSubmit() {
     if (!aoi) {
-      setSubmitErr('Pick an area first — click a frame, draw an area, or upload a GeoJSON.')
+      setSubmitErr('Pick an area first — draw an area or upload a GeoJSON.')
       return
     }
     setSubmitErr('')
@@ -364,8 +345,8 @@ export function SubsideAnalysis({ picked, panelHost }) {
         pipeline: form.pipeline,
         start_date: form.start_date,
         end_date: form.end_date,
-        // A drawn/uploaded geometry is submitted verbatim; a frame footprint is
-        // an envelope, sent as its bbox polygon.
+        // The drawn/uploaded geometry is submitted verbatim (bbox fallback is
+        // defensive — every AOI source sets the geometry).
         aoi_geojson: aoiGeometry || bboxToAoiGeoJSON(aoi),
         min_overlap_percent: Number(form.min_overlap_percent),
       }
@@ -381,7 +362,6 @@ export function SubsideAnalysis({ picked, panelHost }) {
   }
 
   const setField = (k) => (e) => {
-    if (k === 'start_date' || k === 'end_date') setDatesFromFrame(false)
     setForm((f) => ({ ...f, [k]: e.target.value }))
   }
 
@@ -401,13 +381,18 @@ export function SubsideAnalysis({ picked, panelHost }) {
   const aoiFc = aoi ? (aoiGeometry || bboxToAoiGeoJSON(aoi)) : null
   const aoiWarnings = aoiFc ? aoiStats(aoiFc).warnings : []
 
-  // OPERA availability for the chosen AOI + window.
+  // OPERA availability for the chosen AOI + window. Granules available to download
+  // = OPERA DISP-S1 products whose date falls in the window, summed across every
+  // frame that intersects the AOI (each frame-date is a distinct product).
   const availReady = avail?.status === 'ready'
   const noData = avail?.status === 'none'
-  const inWindowCount = availReady
-    ? avail.dates.filter((d) => d >= form.start_date && d <= form.end_date).length
+  const granulesInWindow = availReady
+    ? avail.frames.reduce(
+      (n, timeline) => n + timeline.filter((d) => d >= form.start_date && d <= form.end_date).length,
+      0,
+    )
     : null
-  const emptyWindow = availReady && inWindowCount === 0
+  const emptyWindow = availReady && granulesInWindow === 0
 
   const panel = (
     <div className="subside-analysis-panel">
@@ -426,13 +411,12 @@ export function SubsideAnalysis({ picked, panelHost }) {
               {aoi ? (
                 <div className="sap-frame-ok">
                   Area selected ✓
-                  {frameId != null ? <span className="sap-hint"> (frame {frameId})</span>
-                    : aoiGeometry ? <span className="sap-hint"> (custom area)</span> : null}
                   <button type="button" className="sap-link" onClick={clearAoi}>clear</button>
                 </div>
               ) : (
                 <div className="sap-hint">
-                  Click a shaded frame, draw an area with the polygon tool (top-right), or upload a GeoJSON.
+                  Draw an area with the polygon tool (top-right) or upload a GeoJSON.
+                  Keep it tight — large areas can time out the analysis.
                   The map pans normally when you’re not drawing.
                 </div>
               )}
@@ -501,15 +485,14 @@ export function SubsideAnalysis({ picked, panelHost }) {
                 />
               </div>
               {avail?.status === 'loading' ? <div className="sap-hint">Checking OPERA availability for this area…</div> : null}
-              {availReady ? (
-                <div className="sap-hint">
-                  OPERA data here: {avail.start} → {avail.end}
-                  {inWindowCount != null ? ` · ${inWindowCount} product date${inWindowCount === 1 ? '' : 's'} in window` : ''}
+              {availReady && !emptyWindow ? (
+                <div className="sap-avail-guide">
+                  <strong>{granulesInWindow}</strong> OPERA product{granulesInWindow === 1 ? '' : 's'} available to download for this area in the selected window.
+                  <div className="sap-hint">Data here spans {avail.start} → {avail.end}.</div>
                 </div>
               ) : null}
               {noData ? <div className="sap-warn">No OPERA DISP-S1 data found for this area. Pick a different area.</div> : null}
-              {emptyWindow ? <div className="sap-warn">No OPERA products in this window — widen the dates to the available range above.</div> : null}
-              {datesFromFrame && !availReady ? <div className="sap-hint">set from this area's available data</div> : null}
+              {emptyWindow ? <div className="sap-warn">No OPERA products in this window — widen the dates to the available range ({avail.start} → {avail.end}).</div> : null}
               {form.pipeline === 'werc' ? <div className="sap-hint">a multi-year range gives a more reliable rate</div> : null}
             </div>
           </div>
@@ -666,7 +649,6 @@ export function SubsideAnalysis({ picked, panelHost }) {
 
   return (
     <>
-      {aoi && !aoiGeometry ? <Rectangle bounds={bboxToBounds(aoi)} pathOptions={{ color: '#003399', weight: 2, fillOpacity: 0.08 }} /> : null}
       {selectedLayer?.type === 'cog' ? (
         <StacCogLayer href={selectedLayer.href} range={selectedLayer.range} onError={setResultsErr} />
       ) : null}
