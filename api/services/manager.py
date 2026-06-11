@@ -17,26 +17,23 @@ from typing import Any
 
 import yaml
 
-from . import estimation
 from .. import config
 from ..config import PIPELINE_DIR, PIPELINES, STAGING_PREFIX, STAGING_SYSTEM, TAPIS_BASE_URL
 from ..models import Artifact, RunRequest
 
-# Job walltime bounds (minutes): floor keeps tiny runs schedulable, cap is the
-# 24 h ceiling so a run is never killed for time within a day. Mirrors
-# analysis.h2i_lab.estimate.
-_WALLTIME_FLOOR_MIN = 30
+# Flat 12 h job walltime (see analysis.h2i_lab.estimate): a SLURM job frees its
+# node the moment it finishes, so the cap is a safety ceiling, not a cost, and
+# 12 h clears even the slow/throttled worst case. A caller may still override
+# max_minutes; it's clamped to a sane 24 h ceiling.
+_WALLTIME_DEFAULT_MIN = 720
 _WALLTIME_CAP_MIN = 1440
 
 
-def _resolve_walltime(req: RunRequest) -> int | None:
-    """Walltime (minutes) for this run: the caller's value if given, else the
-    estimate from product count. Clamped to [30, 1440]; None -> pipeline default."""
+def _resolve_walltime(req: RunRequest) -> int:
+    """Walltime (minutes): the caller's max_minutes (clamped) or the flat 12 h default."""
 
-    minutes = req.max_minutes if req.max_minutes else estimation.walltime_for_request(req)
-    if not minutes:
-        return None
-    return int(max(_WALLTIME_FLOOR_MIN, min(_WALLTIME_CAP_MIN, minutes)))
+    minutes = int(req.max_minutes) if req.max_minutes else _WALLTIME_DEFAULT_MIN
+    return max(1, min(_WALLTIME_CAP_MIN, minutes))
 
 _STATUS_MAP = {
     "SUBMITTED": "queued",

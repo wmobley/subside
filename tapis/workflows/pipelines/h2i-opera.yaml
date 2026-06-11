@@ -25,7 +25,7 @@ params:
   earthdata_netrc_uri: {type: string, default: "", required: false, description: "Optional tapis:// URI to a protected .netrc"}
   num_workers:         {type: integer, default: 8}
   min_overlap_percent: {type: number, default: 50.0}
-  max_minutes:         {type: integer, default: 240, description: "Job walltime cap (minutes). API sizes this from product count, capped at 1440 (24h)."}
+  max_minutes:         {type: integer, default: 720, description: "Job walltime cap (minutes). Flat 12h; the job frees its node on completion."}
   allocation:          {type: string, required: true, description: "TACC allocation to charge"}
   update_conda_env:    {type: string, default: "false"}
   tapis_base_url:      {type: string, default: "https://portals.tapis.io"}
@@ -122,7 +122,7 @@ tasks:
           "nodeCount": 1,
           "coresPerNode": 16,
           "memoryMB": 128000,
-          "maxMinutes": int(val("MAX_MINUTES", 240)),
+          "maxMinutes": int(val("MAX_MINUTES", 720)),
           "execSystemId": "ls6",
           "execSystemExecDir": "${JobWorkingDir}",
           "execSystemInputDir": "${JobWorkingDir}",

@@ -1,11 +1,10 @@
 """Run-time estimation for the pre-submit UI step.
 
 Combines fast OPERA discovery (frame intersect + product count) with the
-measured runtime model in ``analysis.h2i_lab.estimate`` to answer "how long
-will this run take and how much walltime should we request?" before a job is
-submitted. The same ``walltime_minutes`` it returns is what ``manager.submit_run``
-passes to the Tapis job as ``maxMinutes``, so the estimate the user sees and
-the walltime the job gets stay in lockstep.
+measured runtime model in ``analysis.h2i_lab.estimate`` to show the user how
+long a run will take before they submit. The job walltime itself is a flat 12 h
+set in ``manager`` (``estimate_run`` returns the same flat value), so this is
+purely the informational estimate.
 """
 
 from __future__ import annotations
@@ -18,11 +17,6 @@ from ..config import SUBSIDE_ROOT
 
 if str(SUBSIDE_ROOT) not in sys.path:
     sys.path.insert(0, str(SUBSIDE_ROOT))
-
-
-# Fallback walltime (minutes) per pipeline when discovery can't run — generous
-# enough for any realistic catalog, matching the pipeline YAML defaults.
-_FALLBACK_WALLTIME = {"h2i": 240, "werc": 300}
 
 
 def estimate(
@@ -54,22 +48,3 @@ def estimate(
     if product_count == 0:
         result["warning"] = "No OPERA DISP-S1 products found in this date range."
     return result
-
-
-def walltime_for_request(req: Any) -> int | None:
-    """Best-effort walltime (minutes) for a RunRequest, or None to use the
-    pipeline default. Never raises — submission must not fail on a slow ASF."""
-
-    try:
-        result = estimate(
-            req.aoi_geojson,
-            req.start_date,
-            req.end_date,
-            pipeline=req.pipeline,
-            num_workers=req.num_workers,
-            min_overlap_percent=req.min_overlap_percent,
-            reference_mode=getattr(req, "reference_mode", "auto"),
-        )
-        return int(result["walltime_minutes"])
-    except Exception:
-        return _FALLBACK_WALLTIME.get(getattr(req, "pipeline", "h2i"))

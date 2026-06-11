@@ -497,7 +497,7 @@ export function SubsideAnalysis({ panelHost }) {
                   {estimate ? (
                     <div className="sap-hint">
                       Estimated run time <strong>{estimate.estimatedHuman}</strong>
-                      {form.pipeline === 'werc' ? ' (download + analysis)' : ''} — the job reserves up to {estimate.walltimeMinutes} min so it won't time out.
+                      {form.pipeline === 'werc' ? ' (download + analysis)' : ''} — the job reserves a {Math.round(estimate.walltimeMinutes / 60)} h window so it won't time out.
                     </div>
                   ) : null}
                   <div className="sap-hint">Data here spans {avail.start} → {avail.end}.</div>
