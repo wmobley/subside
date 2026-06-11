@@ -441,6 +441,39 @@ tasks:
               return {"Authorization": token}
           return {"Authorization": f"Bearer {token}" if token.count(".") == 2 else token}
 
+      # Transient CKAN/STAC failures (502/503/504 gateway hiccups, 500 blips, 429
+      # rate limits, dropped connections) must not abort the publish: a late failure
+      # leaves the run half-written in CKAN with no STAC Item. Retry them with backoff.
+      _CKAN_RETRY_STATUS = (500, 502, 503, 504, 429)
+      _CKAN_RETRY_DELAYS = (2, 5, 10, 20, 40)
+
+      def _is_transient_exc(exc):
+          name = type(exc).__name__
+          return name in (
+              "ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout",
+              "PoolTimeout", "TransportError", "RemoteProtocolError", "ReadError",
+              "ConnectionError", "Timeout", "ChunkedEncodingError",
+          )
+
+      def _http_retry(label, send):
+          """Run send() (returns a response), retrying transient 5xx/429 + transport errors."""
+          attempts = len(_CKAN_RETRY_DELAYS) + 1
+          for i in range(attempts):
+              try:
+                  resp = send()
+              except Exception as exc:
+                  if i == attempts - 1 or not _is_transient_exc(exc):
+                      raise
+                  print(f"{label}: {type(exc).__name__}: {str(exc)[:160]}; retry in {_CKAN_RETRY_DELAYS[i]}s")
+                  time.sleep(_CKAN_RETRY_DELAYS[i])
+                  continue
+              if resp.status_code in _CKAN_RETRY_STATUS and i < attempts - 1:
+                  print(f"{label}: HTTP {resp.status_code}; retry in {_CKAN_RETRY_DELAYS[i]}s")
+                  time.sleep(_CKAN_RETRY_DELAYS[i])
+                  continue
+              return resp
+          return resp
+
       def _fmt_from_name(name):
           ext = name.rsplit(".", 1)[-1].upper() if "." in name else ""
           return {"TIF": "TIFF", "TIFF": "TIFF", "PNG": "PNG", "JSON": "JSON", "NC": "NetCDF"}.get(ext, ext)
@@ -548,21 +581,29 @@ tasks:
               return payload["result"]
 
           def _action(self, action, payload):
-              response = self.client.post(f"/api/3/action/{action}", json=payload)
+              response = _http_retry(
+                  f"ckan {action}",
+                  lambda: self.client.post(f"/api/3/action/{action}", json=payload),
+              )
               return self._result(action, response)
 
           def _action_upload(self, action, fields, file_path):
               data = {key: str(value) for key, value in fields.items() if value is not None}
               filename = Path(file_path).name
-              with open(file_path, "rb") as fh:
-                  response = requests.post(
-                      f"{self.url}/api/3/action/{action}",
-                      data=data,
-                      files={"upload": fh},
-                      headers=self.headers,
-                      timeout=300,
-                  )
+
+              def _send():
+                  # Reopen per attempt: the file object is consumed by each POST.
+                  with open(file_path, "rb") as fh:
+                      return requests.post(
+                          f"{self.url}/api/3/action/{action}",
+                          data=data,
+                          files={"upload": fh},
+                          headers=self.headers,
+                          timeout=300,
+                      )
+
               try:
+                  response = _http_retry(f"ckan {action} upload {filename}", _send)
                   return self._result(action, response)
               except Exception as exc:
                   size = Path(file_path).stat().st_size
@@ -570,7 +611,10 @@ tasks:
                   raise RuntimeError(f"{exc}; upload={filename} size={size} bytes fields={keys}") from exc
 
           def get_dataset(self, name):
-              response = self.client.post("/api/3/action/package_show", json={"id": name})
+              response = _http_retry(
+                  "ckan package_show",
+                  lambda: self.client.post("/api/3/action/package_show", json={"id": name}),
+              )
               if response.status_code == 404:
                   return None
               try:
