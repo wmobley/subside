@@ -77,4 +77,7 @@ docker run --rm \
 
 On TACC/Lustre this is a non-issue and `$WORK` is automatically used — the case-pair workaround is only for Docker on macOS.
 
-The `app-cpu.json` image tag is a placeholder and should be updated after the image is pushed.
+The `app-cpu.json` image is pinned to the moving `:main` tag, which CI (`build-images.yml`)
+republishes on every push to `main`, so it never points at a pruned `sha-…` digest. Re-register
+the Tapis app whenever you want it to pick up a new `:main` build (a SHA pin is more reproducible
+but gets garbage-collected from GHCR, which 404s the pull and fails the job with exit 127).

@@ -88,8 +88,11 @@ class RunRequest(BaseModel):
     end_date: str
     aoi_geojson: dict[str, Any]
     allocation: Optional[str] = None   # falls back to SUBSIDE_DEFAULT_ALLOCATION (.env)
-    num_workers: int = 2
+    num_workers: int = 8
     min_overlap_percent: float = 50.0
+    # Optional job walltime (minutes). Omitted -> API estimates it from the
+    # product count (capped at 24 h); provided -> clamped server-side.
+    max_minutes: Optional[int] = None
     # werc-only
     reference_mode: Literal["auto", "manual", "none"] = "auto"
     reference_lat: Optional[float] = None
@@ -102,6 +105,18 @@ class RunRequest(BaseModel):
     earthdata_netrc_uri: Optional[str] = None
     earthdata_username: Optional[str] = None
     earthdata_password: Optional[str] = None
+
+
+class RunEstimateResponse(BaseModel):
+    product_count: int
+    pipeline: str
+    num_workers: int
+    estimated_minutes: float
+    estimated_human: str             # e.g. "~3 min", "~1 h 20 min"
+    walltime_minutes: int            # what the job will request as maxMinutes
+    may_exceed_walltime: bool        # true only for implausibly large requests
+    assumptions: dict[str, Any] = {}
+    warning: Optional[str] = None
 
 
 class RunSubmitResponse(BaseModel):

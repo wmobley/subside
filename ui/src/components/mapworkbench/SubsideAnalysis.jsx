@@ -22,6 +22,7 @@ import {
   bboxToAoiGeoJSON, fetchAvailability, getRunResults, getRunStatus, listRuns, submitRun,
 } from '../../lib/subsideApi'
 import { getWorkflowDocs } from '../../lib/content'
+import { estimateRuntime } from '../../lib/estimateRuntime'
 import { useAuth } from '../../lib/auth'
 import { findRunItem, itemDownloads, itemLayers, itemMeta, stacEnabled } from '../../lib/stacApi'
 import { aoiStats, bboxToBounds, geometryBbox, toFeatureCollection } from './aoiGeometry'
@@ -393,6 +394,11 @@ export function SubsideAnalysis({ panelHost }) {
     )
     : null
   const emptyWindow = availReady && granulesInWindow === 0
+  // Quick client-side runtime estimate from the product count (mirrors the
+  // server's estimator; the API sets the authoritative job walltime).
+  const estimate = availReady && granulesInWindow > 0
+    ? estimateRuntime(granulesInWindow, { pipeline: form.pipeline })
+    : null
 
   const panel = (
     <div className="subside-analysis-panel">
@@ -488,6 +494,12 @@ export function SubsideAnalysis({ panelHost }) {
               {availReady && !emptyWindow ? (
                 <div className="sap-avail-guide">
                   <strong>{granulesInWindow}</strong> OPERA product{granulesInWindow === 1 ? '' : 's'} available to download for this area in the selected window.
+                  {estimate ? (
+                    <div className="sap-hint">
+                      Estimated run time <strong>{estimate.estimatedHuman}</strong>
+                      {form.pipeline === 'werc' ? ' (download + analysis)' : ''} — the job reserves up to {estimate.walltimeMinutes} min so it won't time out.
+                    </div>
+                  ) : null}
                   <div className="sap-hint">Data here spans {avail.start} → {avail.end}.</div>
                 </div>
               ) : null}

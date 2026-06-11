@@ -17,9 +17,26 @@ from typing import Any
 
 import yaml
 
+from . import estimation
 from .. import config
 from ..config import PIPELINE_DIR, PIPELINES, STAGING_PREFIX, STAGING_SYSTEM, TAPIS_BASE_URL
 from ..models import Artifact, RunRequest
+
+# Job walltime bounds (minutes): floor keeps tiny runs schedulable, cap is the
+# 24 h ceiling so a run is never killed for time within a day. Mirrors
+# analysis.h2i_lab.estimate.
+_WALLTIME_FLOOR_MIN = 30
+_WALLTIME_CAP_MIN = 1440
+
+
+def _resolve_walltime(req: RunRequest) -> int | None:
+    """Walltime (minutes) for this run: the caller's value if given, else the
+    estimate from product count. Clamped to [30, 1440]; None -> pipeline default."""
+
+    minutes = req.max_minutes if req.max_minutes else estimation.walltime_for_request(req)
+    if not minutes:
+        return None
+    return int(max(_WALLTIME_FLOOR_MIN, min(_WALLTIME_CAP_MIN, minutes)))
 
 _STATUS_MAP = {
     "SUBMITTED": "queued",
@@ -157,7 +174,8 @@ def _stage(client, username: str, run_id: str, req: RunRequest) -> dict:
     }
 
 
-def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str) -> dict[str, dict]:
+def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str,
+                   max_minutes: int | None = None) -> dict[str, dict]:
     args: dict[str, dict] = {
         "start_date": {"value": req.start_date},
         "end_date": {"value": req.end_date},
@@ -170,6 +188,8 @@ def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str) -
         "tapis_base_url": {"value": TAPIS_BASE_URL},
         "tapis_token": {"value": token},
     }
+    if max_minutes:
+        args["max_minutes"] = {"value": max_minutes}
     if req.pipeline == "werc":
         args.update({
             "reference_mode": {"value": req.reference_mode},
@@ -239,7 +259,8 @@ def submit_run(client, req: RunRequest) -> dict:
     staged = _stage(client, username, short_id, req)
     pipeline_id = _pipeline_id(req.pipeline)
     run_name = f"subside-api-{pipeline_id}-{req.start_date}-{req.end_date}-{short_id}"
-    run_args = _workflow_args(req, staged, allocation, token)
+    max_minutes = _resolve_walltime(req)
+    run_args = _workflow_args(req, staged, allocation, token, max_minutes)
     run_uuid = _trigger_pipeline(client, req.pipeline, run_name, run_args)
     return {
         "uuid": run_uuid,

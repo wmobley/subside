@@ -25,6 +25,7 @@ params:
   earthdata_netrc_uri: {type: string, default: "", required: false, description: "Optional tapis:// URI to a protected .netrc"}
   num_workers:         {type: integer, default: 8}
   min_overlap_percent: {type: number, default: 50.0}
+  max_minutes:         {type: integer, default: 240, description: "Job walltime cap (minutes). API sizes this from product count, capped at 1440 (24h)."}
   allocation:          {type: string, required: true, description: "TACC allocation to charge"}
   update_conda_env:    {type: string, default: "false"}
   tapis_base_url:      {type: string, default: "https://portals.tapis.io"}
@@ -49,7 +50,7 @@ tasks:
       - tapipy==25.4.0
     depends_on: []
     execution_profile:
-      max_exec_time: 15000
+      max_exec_time: 90000   # 25h — must outlast the job it polls (maxMinutes up to 24h)
     description: Discover + download + crop + preview + archive, all in one job (STAGE=run).
     input:
       TAPIS_BASE_URL:       {type: string, value_from: {args: tapis_base_url}}
@@ -60,6 +61,7 @@ tasks:
       EARTHDATA_NETRC_URI:  {type: string, value_from: {args: earthdata_netrc_uri}}
       NUM_WORKERS:          {type: number, value_from: {args: num_workers}}
       MIN_OVERLAP_PERCENT:  {type: number, value_from: {args: min_overlap_percent}}
+      MAX_MINUTES:          {type: number, value_from: {args: max_minutes}}
       ALLOCATION:           {type: string, value_from: {args: allocation}}
       UPDATE_CONDA_ENV:     {type: string, value_from: {args: update_conda_env}}
     output:
@@ -120,7 +122,7 @@ tasks:
           "nodeCount": 1,
           "coresPerNode": 16,
           "memoryMB": 128000,
-          "maxMinutes": 240,
+          "maxMinutes": int(val("MAX_MINUTES", 240)),
           "execSystemId": "ls6",
           "execSystemExecDir": "${JobWorkingDir}",
           "execSystemInputDir": "${JobWorkingDir}",

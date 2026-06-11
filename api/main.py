@@ -16,7 +16,7 @@ from __future__ import annotations
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from .services import availability, db, discovery, forecast, layers, manager, provisioning, tapis
+from .services import availability, db, discovery, estimation, forecast, layers, manager, provisioning, tapis
 from .config import CORS_ORIGINS
 from .models import (
     AuthCodeRequest, AuthConfigResponse, AuthTokenResponse,
@@ -24,7 +24,7 @@ from .models import (
     FramesRequest, FramesResponse,
     LayerLoadRequest, LayerLoadResponse, LayerInfo, LayersResponse,
     LoginRequest, LoginResponse, ProductsSearchRequest, ProductsSearchResponse,
-    RunListItem, RunListResponse, RunRequest, RunResultsResponse,
+    RunEstimateResponse, RunListItem, RunListResponse, RunRequest, RunResultsResponse,
     RunStatusResponse, RunSubmitResponse,
 )
 
@@ -185,6 +185,23 @@ def frame_availability(
 
 
 # --- runs (Tapis Workflows pipelines, as the user) --------------------------
+@app.post("/api/subside/runs/estimate", response_model=RunEstimateResponse)
+def estimate_run(body: RunRequest):
+    """Estimate download/run time and the walltime the job will request, from
+    the OPERA product count for this AOI + date window. Fast, no Tapis job."""
+    try:
+        result = estimation.estimate(
+            body.aoi_geojson, body.start_date, body.end_date,
+            pipeline=body.pipeline, num_workers=body.num_workers,
+            min_overlap_percent=body.min_overlap_percent, reference_mode=body.reference_mode,
+        )
+    except discovery.DiscoveryUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Estimate failed: {exc}") from exc
+    return RunEstimateResponse(**result)
+
+
 @app.post("/api/subside/runs", response_model=RunSubmitResponse)
 def submit_run(body: RunRequest, client=Depends(require_client)):
     try:
