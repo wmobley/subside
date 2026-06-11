@@ -1,7 +1,7 @@
 {
   "id": "subside-h2i-opera-analysis",
   "version": "0.1.1",
-  "description": "Run the SUBSIDE H2I Lab OPERA DISP-S1 download/subset/preview analysis as a batch job.",
+  "description": "Run the SUBSIDE H2I Lab OPERA DISP-S1 download/subset/preview analysis as a batch job. Covers every OPERA frame overlapping the AOI by >=50% (set FRAME_IDS to restrict to one); product count = frames x acquisitions in the date range. Source: https://github.com/fazle0rabbi/h2i_lab",
   "owner": "${apiUserId}",
   "enabled": true,
   "runtime": "SINGULARITY",

@@ -11,9 +11,12 @@ id: subside-h2i-opera
 type: workflow
 description: |
   Discovery + Earthdata download + preview + zip archive for OPERA DISP-S1
-  over an AOI, as a single self-contained Tapis job. Companion pipeline
-  `subside-werc-opera` is the same shape but continues through the
-  stack/reference/velocity/export analysis.
+  over an AOI, as a single self-contained Tapis job. Covers every OPERA frame
+  overlapping the AOI by >=50% (set FRAME_IDS to restrict to one); product count
+  = frames x acquisitions in the date range, so a wide area or long window can
+  mean hundreds of products. Source: https://github.com/fazle0rabbi/h2i_lab.
+  Companion pipeline `subside-werc-opera` is the same shape but continues
+  through the stack/reference/velocity/export analysis.
 owner: ${apiUserId}
 group_id: subside-ops
 tenant_id: portals

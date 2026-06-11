@@ -52,6 +52,10 @@ class WercRunConfig:
             h2i_fields = set(H2IRunConfig.__dataclass_fields__.keys())
             h2i_payload = {k: v for k, v in payload.items() if k in h2i_fields}
 
+        # WERC velocity is fit on one frame's grid, so discovery must resolve a
+        # SINGLE frame (best AOI overlap). Force it on regardless of the payload.
+        h2i_payload = {**h2i_payload, "single_frame": True}
+
         return cls(
             h2i=H2IRunConfig.from_dict(h2i_payload),
             reference_mode=mode,

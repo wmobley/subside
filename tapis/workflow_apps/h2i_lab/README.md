@@ -4,6 +4,7 @@ This is the Tapis app scaffold for running the H2I Lab OPERA DISP-S1 extraction 
 
 ## Source And Code Locations
 
+- Upstream cookbook (GitHub): https://github.com/fazle0rabbi/h2i_lab
 - Original cloned cookbook: `examples/notebookExamples/h2i_lab/`
 - Extracted Python functions: `analysis/h2i_lab/`
 - Function map: `analysis/h2i_lab/README.md`

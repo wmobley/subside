@@ -53,6 +53,7 @@ def preflight(config: H2IRunConfig) -> dict[str, Any]:
 
     frame_ids = list(config.frame_ids)
     frame_records: list[dict[str, Any]] = []
+    frame_warnings: list[str] = []
     if aoi_path and not frame_ids:
         frames = find_intersecting_frames(
             frames_index,
@@ -61,8 +62,25 @@ def preflight(config: H2IRunConfig) -> dict[str, Any]:
             require_products=config.require_products,
         )
         if not frames.empty:
+            # single_frame (WERC): keep only the frame with the greatest AOI
+            # overlap; mixing frames/geometries into one velocity stack is invalid.
+            if config.single_frame and len(frames) > 1:
+                frames = frames.sort_values("overlap_ratio", ascending=False)
+                kept = int(frames["Frame ID"].iloc[0])
+                dropped = [int(v) for v in frames["Frame ID"].tolist()[1:]]
+                frames = frames.head(1)
+                frame_warnings.append(
+                    f"AOI overlaps {len(dropped) + 1} OPERA frames; using the "
+                    f"best-overlap frame {kept} and dropping {dropped}. "
+                    f"Set FRAME_IDS to pick a specific frame."
+                )
             frame_ids = [int(value) for value in frames["Frame ID"].tolist()]
             frame_records = json.loads(frames.drop(columns="geometry").to_json()).get("features", [])
+    elif config.single_frame and len(frame_ids) > 1:
+        frame_warnings.append(
+            f"single_frame: using frame {frame_ids[0]} and ignoring {frame_ids[1:]}."
+        )
+        frame_ids = frame_ids[:1]
 
     products_df = search_products_for_frames(frame_ids)
     filtered_df = filter_products_by_date(products_df, config.start_date, config.end_date) if not products_df.empty else products_df
@@ -79,7 +97,7 @@ def preflight(config: H2IRunConfig) -> dict[str, Any]:
         "frame_records": frame_records,
         "product_count": len(urls),
         "product_urls": urls,
-        "warnings": [],
+        "warnings": list(frame_warnings),
     }
     if not frame_ids:
         manifest["warnings"].append("No OPERA frames selected or discovered.")

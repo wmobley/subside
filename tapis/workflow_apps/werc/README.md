@@ -4,6 +4,7 @@ This is the Tapis app scaffold for running the SUBSIDE WERC OPERA DISP-S1 stack/
 
 ## Source And Code Locations
 
+- Upstream cookbook (GitHub): https://github.com/mosiwsp/tacc_werc_ls
 - Original cloned cookbook: `examples/notebookExamples/tacc_werc_ls/`
 - Source notebook: `examples/notebookExamples/tacc_werc_ls/OPERA DISP-S1.ipynb`
 - Extracted Python functions: `analysis/werc/`

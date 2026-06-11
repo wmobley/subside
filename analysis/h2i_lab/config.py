@@ -33,6 +33,11 @@ class H2IRunConfig:
     require_products: bool = True
     preview_only: bool = False
     archive_name: str | None = None
+    # Restrict discovery to a SINGLE OPERA frame (the one with the greatest AOI
+    # overlap). WERC forces this on: its stack/velocity assume one frame's grid,
+    # so mixing frames (e.g. ascending+descending) would be invalid. H2I leaves
+    # it off and keeps every overlapping frame.
+    single_frame: bool = False
     # Download tuning (see analysis/h2i_lab/benchmark.py; defaults chosen from
     # an ls6 vm-small ablation over 32 products):
     #   bbox_mode="prime" (default): download urls[0] once, reuse it for the
@@ -77,6 +82,7 @@ class H2IRunConfig:
             require_products=bool(payload.get("require_products", True)),
             preview_only=bool(payload.get("preview_only", False)),
             archive_name=payload.get("archive_name"),
+            single_frame=bool(payload.get("single_frame", False)),
             bbox_mode=str(payload.get("bbox_mode") or "prime"),
             remote_subset=bool(payload.get("remote_subset", False)),
             max_products=(int(payload["max_products"]) if payload.get("max_products") else None),
@@ -104,5 +110,6 @@ class H2IRunConfig:
             "preview_only": self.preview_only,
             "bbox_mode": self.bbox_mode,
             "remote_subset": self.remote_subset,
+            "single_frame": self.single_frame,
         }
 

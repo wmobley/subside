@@ -15,7 +15,10 @@ description: |
   Full SUBSIDE WERC pipeline as a single self-contained Tapis job: discovers
   OPERA DISP-S1 products, downloads + crops, builds the displacement stack,
   picks a reference (auto or manual), estimates per-pixel velocity, and
-  exports cumulative + velocity GeoTIFFs.
+  exports cumulative + velocity GeoTIFFs. Uses the single OPERA frame with the
+  greatest AOI overlap (velocity is fit on one frame's grid; set FRAME_IDS to
+  choose another); product count = acquisitions in the date range for that frame.
+  Source: https://github.com/mosiwsp/tacc_werc_ls.
 owner: ${apiUserId}
 group_id: subside-ops
 tenant_id: portals
