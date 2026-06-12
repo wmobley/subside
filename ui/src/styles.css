@@ -1705,6 +1705,51 @@ button {
   font-size: 12px;
 }
 
+.stac-run-popup {
+  min-width: 210px;
+  color: var(--tacc-text-dark);
+}
+
+.stac-run-popup-title {
+  font-weight: 700;
+  color: var(--tacc-primary-dark);
+  margin-bottom: 6px;
+}
+
+.stac-run-popup-section {
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--tacc-gray-lighter);
+}
+
+.stac-run-popup-label,
+.stac-run-popup-meta dt {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tacc-text-medium);
+}
+
+.stac-run-popup-value {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.stac-run-popup-muted {
+  color: var(--tacc-text-medium);
+}
+
+.stac-run-popup-meta {
+  margin: 0;
+}
+
+.stac-run-popup-meta div {
+  margin-top: 5px;
+}
+
+.stac-run-popup-meta dd {
+  margin: 1px 0 0;
+}
+
 /* Popup for reference (aquifer) features. */
 .ref-popup-title {
   font-weight: 700;

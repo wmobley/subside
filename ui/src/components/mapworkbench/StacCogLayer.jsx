@@ -5,7 +5,7 @@
 // public STAC asset href (the CKAN resource download URL must allow CORS + range
 // requests). Parses the GeoTIFF client-side and colors it with a viridis ramp
 // scaled to the asset's display range.
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 
 const loadGeoraster = () => Promise.all([
@@ -31,8 +31,12 @@ function viridis(t) {
   return `rgb(${c[0]},${c[1]},${c[2]})`
 }
 
-export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onError }) {
+export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, onError }) {
   const map = useMap()
+  const onClickRef = useRef(onClick)
+  const onErrorRef = useRef(onError)
+  onClickRef.current = onClick
+  onErrorRef.current = onError
 
   useEffect(() => {
     if (!href) return undefined
@@ -54,6 +58,7 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onError }
         layer = new GeoRasterLayer({
           georaster,
           opacity,
+          interactive: Boolean(onClickRef.current),
           resolution: 256,
           pixelValuesToColorFn: (values) => {
             const v = values[0]
@@ -61,12 +66,15 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onError }
             return viridis((v - min) / span)
           },
         })
+        if (onClickRef.current) {
+          layer.on('click', (event) => onClickRef.current?.(event))
+        }
         layer.addTo(map)
         if (fit) {
           try { map.fitBounds(layer.getBounds()) } catch { /* ignore */ }
         }
       })
-      .catch((err) => { if (!cancelled) onError?.(err?.message || 'COG failed to load') })
+      .catch((err) => { if (!cancelled) onErrorRef.current?.(err?.message || 'COG failed to load') })
 
     return () => {
       cancelled = true

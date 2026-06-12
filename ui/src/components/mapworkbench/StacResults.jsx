@@ -6,9 +6,9 @@
 // in view. Renders nothing when VITE_STAC_API_BASE is unset.
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ImageOverlay, useMap, useMapEvents } from 'react-leaflet'
+import { ImageOverlay, Popup, useMap, useMapEvents } from 'react-leaflet'
 
-import { itemLayers, overlayHref, searchItems, stacEnabled } from '../../lib/stacApi'
+import { itemLayers, itemMeta, overlayHref, searchItems, stacEnabled } from '../../lib/stacApi'
 import { StacCogLayer } from './StacCogLayer'
 
 // Cap rendered runs per category per viewport so a dense area can't fire an
@@ -73,10 +73,80 @@ function RasterLegend({ range, fallbackUnit }) {
   )
 }
 
+function observedRisk(range) {
+  if (!range) return null
+  const lo = Number(range.min ?? range.vmin)
+  const hi = Number(range.max ?? range.vmax)
+  const subsiding = Math.max(0, -Math.min(lo, hi))
+  if (Number.isNaN(subsiding)) return null
+  if (subsiding < 5) return { rate: subsiding, label: 'Low', color: '#16a34a' }
+  if (subsiding < 15) return { rate: subsiding, label: 'Moderate', color: '#f59e0b' }
+  if (subsiding < 30) return { rate: subsiding, label: 'High', color: '#ea580c' }
+  return { rate: subsiding, label: 'Severe', color: '#dc2626' }
+}
+
+function RunDetailsPopup({ selection }) {
+  if (!selection) return null
+  const { item, kind } = selection
+  const meta = itemMeta(item)
+  const layer = runLayer(item, kind)
+  const risk = observedRisk(layer?.range)
+  const isVelocity = kind === 'velocity'
+  return (
+    <Popup position={selection.latlng} eventHandlers={{ remove: () => selection.onClose?.() }}>
+      <div className="stac-run-popup">
+        <div className="stac-run-popup-title">{isVelocity ? 'Subsidence Velocity' : 'Displacement'}</div>
+        <div className="stac-run-popup-section">
+          <div className="stac-run-popup-label">Observed</div>
+          {isVelocity ? (
+            risk ? (
+              <>
+                <div className="stac-run-popup-value" style={{ color: risk.color }}>{risk.label}</div>
+                <div className="stac-run-popup-muted">up to {risk.rate.toFixed(0)} mm/yr</div>
+              </>
+            ) : (
+              <div className="stac-run-popup-muted">Velocity layer</div>
+            )
+          ) : (
+            <div className="stac-run-popup-muted">Displacement snapshot only</div>
+          )}
+        </div>
+        <dl className="stac-run-popup-meta">
+          {meta.start ? (
+            <div>
+              <dt>Acquisition window</dt>
+              <dd>{meta.start.slice(0, 10)} → {(meta.end || '').slice(0, 10) || '—'}</dd>
+            </div>
+          ) : null}
+          {meta.productCount != null ? (
+            <div>
+              <dt>OPERA products</dt>
+              <dd>{meta.productCount}</dd>
+            </div>
+          ) : null}
+          {meta.frameIds?.length ? (
+            <div>
+              <dt>{meta.frameIds.length > 1 ? 'Frames' : 'Frame'}</dt>
+              <dd>{meta.frameIds.join(', ')}</dd>
+            </div>
+          ) : null}
+          {layer?.range ? (
+            <div>
+              <dt>Layer range</dt>
+              <dd>{legendValue(Number(layer.range.min ?? layer.range.vmin))} → {legendValue(Number(layer.range.max ?? layer.range.vmax))} {layer.unit || ''}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </div>
+    </Popup>
+  )
+}
+
 export function StacResults({ panelHost }) {
   const map = useMap()
   const [items, setItems] = useState([])
   const [error, setError] = useState(null)
+  const [selection, setSelection] = useState(null)
   // Off by default so the map stays clean; the counts show what's available.
   const [showDisplacement, setShowDisplacement] = useState(false)
   const [showVelocity, setShowVelocity] = useState(false)
@@ -99,18 +169,31 @@ export function StacResults({ panelHost }) {
   const displacementLegend = combinedRange(dispRuns, 'displacement')
   const velocityLegend = combinedRange(velocityRuns, 'velocity')
 
+  const selectRun = (item, kind, latlng) => {
+    setSelection({ item, kind, latlng: latlng || map.getCenter(), onClose: () => setSelection(null) })
+  }
+
   // The renderable layer for a run: displacement prefers the cheap overlay PNG,
   // else its COG; velocity is the velocity COG (cloud-optimized, streamed).
   const renderRun = (it, kind) => {
     if (kind === 'displacement') {
       if (overlayHref(it) && hasBbox(it)) {
-        return <ImageOverlay key={it.id} url={overlayHref(it)} bounds={bboxToBounds(it.bbox)} opacity={0.6} interactive={false} />
+        return (
+          <ImageOverlay
+            key={it.id}
+            url={overlayHref(it)}
+            bounds={bboxToBounds(it.bbox)}
+            opacity={0.6}
+            interactive
+            eventHandlers={{ click: (event) => selectRun(it, kind, event.latlng) }}
+          />
+        )
       }
       const cog = itemLayers(it).find((l) => l.type === 'cog')
-      return cog ? <StacCogLayer key={it.id} href={cog.href} range={cog.range} opacity={0.65} fit={false} /> : null
+      return cog ? <StacCogLayer key={it.id} href={cog.href} range={cog.range} opacity={0.65} fit={false} onClick={(event) => selectRun(it, kind, event.latlng)} /> : null
     }
     const vel = itemLayers(it).find((l) => l.key === 'velocity') || itemLayers(it).find((l) => l.type === 'cog')
-    return vel ? <StacCogLayer key={it.id} href={vel.href} range={vel.range} opacity={0.65} fit={false} /> : null
+    return vel ? <StacCogLayer key={it.id} href={vel.href} range={vel.range} opacity={0.65} fit={false} onClick={(event) => selectRun(it, kind, event.latlng)} /> : null
   }
 
   // Two checkboxes styled like the registered-layer rows (checkbox · swatch ·
@@ -119,14 +202,14 @@ export function StacResults({ panelHost }) {
     <>
       <div className="slp-section">Previous runs</div>
       <label className="slp-row">
-        <input type="checkbox" checked={showDisplacement} onChange={(e) => setShowDisplacement(e.target.checked)} />
+        <input type="checkbox" checked={showDisplacement} onChange={(e) => { setShowDisplacement(e.target.checked); if (!e.target.checked && selection?.kind === 'displacement') setSelection(null) }} />
         <span className="slp-swatch" style={{ background: '#406d68' }} />
         <span className="slp-name">Displacement</span>
         <span className="slp-count">{dispRuns.length}</span>
       </label>
       {showDisplacement ? <RasterLegend range={displacementLegend} fallbackUnit="m" /> : null}
       <label className="slp-row">
-        <input type="checkbox" checked={showVelocity} onChange={(e) => setShowVelocity(e.target.checked)} />
+        <input type="checkbox" checked={showVelocity} onChange={(e) => { setShowVelocity(e.target.checked); if (!e.target.checked && selection?.kind === 'velocity') setSelection(null) }} />
         <span className="slp-swatch" style={{ background: '#7c3aed' }} />
         <span className="slp-name">Subsidence Velocity</span>
         <span className="slp-count">{velocityRuns.length}</span>
@@ -140,6 +223,7 @@ export function StacResults({ panelHost }) {
     <>
       {showDisplacement && dispRuns.slice(0, MAX_RUNS).map((it) => renderRun(it, 'displacement'))}
       {showVelocity && velocityRuns.slice(0, MAX_RUNS).map((it) => renderRun(it, 'velocity'))}
+      <RunDetailsPopup selection={selection} />
       {panelHost ? createPortal(panelContent, panelHost) : null}
     </>
   )
