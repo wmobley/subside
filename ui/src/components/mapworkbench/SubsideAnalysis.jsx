@@ -56,7 +56,7 @@ function observedRisk(range) {
   return { rate: subsiding, label: 'Severe', color: '#dc2626' }
 }
 
-export function SubsideAnalysis({ panelHost }) {
+export function SubsideAnalysis({ panelHost, analysisAoiRequest }) {
   const map = useMap()
 
   const [aoi, setAoi] = useState(null) // [w, s, e, n] envelope of the drawn/uploaded AOI
@@ -212,6 +212,24 @@ export function SubsideAnalysis({ panelHost }) {
     adoptAoiLayer(layer)
     try { map.fitBounds(layer.getBounds(), { padding: [18, 18] }) } catch { /* ignore */ }
   }
+
+  useEffect(() => {
+    if (!analysisAoiRequest?.bbox) return
+    try {
+      applyAoiGeoJSON(bboxToAoiGeoJSON(analysisAoiRequest.bbox))
+      setForm((f) => ({
+        ...f,
+        pipeline: 'werc',
+        start_date: analysisAoiRequest.start || f.start_date,
+        end_date: analysisAoiRequest.end || f.end_date,
+      }))
+      setSelectedLayer(null)
+      setSubmitErr('')
+      setResultsErr('')
+    } catch (err) {
+      setSubmitErr(err?.message || 'Could not use this image bounding box.')
+    }
+  }, [analysisAoiRequest?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mount the geoman draw toolbar (top-right, clear of the analysis panel) and
   // wire create/remove to the single-AOI model.
@@ -489,6 +507,15 @@ export function SubsideAnalysis({ panelHost }) {
                 ))}
               </select>
               <div className="sap-hint">{OUTCOMES.find((o) => o.pipeline === form.pipeline)?.hint}</div>
+              {form.pipeline === 'werc' ? (
+                <div className="sap-workflow-card">
+                  <div className="sap-workflow-card-title">Velocity follow-up from an existing image</div>
+                  <div className="sap-workflow-card-body">
+                    Turn on <strong>Previous runs → Displacement</strong>, click a displayed image, then choose
+                    <strong> Use bbox for velocity follow-up</strong>. The image bbox becomes the analysis area.
+                  </div>
+                </div>
+              ) : null}
               {WORKFLOW_DOCS[form.pipeline] ? (
                 <button type="button" className="sap-link sap-doc-link" onClick={() => setDocOpen(true)}>
                   Learn more about this analysis →

@@ -22,6 +22,9 @@ export function ModelMap({ mapData, zoom, setZoom }) {
   // Previous-runs list lives inside the Layers panel: SubsideLayers renders a
   // mount point, StacResults portals its list/toggle into it.
   const [prevRunsHost, setPrevRunsHost] = useState(null)
+  // STAC previous-run rasters are siblings of the analysis panel. Lift requests
+  // here so a public image's bbox can become the next analysis AOI.
+  const [analysisAoiRequest, setAnalysisAoiRequest] = useState(null)
   return (
     <div className="map-canvas">
       <div className="map-stage">
@@ -35,10 +38,10 @@ export function ModelMap({ mapData, zoom, setZoom }) {
             />
             <AddressSearch />
             <SubsideLayers prevRunsHostRef={setPrevRunsHost} />
-            <SubsideAnalysis panelHost={panelHost} />
+            <SubsideAnalysis panelHost={panelHost} analysisAoiRequest={analysisAoiRequest} />
             {/* Previous-runs layers on the map + list portalled into the Layers panel
                 (no-op unless VITE_STAC_API_BASE set) */}
-            <StacResults panelHost={prevRunsHost} />
+            <StacResults panelHost={prevRunsHost} onUseBboxForAnalysis={setAnalysisAoiRequest} />
           </MapContainer>
         </div>
       </div>

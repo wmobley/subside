@@ -60,6 +60,13 @@ function legendValue(value) {
   return value.toPrecision(3)
 }
 
+function formatBbox(bbox) {
+  if (!Array.isArray(bbox) || bbox.length !== 4) return null
+  const values = bbox.map(Number)
+  if (values.some((v) => !Number.isFinite(v))) return null
+  return values.map((v) => v.toFixed(5)).join(', ')
+}
+
 function RasterLegend({ range, fallbackUnit }) {
   return (
     <div className="slp-raster-legend">
@@ -85,13 +92,25 @@ function observedRisk(range) {
   return { rate: subsiding, label: 'Severe', color: '#dc2626' }
 }
 
-function RunDetailsPopup({ selection }) {
+function RunDetailsPopup({ selection, onUseBbox }) {
   if (!selection) return null
   const { item, kind } = selection
   const meta = itemMeta(item)
   const layer = runLayer(item, kind)
   const risk = observedRisk(layer?.range)
   const isVelocity = kind === 'velocity'
+  const bboxText = formatBbox(item.bbox)
+  const handleUseBbox = () => {
+    if (!bboxText) return
+    onUseBbox?.({
+      id: `${item.id || 'stac-item'}-${Date.now()}`,
+      bbox: item.bbox,
+      start: meta.start ? meta.start.slice(0, 10) : null,
+      end: meta.end ? meta.end.slice(0, 10) : null,
+      itemId: item.id,
+    })
+    selection.onClose?.()
+  }
   return (
     <Popup position={selection.latlng} eventHandlers={{ remove: () => selection.onClose?.() }}>
       <div className="stac-run-popup">
@@ -136,13 +155,24 @@ function RunDetailsPopup({ selection }) {
               <dd>{legendValue(Number(layer.range.min ?? layer.range.vmin))} → {legendValue(Number(layer.range.max ?? layer.range.vmax))} {layer.unit || ''}</dd>
             </div>
           ) : null}
+          {bboxText ? (
+            <div>
+              <dt>Bounding box</dt>
+              <dd>{bboxText}</dd>
+            </div>
+          ) : null}
         </dl>
+        {bboxText && onUseBbox ? (
+          <button type="button" className="stac-run-popup-action" onClick={handleUseBbox}>
+            Use bbox for velocity follow-up
+          </button>
+        ) : null}
       </div>
     </Popup>
   )
 }
 
-export function StacResults({ panelHost }) {
+export function StacResults({ panelHost, onUseBboxForAnalysis }) {
   const map = useMap()
   const [items, setItems] = useState([])
   const [error, setError] = useState(null)
@@ -223,7 +253,7 @@ export function StacResults({ panelHost }) {
     <>
       {showDisplacement && dispRuns.slice(0, MAX_RUNS).map((it) => renderRun(it, 'displacement'))}
       {showVelocity && velocityRuns.slice(0, MAX_RUNS).map((it) => renderRun(it, 'velocity'))}
-      <RunDetailsPopup selection={selection} />
+      <RunDetailsPopup selection={selection} onUseBbox={onUseBboxForAnalysis} />
       {panelHost ? createPortal(panelContent, panelHost) : null}
     </>
   )

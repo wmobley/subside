@@ -1750,6 +1750,23 @@ button {
   margin: 1px 0 0;
 }
 
+.stac-run-popup-action {
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 7px;
+  border: 1px solid var(--tacc-accent);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--tacc-accent-dark);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stac-run-popup-action:hover {
+  background: var(--tacc-gray-light);
+}
+
 /* Popup for reference (aquifer) features. */
 .ref-popup-title {
   font-weight: 700;
@@ -2166,6 +2183,28 @@ button {
   color: #9a3412;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.sap-workflow-card {
+  margin: 6px 0 2px;
+  padding: 7px 8px;
+  border: 1px solid var(--tacc-gray-lighter);
+  border-left: 3px solid var(--tacc-accent);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--tacc-text-dark);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sap-workflow-card-title {
+  font-weight: 700;
+  color: var(--tacc-primary-dark);
+  margin-bottom: 2px;
+}
+
+.sap-workflow-card-body {
+  color: var(--tacc-text-medium);
 }
 
 .sap-avail-guide {
