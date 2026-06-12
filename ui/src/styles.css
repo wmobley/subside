@@ -1645,6 +1645,26 @@ button {
   padding: 1px 0;
 }
 
+.slp-raster-legend {
+  margin: 2px 0 6px 22px;
+}
+
+.slp-raster-legend-bar {
+  height: 10px;
+  border: 1px solid #999;
+  border-radius: 3px;
+  background: linear-gradient(to right, #440154, #482878, #3e4989, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725);
+}
+
+.slp-raster-legend-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 1px;
+  font-size: 10px;
+  color: var(--tacc-text-medium);
+}
+
 .slp-stats {
   margin-top: 6px;
   color: var(--tacc-text-medium);
@@ -1875,6 +1895,16 @@ button {
   font-size: 11px;
   cursor: pointer;
   text-decoration: underline;
+}
+
+.sap-followup {
+  display: inline-block;
+  margin-top: 6px;
+}
+
+.sap-link:disabled {
+  color: var(--tacc-text-light) !important;
+  cursor: default;
 }
 
 .sap-history {

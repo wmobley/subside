@@ -103,6 +103,112 @@ export function itemDownloads(item) {
     .map(([key, a]) => ({ key, name: a.title || key, href: a.href }))
 }
 
+function bboxToFeatureCollection(bbox) {
+  const values = Array.isArray(bbox)
+    ? bbox
+    : bbox && typeof bbox === 'object'
+      ? [bbox.lon_min, bbox.lat_min, bbox.lon_max, bbox.lat_max]
+      : null
+  if (!values || values.length !== 4) return null
+  const [w, s, e, n] = values.map(Number)
+  if ([w, s, e, n].some((v) => !Number.isFinite(v))) return null
+  return {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] },
+    }],
+  }
+}
+
+function toFeatureCollection(gj) {
+  if (!gj || typeof gj !== 'object') return null
+  if (gj.type === 'FeatureCollection') return gj
+  if (gj.type === 'Feature') return { type: 'FeatureCollection', features: [gj] }
+  if (gj.type && gj.coordinates) {
+    return { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: gj }] }
+  }
+  return null
+}
+
+function boundaryFromPayload(payload) {
+  const direct = toFeatureCollection(payload)
+  if (direct?.features?.length) return direct
+
+  const candidates = [
+    payload?.aoi_geojson,
+    payload?.aoi,
+    payload?.boundary,
+    payload?.boundaries,
+    payload?.geometry,
+    payload?.config?.aoi_geojson,
+    payload?.config?.aoi,
+  ]
+  for (const candidate of candidates) {
+    const fc = toFeatureCollection(candidate)
+    if (fc?.features?.length) return fc
+  }
+  return bboxToFeatureCollection(payload?.bbox)
+}
+
+function isBoundaryAsset(key, asset) {
+  const haystack = [
+    key,
+    asset?.title,
+    asset?.href,
+    ...(asset?.roles || []),
+  ].join(' ').toLowerCase()
+  return /(^|[^a-z])(aoi|boundary|boundaries|area[-_ ]of[-_ ]interest)([^a-z]|$)/.test(haystack)
+}
+
+function boundaryAssetCandidates(item) {
+  const assets = item?.assets || {}
+  const preferred = ['boundaries', 'boundary', 'aoi', 'aoi_geojson', 'aoi-geojson', 'area_of_interest', 'area-of-interest']
+  const out = []
+  for (const key of preferred) {
+    if (assets[key]?.href) out.push([key, assets[key]])
+  }
+  for (const entry of Object.entries(assets)) {
+    const [key, asset] = entry
+    if (asset?.href && isBoundaryAsset(key, asset) && !out.some(([k]) => k === key)) out.push(entry)
+  }
+  return out
+}
+
+async function fetchJsonAsset(asset) {
+  const resp = await fetch(asset.href)
+  if (!resp.ok) throw new Error(`Could not read boundary asset: ${resp.status} ${resp.statusText}`)
+  return resp.json()
+}
+
+// Reusable AOI/boundary for a published run. Newer stac-platform items can carry
+// a dedicated boundary/AOI GeoJSON asset; older items fall back to metadata
+// fields, then the STAC Item geometry/bbox so a velocity follow-up can still use
+// the same catalog footprint.
+export async function itemBoundaryGeoJSON(item) {
+  for (const [, asset] of boundaryAssetCandidates(item)) {
+    try {
+      const fc = boundaryFromPayload(await fetchJsonAsset(asset))
+      if (fc?.features?.length) return fc
+    } catch {
+      // Try the next candidate; public CKAN assets may lag CORS/cache config.
+    }
+  }
+
+  const metadata = item?.assets?.metadata
+  if (metadata?.href) {
+    try {
+      const fc = boundaryFromPayload(await fetchJsonAsset(metadata))
+      if (fc?.features?.length) return fc
+    } catch {
+      // Fall through to the STAC geometry/bbox.
+    }
+  }
+
+  return boundaryFromPayload(item?.geometry) || bboxToFeatureCollection(item?.bbox)
+}
+
 // Temporal anchor for newest-first sorting.
 function itemTime(item) {
   const p = item?.properties || {}

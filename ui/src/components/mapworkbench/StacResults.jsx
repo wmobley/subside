@@ -29,6 +29,50 @@ function isVelocityRun(item) {
   return /werc/i.test(item.id || '') || itemLayers(item).some((l) => l.key === 'velocity')
 }
 
+function runLayer(item, kind) {
+  const layers = itemLayers(item)
+  if (kind === 'velocity') {
+    return layers.find((l) => l.key === 'velocity') || layers.find((l) => l.type === 'cog')
+  }
+  return layers.find((l) => l.key === 'cog') || layers.find((l) => l.type === 'cog')
+}
+
+function combinedRange(items, kind) {
+  const ranges = items
+    .map((item) => runLayer(item, kind))
+    .filter((layer) => layer?.range)
+  if (!ranges.length) return null
+  const mins = ranges.map((layer) => Number(layer.range.min ?? layer.range.vmin)).filter(Number.isFinite)
+  const maxs = ranges.map((layer) => Number(layer.range.max ?? layer.range.vmax)).filter(Number.isFinite)
+  if (!mins.length || !maxs.length) return null
+  return {
+    min: Math.min(...mins),
+    max: Math.max(...maxs),
+    unit: ranges.find((layer) => layer.unit)?.unit || '',
+  }
+}
+
+function legendValue(value) {
+  if (!Number.isFinite(value)) return '—'
+  const abs = Math.abs(value)
+  if (abs >= 100) return value.toFixed(0)
+  if (abs >= 10) return value.toFixed(1)
+  return value.toPrecision(3)
+}
+
+function RasterLegend({ range, fallbackUnit }) {
+  return (
+    <div className="slp-raster-legend">
+      <div className="slp-raster-legend-bar" />
+      <div className="slp-raster-legend-labels">
+        <span>{range ? legendValue(range.min) : 'low'}</span>
+        <span>{range?.unit || fallbackUnit || ''}</span>
+        <span>{range ? legendValue(range.max) : 'high'}</span>
+      </div>
+    </div>
+  )
+}
+
 export function StacResults({ panelHost }) {
   const map = useMap()
   const [items, setItems] = useState([])
@@ -52,6 +96,8 @@ export function StacResults({ panelHost }) {
 
   const velocityRuns = items.filter(isVelocityRun)
   const dispRuns = items.filter((it) => !isVelocityRun(it))
+  const displacementLegend = combinedRange(dispRuns, 'displacement')
+  const velocityLegend = combinedRange(velocityRuns, 'velocity')
 
   // The renderable layer for a run: displacement prefers the cheap overlay PNG,
   // else its COG; velocity is the velocity COG (cloud-optimized, streamed).
@@ -78,12 +124,14 @@ export function StacResults({ panelHost }) {
         <span className="slp-name">Displacement</span>
         <span className="slp-count">{dispRuns.length}</span>
       </label>
+      {showDisplacement ? <RasterLegend range={displacementLegend} fallbackUnit="m" /> : null}
       <label className="slp-row">
         <input type="checkbox" checked={showVelocity} onChange={(e) => setShowVelocity(e.target.checked)} />
         <span className="slp-swatch" style={{ background: '#7c3aed' }} />
         <span className="slp-name">Subsidence Velocity</span>
         <span className="slp-count">{velocityRuns.length}</span>
       </label>
+      {showVelocity ? <RasterLegend range={velocityLegend} fallbackUnit="mm/yr" /> : null}
       {error ? <div className="slp-error">{error}</div> : null}
     </>
   )

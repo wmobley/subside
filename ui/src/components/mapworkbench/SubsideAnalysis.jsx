@@ -24,7 +24,7 @@ import {
 import { getWorkflowDocs } from '../../lib/content'
 import { estimateRuntime } from '../../lib/estimateRuntime'
 import { useAuth } from '../../lib/auth'
-import { findRunItem, itemDownloads, itemLayers, itemMeta, stacEnabled } from '../../lib/stacApi'
+import { findRunItem, itemBoundaryGeoJSON, itemDownloads, itemLayers, itemMeta, stacEnabled } from '../../lib/stacApi'
 import { aoiStats, bboxToBounds, geometryBbox, toFeatureCollection } from './aoiGeometry'
 import { RUN_COPY, RunProgress } from './RunProgress'
 import { StacCogLayer } from './StacCogLayer'
@@ -95,6 +95,7 @@ export function SubsideAnalysis({ panelHost }) {
   const [stacItem, setStacItem] = useState(null)
   const [selectedLayer, setSelectedLayer] = useState(null) // {key, type:'cog'|'png', href, label, range?}
   const [resultsErr, setResultsErr] = useState('')
+  const [followUpLoading, setFollowUpLoading] = useState(false)
 
   // Whenever the AOI changes, look up OPERA availability for it so we can pin the
   // date picker to dates that have data and tell the user how many products are
@@ -191,21 +192,25 @@ export function SubsideAnalysis({ panelHost }) {
     const reader = new FileReader()
     reader.onload = () => {
       try {
-        const fc = toFeatureCollection(JSON.parse(String(reader.result)))
-        if (!fc?.features?.length) throw new Error('no features found')
-        if (!geometryBbox(fc)) throw new Error('no coordinates found')
-        const layer = L.geoJSON(fc, {
-          pmIgnore: false,
-          style: { color: '#003399', weight: 2, fillOpacity: 0.08 },
-        }).addTo(map)
-        adoptAoiLayer(layer)
-        try { map.fitBounds(layer.getBounds(), { padding: [18, 18] }) } catch { /* ignore */ }
+        applyAoiGeoJSON(JSON.parse(String(reader.result)))
         setSubmitErr('')
       } catch (err) {
         setSubmitErr(`Could not read GeoJSON: ${err.message}`)
       }
     }
     reader.readAsText(file)
+  }
+
+  function applyAoiGeoJSON(geojson) {
+    const fc = toFeatureCollection(geojson)
+    if (!fc?.features?.length) throw new Error('no features found')
+    if (!geometryBbox(fc)) throw new Error('no coordinates found')
+    const layer = L.geoJSON(fc, {
+      pmIgnore: false,
+      style: { color: '#003399', weight: 2, fillOpacity: 0.08 },
+    }).addTo(map)
+    adoptAoiLayer(layer)
+    try { map.fitBounds(layer.getBounds(), { padding: [18, 18] }) } catch { /* ignore */ }
   }
 
   // Mount the geoman draw toolbar (top-right, clear of the analysis panel) and
@@ -377,6 +382,29 @@ export function SubsideAnalysis({ panelHost }) {
   // on the STAC asset, so we can read the rate without rendering the layer.
   const velocityLayer = layerOptions.find((l) => l.key === 'velocity' || /velocit/i.test(l.label))
   const observed = observedRisk(velocityLayer?.range)
+
+  const handleVelocityFollowUp = async () => {
+    if (!stacItem) return
+    setFollowUpLoading(true)
+    setResultsErr('')
+    try {
+      const fc = await itemBoundaryGeoJSON(stacItem)
+      if (!fc?.features?.length) throw new Error('No reusable boundaries were found for this run.')
+      applyAoiGeoJSON(fc)
+      setForm((f) => ({
+        ...f,
+        pipeline: 'werc',
+        start_date: meta.start ? meta.start.slice(0, 10) : f.start_date,
+        end_date: meta.end ? meta.end.slice(0, 10) : f.end_date,
+      }))
+      setSelectedLayer(null)
+      setSubmitErr('')
+    } catch (err) {
+      setResultsErr(err?.message || 'Could not reuse this run boundary.')
+    } finally {
+      setFollowUpLoading(false)
+    }
+  }
 
   // AOI size/complexity warnings, on the exact geometry that will be submitted.
   const aoiFc = aoi ? (aoiGeometry || bboxToAoiGeoJSON(aoi)) : null
@@ -576,7 +604,14 @@ export function SubsideAnalysis({ panelHost }) {
                           </button>
                         )
                       ) : (
-                        <div className="risk-card-sub">Displacement snapshot only — run “Measure how fast it is sinking” for a rate.</div>
+                        <>
+                          <div className="risk-card-sub">Displacement snapshot only — run “Measure how fast it is sinking” for a rate.</div>
+                          {stacItem ? (
+                            <button type="button" className="sap-link sap-followup" onClick={handleVelocityFollowUp} disabled={followUpLoading}>
+                              {followUpLoading ? 'Loading boundaries…' : 'Use these boundaries for velocity follow-up →'}
+                            </button>
+                          ) : null}
+                        </>
                       )}
                       <div className="risk-card-note">measured · OPERA DISP-S1</div>
                     </div>
