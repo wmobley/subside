@@ -21,7 +21,8 @@ The original notebook remains unchanged. The files here are the workflow-oriente
 | 12 | `disp_stack.combine_disp_product`, drop t=0, rebase | `analysis.werc.stack.build_displacement_stack` | Assemble the (time, y, x) stack with t=0 zeroed out. |
 | 14 | mean coherence / mask coverage / PS fraction | `analysis.werc.reference.compute_quality_layers` | Three intrinsic stability layers + water mask. |
 | 15 | `_zone_index_window`, `_select_in_zone`, `_autopick_anchor`, anchor JSON persist, reference correction | `analysis.werc.reference.{zone_index_window, select_pixels_in_zone, autopick_anchor, load_or_pick_anchor, apply_auto_reference}` | Auto reference-pixel selection with persisted per-frame anchor for reproducibility. |
-| 17 | manual reference subtract | `analysis.werc.reference.apply_manual_reference` | Manual `(lat, lon)` override path. |
+| 17 | manual reference subtract | `analysis.werc.reference.apply_manual_reference` | Manual `(lat, lon)` override path (single nearest pixel). |
+| 15 (anchor-from-coord path) | supplied-anchor `_zone_index_window` → `_select_in_zone` → median | `analysis.werc.reference.apply_point_reference` | De-reference at a supplied coordinate (e.g. a stable GNSS mark) with the robust zone-median correction — the auto path with the auto-pick replaced by the given `(lat, lon)`. Dataset-agnostic: just a coordinate. |
 | 19, 20, 25 (plot block) | basemap fetch / Folium overlay / matplotlib preview | UI/backlog | Notebook visualization helpers; will be replaced by React raster rendering. |
 | 22 | cumulative displacement GeoTIFF export | `analysis.werc.export.write_cumulative_displacement_geotiff` | Reproject latest reference-corrected displacement to EPSG:4326 and write tiled GeoTIFF (mm). |
 | 24 | linear-fit velocity (`np.linalg.lstsq` over time) | `analysis.werc.velocity.estimate_velocity_linear` | Per-pixel velocity in m/year with start/end metadata. |
@@ -38,8 +39,9 @@ h2i_lab.preflight  →  h2i_lab.download_disp_files (skip with --skip-download)
                   ↓
         werc.reference.compute_quality_layers
                   ↓
-   auto: apply_auto_reference (persists anchor JSON per frame)
-   manual: apply_manual_reference
+   auto:   apply_auto_reference (persists anchor JSON per frame)
+   point:  apply_point_reference (supplied lat/lon, e.g. a stable GNSS mark; robust zone-median)
+   manual: apply_manual_reference (supplied lat/lon, single nearest pixel)
                   ↓
         werc.velocity.estimate_velocity_linear
                   ↓
@@ -85,4 +87,6 @@ Tapis should call the same CLI through `tapis/workflow_apps/werc/run.sh`.
 
 ## Current Scope
 
-This first WERC extraction covers stack assembly, intrinsic quality layers, auto and manual reference-pixel selection, linear velocity estimation, and cumulative + velocity GeoTIFF export. Notebook visualization (Folium overlays, ipyleaflet maps, matplotlib panels) is intentionally not ported and should land in the React portal instead.
+This first WERC extraction covers stack assembly, intrinsic quality layers, auto / point / manual reference-pixel selection, linear velocity estimation, and cumulative + velocity GeoTIFF export.
+
+The `point` reference mode is how an external stable benchmark is consumed: the caller resolves a stable location to `reference_lat`/`reference_lon` (e.g. by picking a stable, GNSS-usable mark from the NGS Datasheets layer — see `stac-platform`'s `ngs-gnss-stable` overlay) and passes the coordinate in. The workflow itself never talks to NGS or any feature service, so it stays independent of the dataset the point came from. Notebook visualization (Folium overlays, ipyleaflet maps, matplotlib panels) is intentionally not ported and should land in the React portal instead.

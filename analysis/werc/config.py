@@ -10,7 +10,10 @@ from typing import Any
 from analysis.h2i_lab.config import H2IRunConfig
 
 
-REFERENCE_MODES = ("auto", "manual", "none")
+# "point" = de-reference at a supplied coordinate (e.g. a stable GNSS mark) using
+# the robust zone-median correction; "manual" = subtract the single nearest pixel.
+# Both require reference_lat/reference_lon.
+REFERENCE_MODES = ("auto", "manual", "point", "none")
 
 
 @dataclass(frozen=True)
@@ -41,10 +44,12 @@ class WercRunConfig:
             raise ValueError(
                 f"reference_mode must be one of {REFERENCE_MODES}, got {mode!r}."
             )
-        if mode == "manual" and (
+        if mode in ("manual", "point") and (
             payload.get("reference_lat") is None or payload.get("reference_lon") is None
         ):
-            raise ValueError("Manual reference requires reference_lat and reference_lon.")
+            raise ValueError(
+                f"{mode!r} reference requires reference_lat and reference_lon."
+            )
 
         if isinstance(payload.get("h2i"), dict):
             h2i_payload = payload["h2i"]

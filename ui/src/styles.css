@@ -1802,6 +1802,24 @@ button {
   color: var(--tacc-text-dark);
 }
 
+/* "Use as velocity reference" action on a reference-candidate mark popup. */
+.ref-popup-pick {
+  margin-top: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--tacc-primary, #15803d);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ref-popup-pick:hover {
+  filter: brightness(0.94);
+}
+
 /* --- SUBSIDE analysis runner (draw AOI -> submit Tapis job) --------------- */
 .leaflet-container.is-drawing {
   cursor: crosshair;
@@ -2205,6 +2223,15 @@ button {
 
 .sap-workflow-card-body {
   color: var(--tacc-text-medium);
+}
+
+/* Reference-point card: green accent to tie it to the Stable GNSS marks layer. */
+.sap-reference-card {
+  border-left-color: #15803d;
+}
+
+.sap-reference-card .sap-workflow-card-title {
+  color: #15803d;
 }
 
 .sap-avail-guide {

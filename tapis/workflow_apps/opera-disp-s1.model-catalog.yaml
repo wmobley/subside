@@ -345,7 +345,7 @@ model:
             - >-
               Water-Energy Research Cluster (WERC) configuration: composes the
               H2I acquire stage, then assembles the displacement time-series
-              stack, selects a reference (auto/manual/none), subtracts the
+              stack, selects a reference (auto/point/manual/none), subtracts the
               reference offset, inverts to per-pixel linear velocity, and
               exports cumulative-displacement and velocity GeoTIFFs (EPSG:4326).
           hasComponentLocation:
@@ -373,8 +373,10 @@ model:
             - Memory/IO-bound; large AOIs or long stacks may exceed the
               128 GB / 240-minute job envelope.
           hasUsageNotes:
-            - Use reference_mode=auto for hands-off runs; manual with a known
-              stable benchmark when one exists.
+            - Use reference_mode=auto for hands-off runs; point with a known
+              stable benchmark (e.g. a stable, GNSS-usable NGS mark) when one
+              overlaps the AOI — it anchors the robust zone-median correction at
+              that coordinate. manual subtracts only the single nearest pixel.
             - For meaningful velocity, use a multi-year window with many
               acquisitions; treat short-window velocity as exploratory only.
 
@@ -397,12 +399,12 @@ model:
           hasConstraint:
             - id: werc-constraint-manual-reference
               type: [Constraint]
-              label: [Manual reference requires coordinates]
+              label: [Point/manual reference requires coordinates]
               description:
-                - When reference_mode = manual, reference_lat and reference_lon
-                  must be set and lie within the AOI.
+                - When reference_mode = point or manual, reference_lat and
+                  reference_lon must be set and lie within the AOI.
               hasRule:
-                - "reference_mode == 'manual' => reference_lat AND reference_lon are required"
+                - "reference_mode IN ('point','manual') => reference_lat AND reference_lon are required"
             - id: werc-constraint-velocity-window
               type: [Constraint]
               label: [Velocity reliability vs. window length]
@@ -496,15 +498,15 @@ model:
             - id: werc-param-reference-mode
               type: [Parameter]
               label: [Reference mode]
-              description: [Referencing strategy: auto (anchor-based), manual (lat/lon), or none.]
+              description: [Referencing strategy: auto (anchor-based), point (supplied lat/lon, e.g. a stable GNSS mark, robust zone-median), manual (supplied lat/lon, single nearest pixel), or none.]
               hasDataType: [string]
               hasDefaultValue: [auto]
-              hasAcceptedValues: [auto, manual, none]
+              hasAcceptedValues: [auto, point, manual, none]
               position: [8]
             - id: werc-param-reference-lat
               type: [Parameter]
               label: [Reference latitude]
-              description: [Reference latitude (decimal degrees). Required when reference mode is manual.]
+              description: [Reference latitude (decimal degrees). Required when reference mode is point or manual.]
               hasDataType: [float]
               hasDefaultValue: [""]
               hasMinimumAcceptedValue: [-90]
@@ -514,7 +516,7 @@ model:
             - id: werc-param-reference-lon
               type: [Parameter]
               label: [Reference longitude]
-              description: [Reference longitude (decimal degrees). Required when reference mode is manual.]
+              description: [Reference longitude (decimal degrees). Required when reference mode is point or manual.]
               hasDataType: [float]
               hasDefaultValue: [""]
               hasMinimumAcceptedValue: [-180]

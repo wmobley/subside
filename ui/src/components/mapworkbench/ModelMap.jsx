@@ -25,6 +25,15 @@ export function ModelMap({ mapData, zoom, setZoom }) {
   // STAC previous-run rasters are siblings of the analysis panel. Lift requests
   // here so a public image's bbox can become the next analysis AOI.
   const [analysisAoiRequest, setAnalysisAoiRequest] = useState(null)
+  // Velocity-reference coordination between the analysis panel (which knows the
+  // chosen outcome + AOI) and the Layers panel (which renders the GNSS marks):
+  //  - `wantsReference` (velocity outcome + an AOI) auto-shows the reference-
+  //    candidate layers (e.g. stable GNSS marks) so the user can pick one;
+  //  - `referencePoint` is the mark the user clicked, fed back to the analysis
+  //    panel as the run's reference coordinate. The point is just lat/lon, so the
+  //    workflow stays independent of which dataset surfaced it.
+  const [wantsReference, setWantsReference] = useState(false)
+  const [referencePoint, setReferencePoint] = useState(null)
   return (
     <div className="map-canvas">
       <div className="map-stage">
@@ -37,8 +46,18 @@ export function ModelMap({ mapData, zoom, setZoom }) {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <AddressSearch />
-            <SubsideLayers prevRunsHostRef={setPrevRunsHost} />
-            <SubsideAnalysis panelHost={panelHost} analysisAoiRequest={analysisAoiRequest} />
+            <SubsideLayers
+              prevRunsHostRef={setPrevRunsHost}
+              autoShowReference={wantsReference}
+              onPickReference={setReferencePoint}
+            />
+            <SubsideAnalysis
+              panelHost={panelHost}
+              analysisAoiRequest={analysisAoiRequest}
+              onWantsReferenceChange={setWantsReference}
+              referencePoint={referencePoint}
+              onClearReferencePoint={() => setReferencePoint(null)}
+            />
             {/* Previous-runs layers on the map + list portalled into the Layers panel
                 (no-op unless VITE_STAC_API_BASE set) */}
             <StacResults panelHost={prevRunsHost} onUseBboxForAnalysis={setAnalysisAoiRequest} />

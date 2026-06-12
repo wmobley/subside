@@ -330,6 +330,80 @@ def apply_auto_reference(
     )
 
 
+def apply_point_reference(
+    stack: xr.Dataset,
+    quality: QualityLayers,
+    ref_lat: float,
+    ref_lon: float,
+    radius_m: float = DEFAULT_ANCHOR_RADIUS_M,
+    n_target: int = DEFAULT_N_REFERENCE_PIXELS,
+    thresh_levels: Sequence[tuple[float, float, float, str]] = DEFAULT_THRESH_LEVELS,
+) -> ReferenceSelection:
+    """De-reference at a supplied point (e.g. a stable GNSS mark).
+
+    The point is *just a coordinate* — the workflow stays independent of where it
+    came from (an NGS GNSS datasheet today, anything else later); the caller
+    resolves a stable location to lon/lat and passes it in.
+
+    Unlike :func:`apply_manual_reference` (single nearest pixel), this treats
+    ``(ref_lat, ref_lon)`` as a fixed anchor and applies the same robust
+    correction as :func:`apply_auto_reference` — select the highest-quality
+    pixels in a ``radius_m`` zone around the point and subtract their *median*
+    displacement. That mirrors how the reference notebook treats a known/persisted
+    anchor (``_zone_index_window`` → ``_select_in_zone`` → median offset), so a run
+    anchored on a GNSS mark reduces to the auto path with the auto-pick replaced by
+    the supplied coordinate. Falls back to the single nearest pixel only when no
+    pixel in the zone clears even the most relaxed quality tier.
+    """
+
+    epsg = pyproj.CRS(stack.spatial_ref.attrs["crs_wkt"]).to_epsg()
+    window = zone_index_window(stack, ref_lon, ref_lat, radius_m, epsg)
+    if window is None:
+        raise RuntimeError(
+            f"Reference point (lat={ref_lat:.5f}, lon={ref_lon:.5f}, r={radius_m} m) "
+            f"is not inside the current stack BBOX. Choose a point within the frame "
+            f"(e.g. a stable GNSS mark that overlaps the AOI), or widen the BBOX."
+        )
+
+    iy_sel, ix_sel, scores, label = select_pixels_in_zone(
+        quality, window, n_target, stack.x.values, stack.y.values,
+        thresh_levels=thresh_levels,
+    )
+    if iy_sel is None:
+        # No quality pixels near the point — fall back to the single nearest pixel
+        # (matches apply_manual_reference) so a user-chosen mark still references.
+        proj = pyproj.Transformer.from_crs(
+            "EPSG:4326", f"EPSG:{epsg}", always_xy=True
+        )
+        ref_x, ref_y = proj.transform(ref_lon, ref_lat)
+        iy_sel = np.array([int(np.abs(stack.y.values - ref_y).argmin())])
+        ix_sel = np.array([int(np.abs(stack.x.values - ref_x).argmin())])
+        scores = np.array([np.nan])
+        label = "nearest-pixel (no quality pixels in zone)"
+
+    ref_disp = stack["displacement"].isel(
+        y=xr.DataArray(iy_sel, dims="ref_pixel"),
+        x=xr.DataArray(ix_sel, dims="ref_pixel"),
+    )
+    ref_offset = ref_disp.median(dim="ref_pixel").compute()
+    stack["displacement"] = stack["displacement"] - ref_offset
+
+    ref_xs = stack.x.values[ix_sel]
+    ref_ys = stack.y.values[iy_sel]
+    return ReferenceSelection(
+        iy_sel=np.asarray(iy_sel),
+        ix_sel=np.asarray(ix_sel),
+        ref_scores=np.asarray(scores),
+        threshold_label=label,
+        anchor_lon=float(ref_lon),
+        anchor_lat=float(ref_lat),
+        ref_x_center=float(np.median(ref_xs)),
+        ref_y_center=float(np.median(ref_ys)),
+        newly_picked=False,
+        anchor_path=None,
+    )
+
+
 def apply_manual_reference(
     stack: xr.Dataset,
     ref_lat: float,

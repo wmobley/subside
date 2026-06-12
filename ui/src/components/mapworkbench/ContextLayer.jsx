@@ -57,7 +57,7 @@ function PlainGeoJSON({ url, style, color, opacity, onError }) {
   )
 }
 
-export function ContextLayer({ layer, onError, onFeatureClick }) {
+export function ContextLayer({ layer, onError, onFeatureClick, onPickReference }) {
   const { service, href } = layer
   const opacity = layer.opacity ?? 1
 
@@ -114,6 +114,7 @@ export function ContextLayer({ layer, onError, onFeatureClick }) {
         queryFields={layer.queryFields}
         where={layer.where}
         onError={onError}
+        onPickReference={onPickReference}
       />
     )
   }

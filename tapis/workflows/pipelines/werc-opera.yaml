@@ -14,7 +14,8 @@ type: workflow
 description: |
   Full SUBSIDE WERC pipeline as a single self-contained Tapis job: discovers
   OPERA DISP-S1 products, downloads + crops, builds the displacement stack,
-  picks a reference (auto or manual), estimates per-pixel velocity, and
+  picks a reference (auto, a supplied point such as a stable GNSS mark, or
+  manual), estimates per-pixel velocity, and
   exports cumulative + velocity GeoTIFFs. Uses the single OPERA frame with the
   greatest AOI overlap (velocity is fit on one frame's grid; set FRAME_IDS to
   choose another); product count = acquisitions in the date range for that frame.
@@ -28,7 +29,7 @@ params:
   end_date:            {type: string, required: true}
   aoi_geojson_uri:     {type: string, required: true}
   earthdata_netrc_uri: {type: string, default: "", required: false}
-  reference_mode:      {type: string, default: "auto", enum: [auto, manual, none]}
+  reference_mode:      {type: string, default: "auto", enum: [auto, point, manual, none]}
   reference_lat:       {type: string, default: "", required: false}
   reference_lon:       {type: string, default: "", required: false}
   anchor_radius_m:     {type: integer, default: 5000}

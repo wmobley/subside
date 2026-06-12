@@ -56,7 +56,9 @@ function observedRisk(range) {
   return { rate: subsiding, label: 'Severe', color: '#dc2626' }
 }
 
-export function SubsideAnalysis({ panelHost, analysisAoiRequest }) {
+export function SubsideAnalysis({
+  panelHost, analysisAoiRequest, onWantsReferenceChange, referencePoint, onClearReferencePoint,
+}) {
   const map = useMap()
 
   const [aoi, setAoi] = useState(null) // [w, s, e, n] envelope of the drawn/uploaded AOI
@@ -149,6 +151,20 @@ export function SubsideAnalysis({ panelHost, analysisAoiRequest }) {
       }
     })
   }, [avail])
+
+  // Tell the map (via ModelMap) when we're configuring a velocity run over an AOI:
+  // that's when reference-candidate layers (the stable GNSS marks) should surface
+  // so the user can pick a reference point. Velocity (`werc`) + an AOI === on.
+  const wantsReference = form.pipeline === 'werc' && Boolean(aoi)
+  useEffect(() => {
+    onWantsReferenceChange?.(wantsReference)
+  }, [wantsReference, onWantsReferenceChange])
+
+  // A chosen reference point only applies to velocity runs; drop it if the user
+  // switches back to a displacement snapshot so a stale point can't ride along.
+  useEffect(() => {
+    if (form.pipeline !== 'werc' && referencePoint) onClearReferencePoint?.()
+  }, [form.pipeline, referencePoint, onClearReferencePoint])
 
   // --- AOI by drawing / upload (leaflet-geoman) ----------------------------
   // These only touch state setters, refs, and the (stable) map, so the geoman
@@ -374,6 +390,14 @@ export function SubsideAnalysis({ panelHost, analysisAoiRequest }) {
         aoi_geojson: aoiGeometry || bboxToAoiGeoJSON(aoi),
         min_overlap_percent: Number(form.min_overlap_percent),
       }
+      // Velocity is relative — if the user picked a stable mark (e.g. a GNSS
+      // datasheet point), anchor the run on its coordinate ("point" mode, robust
+      // zone-median). Otherwise the workflow auto-picks a reference.
+      if (form.pipeline === 'werc' && referencePoint) {
+        body.reference_mode = 'point'
+        body.reference_lat = referencePoint.lat
+        body.reference_lon = referencePoint.lon
+      }
       if (form.allocation.trim()) body.allocation = form.allocation.trim()
       const res = await submitRun(token, body)
       setRun({ runId: res.runId, status: res.status, tapisStatus: res.tapisStatus, lastMessage: '' })
@@ -514,6 +538,34 @@ export function SubsideAnalysis({ panelHost, analysisAoiRequest }) {
                     Turn on <strong>Previous runs → Displacement</strong>, click a displayed image, then choose
                     <strong> Use bbox for velocity follow-up</strong>. The image bbox becomes the analysis area.
                   </div>
+                </div>
+              ) : null}
+              {form.pipeline === 'werc' ? (
+                <div className="sap-workflow-card sap-reference-card">
+                  <div className="sap-workflow-card-title">Reference point (optional)</div>
+                  {!aoi ? (
+                    <div className="sap-workflow-card-body">
+                      Velocity from radar is <em>relative</em>, so it’s measured against a point assumed
+                      stable. Draw an area above and the <strong>Stable GNSS marks (NGS)</strong> layer
+                      appears on the map — survey marks that are GPS/GNSS-usable and rated stable.
+                    </div>
+                  ) : referencePoint ? (
+                    <div className="sap-workflow-card-body">
+                      Reference: <strong>{referencePoint.label || 'selected mark'}</strong>{' '}
+                      ({referencePoint.lat.toFixed(5)}, {referencePoint.lon.toFixed(5)}). Velocities are
+                      measured relative to this stable point.
+                      <button type="button" className="sap-link" onClick={() => onClearReferencePoint?.()}>
+                        use automatic instead
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="sap-workflow-card-body">
+                      The <strong>Stable GNSS marks (NGS)</strong> layer is now on the map. Zoom in to
+                      your area, click a mark on stable ground, and choose
+                      <strong> ★ Use as velocity reference</strong> — its location anchors the result.
+                      Leave it unset and the workflow picks a reference automatically.
+                    </div>
+                  )}
                 </div>
               ) : null}
               {WORKFLOW_DOCS[form.pipeline] ? (

@@ -12,7 +12,7 @@
 // Mounted *inside* a react-leaflet <MapContainer>. The toggle panel is rendered
 // into a Leaflet control via a React portal so it lives in the map corner.
 import L from 'leaflet'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMap } from 'react-leaflet'
 
@@ -37,7 +37,13 @@ function isDefaultOn(layer, isAuthed) {
   }
 }
 
-export function SubsideLayers({ prevRunsHostRef }) {
+// Layers tagged as velocity-reference candidates (e.g. the stable GNSS marks).
+// Surfaced automatically while the user is configuring a velocity run so they can
+// pick a stable point; matched by role, not id, so any future stable-point layer
+// behaves the same — see context_layers.json `role: "reference-candidate"`.
+const REFERENCE_ROLE = 'reference-candidate'
+
+export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPickReference }) {
   const map = useMap()
   const { isAuthed } = useAuth()
   // Latest auth, read when the catalog resolves so the default-on set reflects
@@ -79,6 +85,26 @@ export function SubsideLayers({ prevRunsHostRef }) {
       cancelled = true
     }
   }, [])
+
+  // Velocity-reference candidate layers (the stable GNSS marks). When the analysis
+  // panel signals a velocity run with an AOI (`autoShowReference`), turn them on so
+  // the user can see and pick a stable mark; turn them back off when that context
+  // ends. Matched by role so it isn't tied to one dataset.
+  const referenceIds = useMemo(
+    () => catalog.filter((l) => l.role === REFERENCE_ROLE).map((l) => l.id),
+    [catalog],
+  )
+  useEffect(() => {
+    if (!referenceIds.length) return
+    setEnabled((current) => {
+      const next = new Set(current)
+      for (const id of referenceIds) {
+        if (autoShowReference) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }, [autoShowReference, referenceIds])
 
   // Click -> popup with feature properties.
   const handleFeatureClick = useCallback(
@@ -145,7 +171,17 @@ export function SubsideLayers({ prevRunsHostRef }) {
   return (
     <>
       {catalog.filter((l) => enabled.has(l.id)).map((layer) => (
-        <ContextLayer key={layer.id} layer={layer} onError={setError} onFeatureClick={handleFeatureClick} />
+        <ContextLayer
+          key={layer.id}
+          layer={layer}
+          onError={setError}
+          onFeatureClick={handleFeatureClick}
+          // On reference-candidate layers, let a click offer "use as velocity
+          // reference" (only while the velocity workflow wants one).
+          onPickReference={
+            layer.role === REFERENCE_ROLE && autoShowReference ? onPickReference : null
+          }
+        />
       ))}
       {createPortal(panel, controlEl)}
     </>

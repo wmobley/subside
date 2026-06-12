@@ -90,22 +90,42 @@ function formatValue(key, value) {
   return String(value)
 }
 
-function featurePopupHtml(props = {}, title, color) {
+// Inner popup content (title + property rows), without the outer wrapper — shared
+// by the static HTML popup and the interactive "pick reference" DOM popup.
+function featurePopupInner(props = {}, title, color) {
   const rows = Object.entries(props)
     .map(([k, v]) => [k, formatValue(k, v)])
     .filter(([, v]) => v != null)
     .map(([k, v]) => `<div class="ref-popup-row"><span class="ref-popup-key">${k}</span> ${v}</div>`)
     .join('')
   return (
-    `<div class="ref-popup">`
-    + `<div class="ref-popup-title"><span class="ref-popup-dot" style="background:${color}"></span>${title}</div>`
+    `<div class="ref-popup-title"><span class="ref-popup-dot" style="background:${color}"></span>${title}</div>`
     + rows
-    + `</div>`
   )
 }
 
+function featurePopupHtml(props = {}, title, color) {
+  return `<div class="ref-popup">${featurePopupInner(props, title, color)}</div>`
+}
+
+// A popup DOM node that adds a "use as velocity reference" button. Built as a real
+// element (not an HTML string) so the button can call back into React. `onPick`
+// receives the mark's {lat, lon, label}.
+function featurePickNode(props, title, color, point, onPick) {
+  const wrap = document.createElement('div')
+  wrap.className = 'ref-popup'
+  wrap.innerHTML = featurePopupInner(props, title, color)
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'ref-popup-pick'
+  btn.textContent = '★ Use as velocity reference'
+  btn.addEventListener('click', () => onPick(point))
+  wrap.appendChild(btn)
+  return wrap
+}
+
 export function ReferenceFeatureServer({
-  url, label, style, color, opacity, minZoom, queryFields, where, onError,
+  url, label, style, color, opacity, minZoom, queryFields, where, onError, onPickReference,
 }) {
   const map = useMap()
   const [data, setData] = useState(null)
@@ -150,7 +170,23 @@ export function ReferenceFeatureServer({
         })
       }
       onEachFeature={(feature, layer) => {
-        layer.bindPopup(featurePopupHtml(feature.properties || {}, label || 'Feature', c))
+        const props = feature.properties || {}
+        const title = label || 'Feature'
+        if (onPickReference) {
+          // Point features only: coordinates are [lon, lat] (outSR=4326).
+          const coords = feature.geometry?.coordinates || []
+          const point = {
+            lon: Number(coords[0]),
+            lat: Number(coords[1]),
+            label: props.NAME || props.PID || title,
+          }
+          layer.bindPopup(featurePickNode(props, title, c, point, (pt) => {
+            onPickReference(pt)
+            map.closePopup()
+          }))
+        } else {
+          layer.bindPopup(featurePopupHtml(props, title, c))
+        }
       }}
     />
   )

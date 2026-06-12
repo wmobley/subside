@@ -89,10 +89,10 @@ def run_compute_reference(
 ) -> dict[str, Any]:
     """Stage 2: pick a reference and subtract its offset from every pixel/time."""
 
-    if mode not in ("auto", "manual", "none"):
-        raise ValueError(f"mode must be 'auto', 'manual', or 'none' (got {mode!r}).")
-    if mode == "manual" and (reference_lat is None or reference_lon is None):
-        raise ValueError("Manual reference requires reference_lat and reference_lon.")
+    if mode not in ("auto", "manual", "point", "none"):
+        raise ValueError(f"mode must be 'auto', 'manual', 'point', or 'none' (got {mode!r}).")
+    if mode in ("manual", "point") and (reference_lat is None or reference_lon is None):
+        raise ValueError(f"{mode!r} reference requires reference_lat and reference_lon.")
     if mode == "auto" and anchor_dir is None:
         raise ValueError("Auto reference requires anchor_dir for per-frame anchor JSON persistence.")
 
@@ -104,6 +104,14 @@ def run_compute_reference(
         quality = reference.compute_quality_layers(stack_prod)
         ref = reference.apply_auto_reference(
             stack_prod, quality, frame_id, Path(anchor_dir),
+            radius_m=anchor_radius_m, n_target=n_reference_pixels,
+        )
+    elif mode == "point":
+        # De-reference at a supplied coordinate (e.g. a stable GNSS mark) using the
+        # same robust zone-median correction as auto — just with the anchor fixed.
+        quality = reference.compute_quality_layers(stack_prod)
+        ref = reference.apply_point_reference(
+            stack_prod, quality, reference_lat, reference_lon,
             radius_m=anchor_radius_m, n_target=n_reference_pixels,
         )
     elif mode == "manual":
@@ -249,6 +257,15 @@ def run(config: WercRunConfig) -> dict[str, Any]:
             quality,
             frame_id,
             config.anchor_path(),
+            radius_m=config.anchor_radius_m,
+            n_target=config.n_reference_pixels,
+        )
+    elif config.reference_mode == "point":
+        ref = reference.apply_point_reference(
+            stack_prod,
+            quality,
+            config.reference_lat,
+            config.reference_lon,
             radius_m=config.anchor_radius_m,
             n_target=config.n_reference_pixels,
         )
