@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 import os
 import subprocess
+import sys
+import time
 
 from analysis.etl.profiling import Profiler
 
@@ -51,6 +53,11 @@ def ensure_earthdata_netrc() -> Path:
     return netrc_path
 
 
+#: Back-off (seconds) between opera-utils download attempts. Length also sets the
+#: number of *extra* attempts after the first.
+_OPERA_RETRY_DELAYS = (15, 45, 90)
+
+
 def download_via_opera_utils(
     frame_id: int,
     bbox: dict[str, float],
@@ -60,6 +67,7 @@ def download_via_opera_utils(
     *,
     num_workers: int = 4,
     executable: str = "opera-utils",
+    retry_delays: tuple[int, ...] = _OPERA_RETRY_DELAYS,
 ) -> list[Path]:
     """Download + AOI-subset DISP-S1 with ``opera-utils disp-s1-download``.
 
@@ -68,23 +76,51 @@ def download_via_opera_utils(
     ``bbox`` itself, so we don't reimplement product search or subsetting. The
     cropped NetCDFs land in ``output_dir`` ready for ``disp_xr`` / the WERC stack.
     Returns the downloaded ``*.nc`` paths.
+
+    opera-utils' parallel downloader has no per-file retry, so a single transient
+    TLS/network hiccup from the DAAC (e.g. ``ssl.SSLError: [SSL] CRYPTO lib``) aborts
+    the whole run. We wrap it in a resume-and-retry loop: re-running skips products
+    already written, and each retry eases concurrency (halves workers) to cut TLS
+    contention. Raises ``RuntimeError`` only if every attempt fails.
     """
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     ensure_earthdata_netrc()
-    cmd = [
-        executable, "disp-s1-download",
-        "--output-dir", str(out),
-        "--bbox", str(bbox["lon_min"]), str(bbox["lat_min"]),
-        str(bbox["lon_max"]), str(bbox["lat_max"]),
-        "--frame-id", str(int(frame_id)),
-        "--start-datetime", str(start_date),
-        "--end-datetime", str(end_date),
-        "--num-workers", str(int(num_workers)),
-    ]
-    print("Running:", " ".join(cmd))
-    subprocess.run(cmd, check=True)
-    return sorted(out.glob("*.nc"))
+
+    def cmd_for(workers: int) -> list[str]:
+        return [
+            executable, "disp-s1-download",
+            "--output-dir", str(out),
+            "--bbox", str(bbox["lon_min"]), str(bbox["lat_min"]),
+            str(bbox["lon_max"]), str(bbox["lat_max"]),
+            "--frame-id", str(int(frame_id)),
+            "--start-datetime", str(start_date),
+            "--end-datetime", str(end_date),
+            "--num-workers", str(int(workers)),
+        ]
+
+    workers = max(1, int(num_workers))
+    total_attempts = len(retry_delays) + 1
+    for attempt in range(1, total_attempts + 1):
+        cmd = cmd_for(workers)
+        print(f"Running (attempt {attempt}/{total_attempts}, workers={workers}): {' '.join(cmd)}")
+        rc = subprocess.run(cmd).returncode
+        if rc == 0:
+            return sorted(out.glob("*.nc"))
+        # Non-zero is usually a transient DAAC TLS/network error (opera-utils does
+        # not retry per file). Re-running resumes (already-downloaded files are
+        # skipped); back off and ease concurrency before trying again.
+        if attempt < total_attempts:
+            delay = retry_delays[attempt - 1]
+            print(f"opera-utils exited {rc} (attempt {attempt}/{total_attempts}); likely a "
+                  f"transient network/SSL error. Resuming in {delay}s with fewer workers...",
+                  file=sys.stderr)
+            time.sleep(delay)
+            workers = max(1, workers // 2)
+    raise RuntimeError(
+        f"opera-utils disp-s1-download failed after {total_attempts} attempts for "
+        f"frame {frame_id} ({start_date}..{end_date}). Last exit code {rc}."
+    )
 
 
 def clip_bbox(ds: Any, bbox: list[int] | None):
