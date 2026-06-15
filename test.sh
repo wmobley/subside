@@ -35,6 +35,11 @@ TOL="${TOL:-1e-5}"
 STACK="${1:-${STACK:-}}"
 NETCDF_DIR="${NETCDF_DIR:-}"
 
+# One input drives both the ls6 pytest tests and the velocity_check real-data
+# stage: the ls6 tests read WERC_TEST_NETCDF_DIR, so default it to NETCDF_DIR.
+# (They need a *directory* of NetCDFs; a bare --stack file won't trigger them.)
+export WERC_TEST_NETCDF_DIR="${WERC_TEST_NETCDF_DIR:-$NETCDF_DIR}"
+
 # Activate the conda env if it isn't already active and conda is on PATH.
 if [ "${CONDA_DEFAULT_ENV:-}" != "$CONDA_ENV" ] && command -v conda >/dev/null 2>&1; then
   # shellcheck disable=SC1091
@@ -67,7 +72,7 @@ run_pytest -m "not ls6 and not integration" -q
 #     vars (e.g. WERC_TEST_NETCDF_DIR); they self-skip if inputs aren't set.
 echo
 echo "### 2/5  whole-flow tests (pytest -m ls6) ###"
-$PY -m pytest -m ls6 -q
+run_pytest -m ls6 -q
 
 # 1) Fast fail: import the modules we changed (catches syntax/import breakage).
 echo
