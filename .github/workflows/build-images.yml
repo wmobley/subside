@@ -98,3 +98,37 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+  # Re-point the registered Tapis apps at THIS build's immutable :sha-<gitsha> tag,
+  # so the next pipeline run uses the exact code just pushed — no manual
+  # patch_app_image.py, no GHCR-pruning surprise, and the changing digest busts the
+  # exec host's Singularity SIF cache. Needs owner-scoped Tapis creds (patching an
+  # app requires MODIFY, which only the owner holds); the step no-ops with a warning
+  # if the secrets aren't configured.
+  register-apps:
+    name: Re-point Tapis apps at this image
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Re-point apps to sha-<gitsha>
+        env:
+          TAPIS_BASE_URL: https://portals.tapis.io
+          TAPIS_ID: ${{ secrets.TAPIS_ID }}
+          TAPIS_PASSWORD: ${{ secrets.TAPIS_PASSWORD }}
+        run: |
+          if [ -z "${TAPIS_ID}" ] || [ -z "${TAPIS_PASSWORD}" ]; then
+            echo "::warning::TAPIS_ID/TAPIS_PASSWORD secrets not set — skipping app re-point. "\
+                 "Run patch_app_image.py --image-tag sha-${GITHUB_SHA:0:7} manually (owner)."
+            exit 0
+          fi
+          pip install --quiet tapipy
+          python tapis/workflow_apps/patch_app_image.py --image-tag "sha-${GITHUB_SHA:0:7}"
