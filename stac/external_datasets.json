@@ -1,0 +1,140 @@
+{
+  "datasets": [
+    {
+      "name": "submitted-drillers-report-database",
+      "type": "dataset",
+      "owner_org": "twdb-subside",
+      "private": false,
+      "dataset_fields": {
+        "title": "Texas Water Well Reports (TDLR Submitted Driller's Reports)",
+        "notes": "The Submitted Driller's Reports Database contains water well reports submitted to the Texas Department of Licensing and Regulation (TDLR) from February 2001 to present (~680,000 statewide point records). Each record locates a reported well and carries attributes such as well type, proposed use, county, owner, completion date, and borehole depth.\n\nPublished by the Texas Water Development Board (TWDB) as a public ArcGIS FeatureServer and linked here as an external reference for the SUBSIDE catalog. It is also registered as the `well-reports` map overlay in the `subside-context` STAC collection (loaded viewport-by-viewport from the FeatureServer). Documentation: https://www.twdb.texas.gov/groundwater/data/drillersdb.asp",
+        "tag_string": "Groundwater,Water Wells,Driller Reports,TDLR,TWDB,Texas",
+        "url": "https://www.twdb.texas.gov/groundwater/data/drillersdb.asp",
+        "license_id": "notspecified",
+        "maintainer": "SUBSIDE (UT Austin / TACC)",
+        "maintainer_email": "spierce@tacc.utexas.edu",
+        "spatial": {"type": "Polygon", "coordinates": [[[-106.645556, 25.866112], [-93.530555, 25.866112], [-93.530555, 36.500278], [-106.645556, 36.500278], [-106.645556, 25.866112]]]},
+        "temporal_coverage_start": "2001-02-01",
+        "temporal_coverage_end": ""
+      },
+      "extras": {
+        "publishing_status": "Public",
+        "program_area": "Groundwater",
+        "categories": "Groundwater",
+        "primary_tags": "Groundwater,Water Wells",
+        "secondary_tags": "TDLR,TWDB,Driller Reports,Texas",
+        "collection_method": "Administrative Record",
+        "collection_method_description": "Water well reports submitted to TDLR by licensed drillers as a regulatory requirement.",
+        "quality_control_level": "Raw/Provisional/Un-reviewed",
+        "quality_assurance_description": "Records reflect driller-submitted reports as received by TDLR; locations are not field-verified.",
+        "update_type": "Automatic",
+        "update_frequency": "Daily",
+        "from_date": "2001-02-01",
+        "to_date": "",
+        "data_contact_email": "spierce@tacc.utexas.edu",
+        "caveats_usage": "Well locations are derived from submitted driller's reports and may be approximate; records reflect reports as submitted to TDLR and have not been field-verified. Coverage begins February 2001, so wells completed earlier are generally not represented.",
+        "coordinate_system": "EPSG:4326",
+        "attribution": "Texas Water Development Board (TWDB) / Texas Department of Licensing and Regulation (TDLR)",
+        "supporting_url": "https://www.twdb.texas.gov/groundwater/data/drillersdb.asp"
+      },
+      "resources": [
+        {
+          "name": "Well Reports (ArcGIS FeatureServer layer 0)",
+          "url": "https://services.twdb.texas.gov/arcgis/rest/services/Public/WellReports/FeatureServer/0",
+          "format": "Esri REST",
+          "fields": {
+            "description": "Point layer of submitted water well reports (TDLR Submitted Driller's Reports, Feb 2001-present; ~680,000 features, EPSG:4326). Query via the ArcGIS REST API (f=geojson / f=json / PBF); maxRecordCount is 2,000, so consumers should page or query by bounding-box envelope."
+          }
+        },
+        {
+          "name": "WellReports FeatureServer (service root)",
+          "url": "https://services.twdb.texas.gov/arcgis/rest/services/Public/WellReports/FeatureServer",
+          "format": "Esri REST",
+          "fields": {
+            "description": "Service root for the TWDB WellReports FeatureServer (service metadata, layer list, and capabilities)."
+          }
+        },
+        {
+          "name": "Submitted Driller's Reports Database (documentation)",
+          "url": "https://www.twdb.texas.gov/groundwater/data/drillersdb.asp",
+          "format": "HTML",
+          "fields": {
+            "description": "TWDB documentation page describing the Submitted Driller's Reports Database, its contents, and access options."
+          }
+        }
+      ]
+    },
+    {
+      "name": "ngs-datasheets-stable-gnss",
+      "type": "dataset",
+      "owner_org": "twdb-subside",
+      "private": false,
+      "dataset_fields": {
+        "title": "NGS Datasheets — Stable GNSS Control Marks",
+        "notes": "Geodetic control marks from the NOAA National Geodetic Survey (NGS) Integrated Database, published as datasheets. This reference filters the ~1,000,000 datasheets to the marks the SUBSIDE velocity workflow cares about: those that are GNSS/GPS-usable (SAT_USE = 'Y') and physically stable (STABILITY class A or B — marks expected to hold their position/elevation well), ~72,000 statewide/nationwide point records.\n\nWhy SUBSIDE references them: the velocity workflow fits a linear rate to OPERA DISP-S1 InSAR displacement, which is a *relative* measurement. Stable, satellite-suitable NGS marks (CORS, PACS/SACS, and high-stability monuments) provide absolute reference / validation control to tie or sanity-check those relative velocities. Each mark carries its PID, name, stability and satellite-use codes, datum/epoch, ellipsoidal and orthometric heights, and a link back to its full NGS datasheet.\n\nPublished by NOAA/NGS as a public ArcGIS FeatureServer and linked here as an external reference for the SUBSIDE catalog. It is also registered as the `ngs-gnss-stable` map overlay in the `subside-context` STAC collection (loaded viewport-by-viewport, server-side filtered to SAT_USE='Y' AND STABILITY IN ('A','B')). NGS datasheet field reference: https://geodesy.noaa.gov/DATASHEET/dsdata.pdf",
+        "tag_string": "GNSS,GPS,Geodetic Control,NGS,NOAA,Datasheets,CORS,Velocity,Reference Marks,InSAR",
+        "url": "https://geodesy.noaa.gov/datasheets/",
+        "license_id": "notspecified",
+        "maintainer": "SUBSIDE (UT Austin / TACC)",
+        "maintainer_email": "spierce@tacc.utexas.edu",
+        "spatial": {"type": "Polygon", "coordinates": [[[-125.0, 24.0], [-66.5, 24.0], [-66.5, 49.5], [-125.0, 49.5], [-125.0, 24.0]]]},
+        "temporal_coverage_start": "",
+        "temporal_coverage_end": ""
+      },
+      "extras": {
+        "publishing_status": "Public",
+        "program_area": "Geodesy",
+        "categories": "Geodetic Control",
+        "primary_tags": "GNSS,Geodetic Control",
+        "secondary_tags": "NGS,NOAA,CORS,Datasheets,Reference Marks",
+        "collection_method": "Survey / Geodetic Observation",
+        "collection_method_description": "Geodetic control marks observed and adjusted by NOAA/NGS and cooperating agencies; positions and heights are published as NGS datasheets in the NGS Integrated Database.",
+        "quality_control_level": "Reviewed/Published",
+        "quality_assurance_description": "Positions are published by NGS with accuracy and order/class codes; this reference is further filtered to stable (STABILITY A/B), satellite-usable (SAT_USE='Y') marks suitable as velocity reference control.",
+        "update_type": "Periodic",
+        "update_frequency": "As published by NGS",
+        "from_date": "",
+        "to_date": "",
+        "data_contact_email": "spierce@tacc.utexas.edu",
+        "caveats_usage": "Filtered to GNSS-usable, stability-class A/B marks; stability classes are NGS monument-stability judgments, not subsidence measurements, and last-recovery condition varies by mark. The relative quality codes describe each mark's published accuracy at its epoch and should be reviewed before using a mark as absolute control.",
+        "coordinate_system": "EPSG:4326",
+        "attribution": "NOAA National Geodetic Survey (NGS)",
+        "supporting_url": "https://geodesy.noaa.gov/DATASHEET/dsdata.pdf"
+      },
+      "resources": [
+        {
+          "name": "NGS Datasheets (ArcGIS FeatureServer layer 1)",
+          "url": "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/NGS_Datasheets_Feature_Service_View/FeatureServer/1",
+          "format": "Esri REST",
+          "fields": {
+            "description": "Point layer of NGS datasheet control marks (ALL_DATASHEETS; geometry EPSG-geographic NAD83(2011), query with outSR=4326). ~1M total marks; SUBSIDE consumes the SAT_USE='Y' AND STABILITY IN ('A','B') subset (~72k). maxRecordCount is 2,000, so consumers should page or query by bounding-box envelope (f=geojson supported)."
+          }
+        },
+        {
+          "name": "NGS Datasheets FeatureServer (service root)",
+          "url": "https://services2.arcgis.com/C8EMgrsFcRFL6LrL/arcgis/rest/services/NGS_Datasheets_Feature_Service_View/FeatureServer",
+          "format": "Esri REST",
+          "fields": {
+            "description": "Service root for the NGS Datasheets FeatureServer (service metadata, layer list, and capabilities)."
+          }
+        },
+        {
+          "name": "NGS Datasheet field reference (dsdata.pdf)",
+          "url": "https://geodesy.noaa.gov/DATASHEET/dsdata.pdf",
+          "format": "PDF",
+          "fields": {
+            "description": "NOAA/NGS documentation describing the datasheet format and every field (PID, STABILITY, SAT_USE, datum/epoch, accuracy codes, etc.)."
+          }
+        },
+        {
+          "name": "NGS Datasheets (documentation / retrieval)",
+          "url": "https://geodesy.noaa.gov/datasheets/",
+          "format": "HTML",
+          "fields": {
+            "description": "NGS datasheet portal: documentation and tools to retrieve datasheets by PID, location, or survey."
+          }
+        }
+      ]
+    }
+  ]
+}

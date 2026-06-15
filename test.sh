@@ -49,9 +49,20 @@ echo "   env    : ${CONDA_DEFAULT_ENV:-<none>}"
 echo "   cwd    : $PWD"
 echo "================================================================"
 
+# 0) Fast unit suite (the same set GitHub Actions runs) — quick sanity first.
+echo
+echo "### 1/5  fast unit tests (pytest -m 'not ls6 and not integration') ###"
+$PY -m pytest -m "not ls6 and not integration" -q
+
+# 0b) Whole-flow tests that need real data/compute — ls6 only. Driven by env
+#     vars (e.g. WERC_TEST_NETCDF_DIR); they self-skip if inputs aren't set.
+echo
+echo "### 2/5  whole-flow tests (pytest -m ls6) ###"
+$PY -m pytest -m ls6 -q
+
 # 1) Fast fail: import the modules we changed (catches syntax/import breakage).
 echo
-echo "### 1/3  import check ###"
+echo "### 3/5  import check ###"
 $PY - <<'PYCODE'
 import importlib
 mods = [
@@ -66,12 +77,12 @@ PYCODE
 
 # 2) Velocity solver equivalence — synthetic, no data/network needed.
 echo
-echo "### 2/3  velocity solver: synthetic equivalence (closed-form vs notebook lstsq) ###"
+echo "### 4/5  velocity solver: synthetic equivalence (closed-form vs notebook lstsq) ###"
 $PY -m analysis.werc.velocity_check --synthetic --fractions "$FRACTIONS" --tol "$TOL"
 
 # 3) Velocity solver on REAL data + per-method peak memory, if a stack/dir is given.
 echo
-echo "### 3/3  velocity solver: real data + memory ###"
+echo "### 5/5  velocity solver: real data + memory ###"
 if [ -n "$STACK" ]; then
   $PY -m analysis.werc.velocity_check --stack "$STACK" --memory \
       --fractions "$FRACTIONS" --tol "$TOL" --report-out velreport.json

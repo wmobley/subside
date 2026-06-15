@@ -122,42 +122,63 @@ class RunEstimateResponse(BaseModel):
 
 
 class RunSubmitResponse(BaseModel):
-    runId: str
-    pipeline: str
-    pipelineId: Optional[str] = None
-    groupId: Optional[str] = None
-    status: str
-    tapisStatus: str
-    name: str
+    runId: str = Field(..., description="Tapis Workflows pipeline-run UUID. Use it to poll status/results.",
+                       examples=["1fa1fa5b-0e10-4904-ba37-c6cbef8b203a"])
+    pipeline: str = Field(..., description="Pipeline key that was submitted.", examples=["werc"])
+    pipelineId: Optional[str] = Field(None, description="Tapis Workflows pipeline id the run belongs to.",
+                                      examples=["subside-werc-opera"])
+    groupId: Optional[str] = Field(None, description="Tapis Workflows group id.", examples=["subside-ops"])
+    status: str = Field(..., description="Normalized run status.",
+                        examples=["queued"])
+    tapisStatus: str = Field(..., description="Raw Tapis Workflows status string (pre-normalization).",
+                             examples=["PENDING"])
+    name: str = Field(..., description="Run name (pipeline + date window).",
+                      examples=["subside-werc-opera-2024-06-01-2024-09-01"])
 
 
 class RunTaskStatus(BaseModel):
-    taskId: Optional[str] = None
-    status: str
-    tapisStatus: str
-    lastMessage: Optional[str] = None
+    taskId: Optional[str] = Field(None, description="Task id within the pipeline run.",
+                                  examples=["run"])
+    status: str = Field(..., description="Normalized task status (queued|running|completed|failed|cancelled).",
+                        examples=["completed"])
+    tapisStatus: str = Field(..., description="Raw Tapis task status.", examples=["COMPLETED"])
+    lastMessage: Optional[str] = Field(None, description="Most recent task message (errors surface here).",
+                                       examples=["Task completed successfully."])
 
 
 class RunStatusResponse(BaseModel):
-    runId: str
-    pipeline: Optional[str] = None
-    pipelineId: Optional[str] = None
-    status: str          # normalized: queued|running|completed|failed|cancelled|unknown
-    tapisStatus: str
-    lastMessage: Optional[str] = None
-    archive: Optional[str] = None
-    tasks: list[RunTaskStatus] = []
+    runId: str = Field(..., description="Tapis Workflows pipeline-run UUID.",
+                       examples=["1fa1fa5b-0e10-4904-ba37-c6cbef8b203a"])
+    pipeline: Optional[str] = Field(None, description="Pipeline key (h2i | werc).", examples=["werc"])
+    pipelineId: Optional[str] = Field(None, description="Tapis Workflows pipeline id.",
+                                      examples=["subside-werc-opera"])
+    status: str = Field(..., description="Normalized run status: queued | running | completed | failed | "
+                                         "cancelled | unknown.", examples=["running"])
+    tapisStatus: str = Field(..., description="Raw Tapis Workflows status string.", examples=["ACTIVE"])
+    lastMessage: Optional[str] = Field(None, description="Most recent run/task message; the failure reason "
+                                                         "appears here on a failed run.",
+                                       examples=["Task subside-werc-opera.run is ACTIVE"])
+    archive: Optional[str] = Field(None, description="tapis:// URI of the run's output archive (set once "
+                                                     "outputs exist).",
+                                   examples=["tapis://ls6/.../subside-werc-opera-...-<uuid>"])
+    tasks: list[RunTaskStatus] = Field(default_factory=list,
+                                       description="Per-task status, in pipeline order.")
 
 
 class RunListItem(BaseModel):
-    runId: str
-    name: Optional[str] = None
-    pipeline: Optional[str] = None
-    pipelineId: Optional[str] = None
-    appId: Optional[str] = None
-    status: str            # normalized
-    tapisStatus: str
-    created: Optional[str] = None
+    runId: str = Field(..., description="Tapis Workflows pipeline-run UUID.",
+                       examples=["1fa1fa5b-0e10-4904-ba37-c6cbef8b203a"])
+    name: Optional[str] = Field(None, description="Run name.",
+                                examples=["subside-werc-opera-2024-06-01-2024-09-01"])
+    pipeline: Optional[str] = Field(None, description="Pipeline key (h2i | werc).", examples=["werc"])
+    pipelineId: Optional[str] = Field(None, description="Tapis Workflows pipeline id.",
+                                      examples=["subside-werc-opera"])
+    appId: Optional[str] = Field(None, description="Tapis app the run executed.",
+                                 examples=["subside-werc-opera-analysis"])
+    status: str = Field(..., description="Normalized run status.", examples=["completed"])
+    tapisStatus: str = Field(..., description="Raw Tapis status.", examples=["COMPLETED"])
+    created: Optional[str] = Field(None, description="ISO-8601 creation timestamp.",
+                                   examples=["2026-06-14T19:32:00Z"])
 
 
 class RunListResponse(BaseModel):

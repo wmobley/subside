@@ -18,3 +18,18 @@ line-length = 100
 # Walkthroughs are notebook-style scripts: imports are interleaved with narrated
 # setup steps, so module-level-import-not-at-top is expected, not a defect.
 "**/walkthrough.py" = ["E402"]
+
+[tool.pytest.ini_options]
+# Two tiers of tests, kept apart on purpose:
+#   * default (unmarked) — small, fast, hermetic unit tests on synthetic data.
+#     No network, no Earthdata, no real OPERA products. THIS is the GitHub
+#     Actions gate:  pytest -m "not ls6 and not integration"
+#   * @pytest.mark.ls6 — whole-flow tests that download real products and run the
+#     full pipeline. Heavy; run on an ls6 idev node via ./test.sh, NEVER in CI.
+#   * @pytest.mark.integration — needs a live service (running API/STAC/Tapis).
+testpaths = ["analysis/tests"]
+addopts = "--strict-markers"
+markers = [
+    "ls6: whole-flow test needing real data/network/compute — run on ls6, not CI",
+    "integration: needs a live external service (API/STAC/Tapis) — not in the fast CI gate",
+]

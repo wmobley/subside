@@ -30,7 +30,36 @@ from .models import (
 
 MVT_MEDIA_TYPE = "application/vnd.mapbox-vector-tile"
 
-app = FastAPI(title="SUBSIDE API", version="0.1.0")
+# Tag groups organize the /docs (Swagger) and /redoc pages into sections.
+OPENAPI_TAGS = [
+    {"name": "Health", "description": "Liveness check."},
+    {"name": "Auth", "description": "TACC/Tapis login + OAuth2 token exchange. Most other "
+                                    "endpoints need the returned token in the `X-Tapis-Token` header."},
+    {"name": "Discovery", "description": "OPERA DISP-S1 frame/product discovery and availability for an AOI."},
+    {"name": "Runs", "description": "Submit and track Tapis Workflows pipeline runs (h2i / werc) as the "
+                                    "calling user, and fetch their published results."},
+    {"name": "Layers", "description": "SUBSIDE PostGIS context layers: registry, on-demand load, GeoJSON, "
+                                      "and MVT vector tiles."},
+    {"name": "Forecast", "description": "Aquifer-screening subsidence forecast model."},
+]
+
+app = FastAPI(
+    title="SUBSIDE API",
+    version="0.1.0",
+    summary="Gateway between the SUBSIDE UI and TACC (Tapis Workflows + PostGIS), run as the calling user.",
+    description=(
+        "The SUBSIDE API stages inputs, submits OPERA DISP-S1 pipeline runs to **Tapis Workflows** "
+        "as the authenticated user, tracks them, and serves PostGIS context layers.\n\n"
+        "**Auth:** call `POST /api/subside/login` (or the `/auth/*` OAuth2 flow), then send the token "
+        "as the `X-Tapis-Token` header on protected endpoints.\n\n"
+        "**Errors:** `401` = missing/invalid token; `422` = request body failed validation (the response "
+        "lists each offending field, its location, and why); `502`/`503` = an upstream Tapis/discovery "
+        "dependency failed.\n\n"
+        "Per-run **results** (COGs, overlays, velocity) are published to CKAN + a STAC API by the pipeline "
+        "itself — see the companion [stac-platform](https://github.com/wmobley/stac-platform) service."
+    ),
+    openapi_tags=OPENAPI_TAGS,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -50,12 +79,12 @@ def require_client(x_tapis_token: str = Header(None, alias="X-Tapis-Token")):
         raise HTTPException(status_code=401, detail=f"Invalid Tapis token: {exc}") from exc
 
 
-@app.get("/api/subside/healthz")
+@app.get("/api/subside/healthz", tags=["Health"])
 def healthz():
     return {"ok": True}
 
 
-@app.post("/api/subside/login", response_model=LoginResponse)
+@app.post("/api/subside/login", response_model=LoginResponse, tags=["Auth"])
 def login(body: LoginRequest):
     """Password-grant login. Retained for scripts/dev; the web app uses the
     OAuth2 redirect flow (/auth/config + /auth/token) instead."""
@@ -67,7 +96,7 @@ def login(body: LoginRequest):
 
 
 # --- OAuth2 authorization-code login (Log in with TACC) --------------------
-@app.get("/api/subside/auth/config", response_model=AuthConfigResponse)
+@app.get("/api/subside/auth/config", response_model=AuthConfigResponse, tags=["Auth"])
 def auth_config():
     """Non-secret bits the browser needs to start the redirect login."""
     cfg = tapis.oauth_public_config()
@@ -79,7 +108,7 @@ def auth_config():
     return AuthConfigResponse(**cfg)
 
 
-@app.post("/api/subside/auth/token", response_model=AuthTokenResponse)
+@app.post("/api/subside/auth/token", response_model=AuthTokenResponse, tags=["Auth"])
 def auth_token(body: AuthCodeRequest, background_tasks: BackgroundTasks):
     """Exchange the OAuth2 authorization code for a Tapis token (client_key
     stays server-side). CSRF `state` is validated client-side before this call."""
@@ -97,7 +126,7 @@ def auth_token(body: AuthCodeRequest, background_tasks: BackgroundTasks):
 
 
 # --- discovery (fast, in-process; no Tapis job) ----------------------------
-@app.post("/api/subside/aoi/frames", response_model=FramesResponse)
+@app.post("/api/subside/aoi/frames", response_model=FramesResponse, tags=["Discovery"])
 def aoi_frames(body: FramesRequest):
     try:
         result = discovery.find_frames(body.aoi_geojson, body.min_overlap_percent)
@@ -108,7 +137,7 @@ def aoi_frames(body: FramesRequest):
     return FramesResponse(**result)
 
 
-@app.post("/api/subside/products/search", response_model=ProductsSearchResponse)
+@app.post("/api/subside/products/search", response_model=ProductsSearchResponse, tags=["Discovery"])
 def products_search(body: ProductsSearchRequest):
     try:
         result = discovery.search_products(body.frame_ids, body.start_date, body.end_date)
@@ -120,7 +149,7 @@ def products_search(body: ProductsSearchRequest):
 
 
 # --- forecast (potential subsidence screening, fast in-process; no Tapis job)
-@app.post("/api/subside/forecast", response_model=ForecastResponse)
+@app.post("/api/subside/forecast", response_model=ForecastResponse, tags=["Forecast"])
 def forecast_run(body: ForecastRequest):
     """Run the potential-subsidence screening model and return a 0-10 risk score
     plus an annual projection. Pure computation — no Tapis job, no auth."""
@@ -135,7 +164,7 @@ def forecast_run(body: ForecastRequest):
     return ForecastResponse(**result)
 
 
-@app.get("/api/subside/forecast/template")
+@app.get("/api/subside/forecast/template", tags=["Forecast"])
 def forecast_template():
     """A starter scenario (visible Excel-style labels) the UI can prefill/edit."""
     try:
@@ -145,7 +174,7 @@ def forecast_template():
 
 
 # --- availability (viewport-lazy DISP-S1 cache, no Tapis job) --------------
-@app.get("/api/subside/availability", response_model=AvailabilityResponse)
+@app.get("/api/subside/availability", response_model=AvailabilityResponse, tags=["Discovery"])
 def frame_availability(
     background: BackgroundTasks,
     bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat (EPSG:4326)."),
@@ -185,7 +214,7 @@ def frame_availability(
 
 
 # --- runs (Tapis Workflows pipelines, as the user) --------------------------
-@app.post("/api/subside/runs/estimate", response_model=RunEstimateResponse)
+@app.post("/api/subside/runs/estimate", response_model=RunEstimateResponse, tags=["Runs"])
 def estimate_run(body: RunRequest):
     """Estimate download/run time and the walltime the job will request, from
     the OPERA product count for this AOI + date window. Fast, no Tapis job."""
@@ -202,7 +231,7 @@ def estimate_run(body: RunRequest):
     return RunEstimateResponse(**result)
 
 
-@app.post("/api/subside/runs", response_model=RunSubmitResponse)
+@app.post("/api/subside/runs", response_model=RunSubmitResponse, tags=["Runs"])
 def submit_run(body: RunRequest, client=Depends(require_client)):
     try:
         info = manager.submit_run(client, body)
@@ -217,7 +246,7 @@ def submit_run(body: RunRequest, client=Depends(require_client)):
     )
 
 
-@app.get("/api/subside/runs", response_model=RunListResponse)
+@app.get("/api/subside/runs", response_model=RunListResponse, tags=["Runs"])
 def list_runs(client=Depends(require_client),
               all: bool = Query(False, description="Diagnostics placeholder; the API lists configured SUBSIDE pipelines.")):
     """The caller's Tapis Workflows history for configured SUBSIDE pipelines."""
@@ -228,7 +257,7 @@ def list_runs(client=Depends(require_client),
     return RunListResponse(runs=[RunListItem(**r) for r in runs])
 
 
-@app.get("/api/subside/runs/{run_id}", response_model=RunStatusResponse)
+@app.get("/api/subside/runs/{run_id}", response_model=RunStatusResponse, tags=["Runs"])
 def run_status(run_id: str, client=Depends(require_client)):
     try:
         st = manager.get_status(client, run_id)
@@ -237,7 +266,7 @@ def run_status(run_id: str, client=Depends(require_client)):
     return RunStatusResponse(runId=run_id, **st)
 
 
-@app.get("/api/subside/runs/{run_id}/results", response_model=RunResultsResponse)
+@app.get("/api/subside/runs/{run_id}/results", response_model=RunResultsResponse, tags=["Runs"])
 def run_results(run_id: str, client=Depends(require_client)):
     try:
         res = manager.get_results(client, run_id)
@@ -246,7 +275,7 @@ def run_results(run_id: str, client=Depends(require_client)):
     return RunResultsResponse(runId=run_id, **res)
 
 
-@app.get("/api/subside/runs/{run_id}/file")
+@app.get("/api/subside/runs/{run_id}/file", tags=["Runs"])
 def run_file(run_id: str, path: str = Query(..., description="Archive-relative file path from results artifacts."),
              client=Depends(require_client)):
     """Proxy one pipeline-run archive file (image/COG/zip/manifest)."""
@@ -263,7 +292,7 @@ def run_file(run_id: str, path: str = Query(..., description="Archive-relative f
 
 
 # --- vector layers (PostGIS GeoJSON ingest + MVT tiles) --------------------
-@app.get("/api/subside/layers", response_model=LayersResponse)
+@app.get("/api/subside/layers", response_model=LayersResponse, tags=["Layers"])
 def list_layers():
     try:
         rows = layers.list_layers()
@@ -272,7 +301,7 @@ def list_layers():
     return LayersResponse(layers=[LayerInfo(**r) for r in rows])
 
 
-@app.post("/api/subside/layers/{layer}", response_model=LayerLoadResponse)
+@app.post("/api/subside/layers/{layer}", response_model=LayerLoadResponse, tags=["Layers"])
 def load_layer(layer: str, body: LayerLoadRequest):
     try:
         info = layers.create_or_load(layer, body.geojson, body.mode)
@@ -296,7 +325,7 @@ def delete_layer(layer: str):
     return {"deleted": layer}
 
 
-@app.get("/api/subside/layers/{layer}.geojson")
+@app.get("/api/subside/layers/{layer}.geojson", tags=["Layers"])
 def layer_geojson(layer: str, bbox: str = Query(None, description="minLon,minLat,maxLon,maxLat"),
                   limit: int = Query(5000, ge=1, le=100000)):
     box = None
@@ -315,7 +344,7 @@ def layer_geojson(layer: str, bbox: str = Query(None, description="minLon,minLat
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@app.get("/api/subside/tiles/{layer}/{z}/{x}/{y}.mvt")
+@app.get("/api/subside/tiles/{layer}/{z}/{x}/{y}.mvt", tags=["Layers"])
 def layer_tile(layer: str, z: int, x: int, y: int):
     try:
         tile = layers.mvt_tile(layer, z, x, y)

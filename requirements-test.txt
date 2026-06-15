@@ -1,0 +1,13 @@
+# Test dependencies for the FAST (GitHub Actions) unit suite — analysis/tests/.
+# These are the minimum the hermetic unit tests need; the heavy/whole-flow
+# (@pytest.mark.ls6) tests run in the full subside-werc-opera conda env on ls6,
+# not from this file.
+#   pip install -r requirements-test.txt && pytest -m "not ls6 and not integration"
+pytest>=8,<9
+numpy
+pandas
+xarray
+pyproj
+scipy
+rioxarray
+rasterio

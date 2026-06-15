@@ -29,7 +29,20 @@ subside/
 
 `ui/content/` holds the editable Markdown site copy (About page); `examples/`
 holds the notebooks the OPERA pipelines were extracted from plus the original
-static wireframe.
+static wireframe; `stac/` holds this project's [STAC/CKAN registration specs](stac/README.md).
+
+## Documentation map
+
+| Topic | Where |
+|-------|-------|
+| System overview, the three engines, data flow | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| HTTP API — interactive reference | the running API's `/api/v1/docs` (Swagger) and `/redoc`; raw spec at `/openapi.json` (export with [`api/scripts/export_openapi.py`](api/scripts/export_openapi.py)) |
+| API service notes | [api/README.md](api/README.md) |
+| Analysis pipelines (discover/download, velocity) | [analysis/h2i_lab/README.md](analysis/h2i_lab/README.md), [analysis/werc/README.md](analysis/werc/README.md), [analysis/REUSABLE_PRIMITIVES.md](analysis/REUSABLE_PRIMITIVES.md) |
+| Tapis Workflows + batch apps | [tapis/workflows/README.md](tapis/workflows/README.md), [tapis/workflows/DESIGN.md](tapis/workflows/DESIGN.md) |
+| Tests (fast unit vs ls6 whole-flow) | [`make test`](Makefile) / [`./test.sh`](test.sh); suite in [analysis/tests/](analysis/tests/) |
+| STAC/CKAN registration specs (this project's) | [stac/README.md](stac/README.md) |
+| **The catalog platform** (STAC API beside CKAN; publish + reconcile) | external repo: **[stac-platform](https://github.com/wmobley/stac-platform)** — see its `ARCHITECTURE.md`. SUBSIDE *uses* it; the SUBSIDE-specific specs live here in [stac/](stac/). |
 
 **Read [ARCHITECTURE.md](ARCHITECTURE.md) for the full picture.** The short version:
 the portal answers "how much is the ground at my location sinking?" three ways —
