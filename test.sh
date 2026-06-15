@@ -28,7 +28,7 @@ set -euo pipefail
 # This script lives in subside/; run from here so `analysis` is importable.
 cd "$(dirname "$0")"
 
-CONDA_ENV="${CONDA_ENV:-subside-werc-opera}"
+CONDA_ENV="${CONDA_ENV:-werc}"
 PY="${PYTHON:-python}"
 FRACTIONS="${FRACTIONS:-1,0.5,0.25}"
 TOL="${TOL:-1e-5}"
@@ -42,6 +42,15 @@ if [ "${CONDA_DEFAULT_ENV:-}" != "$CONDA_ENV" ] && command -v conda >/dev/null 2
   conda activate "$CONDA_ENV"
 fi
 
+# Run pytest tolerating exit code 5 ("no tests collected" for a marker selection)
+# but failing on real test failures — so an empty selection never aborts the run.
+run_pytest() {
+  local rc=0
+  $PY -m pytest "$@" || rc=$?
+  if [ "$rc" -eq 5 ]; then echo "  (no tests collected for this selection — ok)"; return 0; fi
+  return "$rc"
+}
+
 echo "================================================================"
 echo " SUBSIDE WERC tests"
 echo "   python : $($PY -V 2>&1)   ($(command -v "$PY"))"
@@ -52,7 +61,7 @@ echo "================================================================"
 # 0) Fast unit suite (the same set GitHub Actions runs) — quick sanity first.
 echo
 echo "### 1/5  fast unit tests (pytest -m 'not ls6 and not integration') ###"
-$PY -m pytest -m "not ls6 and not integration" -q
+run_pytest -m "not ls6 and not integration" -q
 
 # 0b) Whole-flow tests that need real data/compute — ls6 only. Driven by env
 #     vars (e.g. WERC_TEST_NETCDF_DIR); they self-skip if inputs aren't set.
