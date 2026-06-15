@@ -26,7 +26,7 @@ params:
   end_date:            {type: string, required: true}
   aoi_geojson_uri:     {type: string, required: true, description: "tapis:// URI to the AOI GeoJSON"}
   earthdata_netrc_uri: {type: string, default: "", required: false, description: "Optional tapis:// URI to a protected .netrc"}
-  num_workers:         {type: integer, default: 8}
+  num_workers:         {type: integer, default: 4}
   min_overlap_percent: {type: number, default: 50.0}
   max_minutes:         {type: integer, default: 720, description: "Job walltime cap (minutes). Flat 12h; the job frees its node on completion."}
   allocation:          {type: string, required: true, description: "TACC allocation to charge"}

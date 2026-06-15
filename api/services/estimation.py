@@ -25,7 +25,7 @@ def estimate(
     end_date: str,
     *,
     pipeline: str = "h2i",
-    num_workers: int = 8,
+    num_workers: int = 4,
     min_overlap_percent: float = 50.0,
     reference_mode: str = "auto",
 ) -> dict[str, Any]:

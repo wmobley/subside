@@ -88,7 +88,7 @@ class RunRequest(BaseModel):
     end_date: str
     aoi_geojson: dict[str, Any]
     allocation: Optional[str] = None   # falls back to SUBSIDE_DEFAULT_ALLOCATION (.env)
-    num_workers: int = 8
+    num_workers: int = 4
     min_overlap_percent: float = 50.0
     # Optional job walltime (minutes). Omitted -> API estimates it from the
     # product count (capped at 24 h); provided -> clamped server-side.

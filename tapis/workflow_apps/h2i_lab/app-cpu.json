@@ -109,8 +109,8 @@
         },
         {
           "key": "NUM_WORKERS",
-          "value": "8",
-          "description": "Number of parallel download workers (I/O-bound; the job holds 16 cores).",
+          "value": "4",
+          "description": "Number of parallel download workers. Default 4: each opens a TLS session to the DAAC, and 8 raised the rate of transient SSL aborts.",
           "inputMode": "INCLUDE_BY_DEFAULT",
           "notes": {
             "label": "Download workers"

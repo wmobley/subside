@@ -22,7 +22,7 @@ class H2IRunConfig:
     end_date: str
     output_dir: str = "outputs"
     results_dir: str = "OPERA_L3_DISP-S1"
-    num_workers: int = 8
+    num_workers: int = 4
     aoi_geojson_path: str | None = None
     aoi_shapefile_path: str | None = None
     bbox: list[float] | None = None
@@ -46,8 +46,11 @@ class H2IRunConfig:
     #   remote_subset (default off): HTTP range-read only the AOI chunks. Sound
     #     in theory but measured ~17x SLOWER on ls6 (latency-bound: every block
     #     re-pays the cumulus->URS->S3 redirect). Kept for research, off in prod.
-    # num_workers=8 was the throughput sweet spot (~97 MB/s); 16 was slower and
-    # used 2x the RAM, and the stage is I/O-bound so cores sit idle regardless.
+    # num_workers default is 4: production downloads via `opera-utils disp-s1-download`,
+    # whose parallel workers each open a TLS session to the DAAC — 8 raised the rate
+    # of transient `ssl.SSLError` aborts, so 4 trades a little throughput for fewer
+    # failed downloads. (The bespoke benchmark path measured 8 as the throughput
+    # sweet spot at ~97 MB/s; that path is no longer used in production.)
     bbox_mode: str = "prime"
     remote_subset: bool = False
     # Cap the number of products downloaded (None = all). Handy for quick,
@@ -71,7 +74,7 @@ class H2IRunConfig:
             end_date=str(payload["end_date"]),
             output_dir=str(payload.get("output_dir") or "outputs"),
             results_dir=str(payload.get("results_dir") or "OPERA_L3_DISP-S1"),
-            num_workers=int(payload.get("num_workers") or 8),
+            num_workers=int(payload.get("num_workers") or 4),
             aoi_geojson_path=payload.get("aoi_geojson_path"),
             aoi_shapefile_path=payload.get("aoi_shapefile_path"),
             bbox=bbox,

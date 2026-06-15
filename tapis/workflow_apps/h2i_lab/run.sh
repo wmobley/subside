@@ -72,7 +72,7 @@ config = {
     "end_date": os.environ.get("END_DATE", ""),
     "aoi_geojson_path": os.environ.get("AOI_GEOJSON_PATH") or None,
     "frame_ids": as_int_list(os.environ.get("FRAME_IDS", "")),
-    "num_workers": int(os.environ.get("NUM_WORKERS") or 8),
+    "num_workers": int(os.environ.get("NUM_WORKERS") or 4),
     "min_overlap_percent": float(os.environ.get("MIN_OVERLAP_PERCENT") or 50),
     "results_dir": os.environ.get("RESULTS_DIR") or "OPERA_L3_DISP-S1",
     "require_products": as_bool(os.environ.get("REQUIRE_PRODUCTS"), True),

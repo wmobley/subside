@@ -68,7 +68,7 @@ def estimate_run(
     product_count: int,
     *,
     pipeline: str = "h2i",
-    num_workers: int = 8,
+    num_workers: int = 4,
     reference_mode: str = "auto",
 ) -> dict[str, Any]:
     """Estimate run time and return the (flat 12 h) walltime to request.
