@@ -154,7 +154,7 @@
         {
           "key": "REFERENCE_MODE",
           "value": "auto",
-          "description": "How to pick the displacement reference: 'auto' (anchor-based), 'manual' (use reference lat/lon), or 'none'.",
+          "description": "How to pick the displacement reference: 'auto' (anchor-based), or a supplied reference lat/lon via the nearest pixel — 'point' (GNSS-chosen) or 'manual' (hand-entered).",
           "inputMode": "INCLUDE_BY_DEFAULT",
           "notes": {
             "label": "Reference mode",
@@ -163,10 +163,10 @@
                 "auto": "auto"
               },
               {
-                "manual": "manual"
+                "point": "point"
               },
               {
-                "none": "none"
+                "manual": "manual"
               }
             ]
           }
@@ -174,7 +174,7 @@
         {
           "key": "REFERENCE_LAT",
           "value": "",
-          "description": "Reference latitude (decimal degrees). Required when reference mode is 'manual'.",
+          "description": "Reference latitude (decimal degrees). Required when reference mode is 'point' or 'manual'.",
           "inputMode": "INCLUDE_BY_DEFAULT",
           "notes": {
             "label": "Reference latitude"
@@ -183,7 +183,7 @@
         {
           "key": "REFERENCE_LON",
           "value": "",
-          "description": "Reference longitude (decimal degrees). Required when reference mode is 'manual'.",
+          "description": "Reference longitude (decimal degrees). Required when reference mode is 'point' or 'manual'.",
           "inputMode": "INCLUDE_BY_DEFAULT",
           "notes": {
             "label": "Reference longitude"

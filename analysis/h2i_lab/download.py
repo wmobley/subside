@@ -19,8 +19,72 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 import os
+import subprocess
 
 from analysis.etl.profiling import Profiler
+
+URS_HOST = "urs.earthdata.nasa.gov"
+
+
+def ensure_earthdata_netrc() -> Path:
+    """Guarantee a ``~/.netrc`` entry for Earthdata so ``opera-utils`` can auth.
+
+    The OPERA download stack reads credentials from ``~/.netrc`` (not env vars).
+    Leave an existing ``urs.earthdata.nasa.gov`` entry untouched; otherwise write
+    one from ``EARTHDATA_USERNAME``/``EARTHDATA_PASSWORD`` — mirroring the
+    notebook's credential cell.
+    """
+    from netrc import NetrcParseError, netrc as _netrc
+
+    netrc_path = Path(os.path.expanduser("~")) / ("_netrc" if os.name == "nt" else ".netrc")
+    try:
+        if netrc_path.exists() and _netrc(str(netrc_path)).authenticators(URS_HOST):
+            return netrc_path
+    except (NetrcParseError, OSError):
+        pass  # unreadable/parse error -> (re)write below
+
+    from analysis.etl.auth import earthdata_credentials
+
+    user, password = earthdata_credentials()
+    netrc_path.write_text(f"machine {URS_HOST} login {user} password {password}\n")
+    os.chmod(netrc_path, 0o600)
+    return netrc_path
+
+
+def download_via_opera_utils(
+    frame_id: int,
+    bbox: dict[str, float],
+    start_date: str,
+    end_date: str,
+    output_dir: str | Path,
+    *,
+    num_workers: int = 4,
+    executable: str = "opera-utils",
+) -> list[Path]:
+    """Download + AOI-subset DISP-S1 with ``opera-utils disp-s1-download``.
+
+    This is the exact path the OPERA notebook uses (cell 8): opera-utils discovers
+    the products for ``frame_id`` over the date window and crops each to the lon/lat
+    ``bbox`` itself, so we don't reimplement product search or subsetting. The
+    cropped NetCDFs land in ``output_dir`` ready for ``disp_xr`` / the WERC stack.
+    Returns the downloaded ``*.nc`` paths.
+    """
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    ensure_earthdata_netrc()
+    cmd = [
+        executable, "disp-s1-download",
+        "--output-dir", str(out),
+        "--bbox", str(bbox["lon_min"]), str(bbox["lat_min"]),
+        str(bbox["lon_max"]), str(bbox["lat_max"]),
+        "--frame-id", str(int(frame_id)),
+        "--start-datetime", str(start_date),
+        "--end-datetime", str(end_date),
+        "--num-workers", str(int(num_workers)),
+    ]
+    print("Running:", " ".join(cmd))
+    subprocess.run(cmd, check=True)
+    return sorted(out.glob("*.nc"))
 
 
 def clip_bbox(ds: Any, bbox: list[int] | None):

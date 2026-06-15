@@ -345,7 +345,7 @@ model:
             - >-
               Water-Energy Research Cluster (WERC) configuration: composes the
               H2I acquire stage, then assembles the displacement time-series
-              stack, selects a reference (auto/point/manual/none), subtracts the
+              stack, selects a reference (auto/point/manual), subtracts the
               reference offset, inverts to per-pixel linear velocity, and
               exports cumulative-displacement and velocity GeoTIFFs (EPSG:4326).
           hasComponentLocation:
@@ -373,10 +373,10 @@ model:
             - Memory/IO-bound; large AOIs or long stacks may exceed the
               128 GB / 240-minute job envelope.
           hasUsageNotes:
-            - Use reference_mode=auto for hands-off runs; point with a known
-              stable benchmark (e.g. a stable, GNSS-usable NGS mark) when one
-              overlaps the AOI — it anchors the robust zone-median correction at
-              that coordinate. manual subtracts only the single nearest pixel.
+            - Use reference_mode=auto for hands-off runs; point or manual with a
+              known stable benchmark (e.g. a GNSS-usable NGS mark) when one
+              overlaps the AOI — both subtract the single nearest pixel at the
+              supplied lat/lon (point = a GNSS-chosen location, manual = hand-entered).
             - For meaningful velocity, use a multi-year window with many
               acquisitions; treat short-window velocity as exploratory only.
 
@@ -498,10 +498,10 @@ model:
             - id: werc-param-reference-mode
               type: [Parameter]
               label: [Reference mode]
-              description: [Referencing strategy: auto (anchor-based), point (supplied lat/lon, e.g. a stable GNSS mark, robust zone-median), manual (supplied lat/lon, single nearest pixel), or none.]
+              description: [Referencing strategy: auto (anchor-based), or a supplied lat/lon via the single nearest pixel — point (a GNSS-chosen location) or manual (hand-entered).]
               hasDataType: [string]
               hasDefaultValue: [auto]
-              hasAcceptedValues: [auto, point, manual, none]
+              hasAcceptedValues: [auto, point, manual]
               position: [8]
             - id: werc-param-reference-lat
               type: [Parameter]

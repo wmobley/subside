@@ -391,8 +391,8 @@ export function SubsideAnalysis({
         min_overlap_percent: Number(form.min_overlap_percent),
       }
       // Velocity is relative — if the user picked a stable mark (e.g. a GNSS
-      // datasheet point), anchor the run on its coordinate ("point" mode, robust
-      // zone-median). Otherwise the workflow auto-picks a reference.
+      // datasheet point), de-reference at its coordinate ("point" mode = nearest
+      // pixel, like manual). Otherwise the workflow auto-picks a reference.
       if (form.pipeline === 'werc' && referencePoint) {
         body.reference_mode = 'point'
         body.reference_lat = referencePoint.lat

@@ -42,7 +42,10 @@ def write_cumulative_displacement_geotiff(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    da = stack.where(stack.recommended_mask == 1).isel(time=-1).displacement
+    # Mask by recommended_mask AND water_mask, matching the notebook's cumulative
+    # map (cells 19/22) and this module's velocity export — drop water pixels.
+    last = stack.isel(time=-1)
+    da = last.displacement.where((last.recommended_mask == 1) & (last.water_mask == 1))
     epsg = pyproj.CRS(stack.spatial_ref.attrs["crs_wkt"]).to_epsg()
     da.rio.write_crs(epsg, inplace=True)
     da.rio.set_spatial_dims(x_dim="x", y_dim="y", inplace=True)

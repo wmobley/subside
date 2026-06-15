@@ -89,8 +89,8 @@ def run_compute_reference(
 ) -> dict[str, Any]:
     """Stage 2: pick a reference and subtract its offset from every pixel/time."""
 
-    if mode not in ("auto", "manual", "point", "none"):
-        raise ValueError(f"mode must be 'auto', 'manual', 'point', or 'none' (got {mode!r}).")
+    if mode not in ("auto", "manual", "point"):
+        raise ValueError(f"mode must be 'auto', 'manual', or 'point' (got {mode!r}).")
     if mode in ("manual", "point") and (reference_lat is None or reference_lon is None):
         raise ValueError(f"{mode!r} reference requires reference_lat and reference_lon.")
     if mode == "auto" and anchor_dir is None:
@@ -99,25 +99,18 @@ def run_compute_reference(
     stack_prod = _load_stack(stack_path)
     frame_id = int(stack_prod.attrs.get("frame_id", 0))
 
-    ref: reference.ReferenceSelection | None
+    ref: reference.ReferenceSelection
     if mode == "auto":
         quality = reference.compute_quality_layers(stack_prod)
         ref = reference.apply_auto_reference(
             stack_prod, quality, frame_id, Path(anchor_dir),
             radius_m=anchor_radius_m, n_target=n_reference_pixels,
         )
-    elif mode == "point":
-        # De-reference at a supplied coordinate (e.g. a stable GNSS mark) using the
-        # same robust zone-median correction as auto — just with the anchor fixed.
-        quality = reference.compute_quality_layers(stack_prod)
-        ref = reference.apply_point_reference(
-            stack_prod, quality, reference_lat, reference_lon,
-            radius_m=anchor_radius_m, n_target=n_reference_pixels,
-        )
-    elif mode == "manual":
-        ref = reference.apply_manual_reference(stack_prod, reference_lat, reference_lon)
     else:
-        ref = None
+        # "manual" and "point" both de-reference at the supplied lat/lon via the
+        # single nearest pixel (matches the notebook's manual reference, cell 17).
+        # "point" is a user/GNSS-chosen location; "manual" a hand-entered one.
+        ref = reference.apply_manual_reference(stack_prod, reference_lat, reference_lon)
 
     _save_stack(stack_prod, output_stack_path)
 
@@ -250,7 +243,7 @@ def run(config: WercRunConfig) -> dict[str, Any]:
     frame_id = stack_mod.resolve_frame_id(disp_df)
     quality = reference.compute_quality_layers(stack_prod)
 
-    ref: reference.ReferenceSelection | None
+    ref: reference.ReferenceSelection
     if config.reference_mode == "auto":
         ref = reference.apply_auto_reference(
             stack_prod,
@@ -260,21 +253,12 @@ def run(config: WercRunConfig) -> dict[str, Any]:
             radius_m=config.anchor_radius_m,
             n_target=config.n_reference_pixels,
         )
-    elif config.reference_mode == "point":
-        ref = reference.apply_point_reference(
-            stack_prod,
-            quality,
-            config.reference_lat,
-            config.reference_lon,
-            radius_m=config.anchor_radius_m,
-            n_target=config.n_reference_pixels,
-        )
-    elif config.reference_mode == "manual":
+    else:
+        # "manual" and "point" both subtract the single nearest pixel at the
+        # supplied lat/lon (the notebook's manual reference, cell 17).
         ref = reference.apply_manual_reference(
             stack_prod, config.reference_lat, config.reference_lon
         )
-    else:
-        ref = None
 
     vel_da = velocity.estimate_velocity_linear(stack_prod)
 

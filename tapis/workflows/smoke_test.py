@@ -32,6 +32,13 @@ Usage::
     # Both pipelines:
     python workflows/smoke_test.py --pipeline both --allocation MyAllocation
 
+    # Velocity referenced on a stable GNSS mark (NGS "point" mode). The point is
+    # just a lat/lon — any stable, GNSS-usable mark inside the AOI works. DR8228
+    # (HCFCD_MON0023, stability A) sits inside the Houston-Galveston test box:
+    python workflows/smoke_test.py --pipeline werc \
+        --reference-mode point --reference-lat 29.6320121 --reference-lon -95.3687994 \
+        --allocation MyAllocation --with-netrc
+
 The test data (AOI geometry, date window, worker count, reference mode) mirrors
 ``workflow_apps/{h2i_lab,werc}/walkthrough.py`` so a green smoke test means the
 same inputs that work locally also work through Tapis Workflows.
@@ -631,6 +638,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--with-netrc", action="store_true",
                         help="Build a .netrc from $EARTHDATA_USERNAME/$EARTHDATA_PASSWORD, "
                              "upload it, and pass earthdata_netrc_uri.")
+    parser.add_argument("--reference-mode", choices=["auto", "point", "manual"], default=None,
+                        help="werc reference strategy (default: auto). 'point' and 'manual' both "
+                             "de-reference at a supplied lat/lon via the single nearest pixel "
+                             "(point = a GNSS-chosen location, manual = hand-entered).")
+    parser.add_argument("--reference-lat", type=float, default=None,
+                        help="Reference latitude (decimal degrees). Required for --reference-mode point/manual.")
+    parser.add_argument("--reference-lon", type=float, default=None,
+                        help="Reference longitude (decimal degrees). Required for --reference-mode point/manual.")
     parser.add_argument("--group", default=register.DEFAULT_GROUP, help="Tapis Workflows group id.")
     parser.add_argument("--poll-interval", type=int, default=30, help="Seconds between status polls.")
     parser.add_argument("--timeout", type=int, default=7200, help="Max seconds to poll one run.")
@@ -662,8 +677,27 @@ def main(argv: list[str] | None = None) -> int:
         or os.environ.get("SUBSIDE_DEFAULT_ALLOCATION")
     args.staging_system = os.environ.get("TAPIS_STAGING_SYSTEM", args.staging_system)
 
-    if not args.dry_run and not args.allocation:
+    # --probe / --describe-run inspect existing state and submit nothing, so they
+    # don't need an allocation; only a real run does.
+    if not args.dry_run and not (args.probe or args.describe_run) and not args.allocation:
         raise SystemExit("A live run needs --allocation (or $TACC_ALLOCATION / $SUBSIDE_DEFAULT_ALLOCATION).")
+
+    # Override the werc reference strategy from the CLI (default keeps TEST_DATA's
+    # "auto"). 'point'/'manual' need a coordinate; the value is just a lat/lon so
+    # the run stays independent of where the point came from (NGS, anything else).
+    if args.reference_mode:
+        if args.reference_mode in ("point", "manual") and (
+            args.reference_lat is None or args.reference_lon is None
+        ):
+            raise SystemExit(
+                f"--reference-mode {args.reference_mode} requires --reference-lat and --reference-lon."
+            )
+        TEST_DATA["reference_mode"] = args.reference_mode
+        TEST_DATA["reference_lat"] = "" if args.reference_lat is None else args.reference_lat
+        TEST_DATA["reference_lon"] = "" if args.reference_lon is None else args.reference_lon
+        if args.reference_mode != "auto" and args.pipeline == "h2i":
+            print(f"[note]    --reference-mode {args.reference_mode} only affects werc; "
+                  f"the h2i pipeline ignores it.")
 
     selected = ["h2i", "werc"] if args.pipeline == "both" else [args.pipeline]
 

@@ -10,10 +10,11 @@ from typing import Any
 from analysis.h2i_lab.config import H2IRunConfig
 
 
-# "point" = de-reference at a supplied coordinate (e.g. a stable GNSS mark) using
-# the robust zone-median correction; "manual" = subtract the single nearest pixel.
-# Both require reference_lat/reference_lon.
-REFERENCE_MODES = ("auto", "manual", "point", "none")
+# "auto" = auto-pick a stable anchor zone (median of best pixels); "manual" and
+# "point" both de-reference at a supplied lat/lon via the single nearest pixel
+# (point = a user/GNSS-chosen location, manual = a hand-entered one) and require
+# reference_lat/reference_lon.
+REFERENCE_MODES = ("auto", "manual", "point")
 
 
 @dataclass(frozen=True)

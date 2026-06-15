@@ -93,9 +93,10 @@ class RunRequest(BaseModel):
     # Optional job walltime (minutes). Omitted -> API estimates it from the
     # product count (capped at 24 h); provided -> clamped server-side.
     max_minutes: Optional[int] = None
-    # werc-only. "point" = de-reference at a supplied lat/lon (e.g. a stable GNSS
-    # mark) with the robust zone-median correction; "manual" = single nearest pixel.
-    reference_mode: Literal["auto", "point", "manual", "none"] = "auto"
+    # werc-only. "auto" = auto-pick a stable anchor zone; "manual"/"point" both
+    # de-reference at a supplied lat/lon via the single nearest pixel (point = a
+    # user/GNSS-chosen location).
+    reference_mode: Literal["auto", "point", "manual"] = "auto"
     reference_lat: Optional[float] = None
     reference_lon: Optional[float] = None
     anchor_radius_m: int = 5000

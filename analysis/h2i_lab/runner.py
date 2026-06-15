@@ -6,9 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from analysis.etl.auth import earthdata_credentials as _earthdata_credentials
 from analysis.etl.manifest import write_json as _write_json
-from analysis.etl.profiling import CpuSampler, Profiler
+from analysis.etl.profiling import Profiler
 
 from .aoi import (
     bbox_dict_from_list,
@@ -20,8 +19,7 @@ from .aoi import (
     search_products_for_frames,
 )
 from .config import H2IRunConfig
-from .download import download_disp_files, process_bytes
-from .metadata import estimate_subset_size, fetch_product_bytes, pixel_bbox_from_product_bytes
+from .download import download_via_opera_utils
 from .preview import (
     archive_results,
     latest_netcdf,
@@ -114,64 +112,34 @@ def run(config: H2IRunConfig) -> dict[str, Any]:
     prof = Profiler()
     with prof.stage("preflight"):
         manifest = preflight(config)
-    urls = manifest.get("product_urls") or []
-    if not urls:
-        raise RuntimeError("Cannot run H2I workflow without product URLs.")
 
-    username, password = _earthdata_credentials()
     bbox = manifest.get("bbox")
     if bbox is None:
         raise RuntimeError("Cannot run H2I workflow without an AOI bbox.")
-
-    # Prime the pixel bbox + size estimate from the first product. This sample
-    # download is unavoidable (the bbox needs the product's geotransform), but
-    # in "prime"/remote modes we reuse it as the first cropped output instead
-    # of fetching urls[0] a second time in the worker pool ("sample" mode is
-    # the legacy double-download behavior, kept for A/B comparison).
-    with prof.stage("prime_bbox"):
-        sample_bytes = fetch_product_bytes(urls[0], username, password)
-        prof.add("bytes_downloaded", sample_bytes.getbuffer().nbytes)
-        pixel_bbox = pixel_bbox_from_product_bytes(sample_bytes, bbox)
-        size_estimate = estimate_subset_size(sample_bytes, pixel_bbox, len(urls))
+    frame_ids = manifest.get("frame_ids") or []
+    if not frame_ids:
+        raise RuntimeError("Cannot run H2I workflow without a discovered/selected OPERA frame.")
 
     results_path = config.results_path()
-    reuse_sample = config.bbox_mode == "prime" or config.remote_subset
 
+    # Download + AOI-subset via the official `opera-utils disp-s1-download` CLI —
+    # the same tool the OPERA notebook uses (cell 8). It handles product discovery
+    # and bbox cropping per frame; we loop frames into one results dir (WERC forces
+    # a single frame; H2I may keep several). No bespoke search/range-subset here.
     if config.preview_only:
-        sample_bytes.close()
         downloaded: list[Path] = []
-    elif reuse_sample:
-        cpu = CpuSampler()
-        with prof.stage("download"), cpu:
-            first = process_bytes(sample_bytes, urls[0], pixel_bbox, results_path)
-            sample_bytes.close()
-            rest = download_disp_files(
-                urls[1:],
-                pixel_bbox,
-                results_path,
-                username,
-                password,
-                num_workers=config.num_workers,
-                remote_subset=config.remote_subset,
-                profiler=prof,
-            )
-        prof.note("download_cpu", cpu.result())
-        downloaded = sorted(([first] if first is not None else []) + rest)
     else:
-        sample_bytes.close()
-        cpu = CpuSampler()
-        with prof.stage("download"), cpu:
-            downloaded = download_disp_files(
-                urls,
-                pixel_bbox,
-                results_path,
-                username,
-                password,
-                num_workers=config.num_workers,
-                remote_subset=False,
-                profiler=prof,
-            )
-        prof.note("download_cpu", cpu.result())
+        with prof.stage("download"):
+            for frame_id in frame_ids:
+                download_via_opera_utils(
+                    frame_id,
+                    bbox,
+                    config.start_date,
+                    config.end_date,
+                    results_path,
+                    num_workers=config.num_workers,
+                )
+        downloaded = sorted(results_path.glob("*.nc"))
 
     artifacts: dict[str, Any] = {
         "results_dir": str(results_path),
@@ -202,8 +170,7 @@ def run(config: H2IRunConfig) -> dict[str, Any]:
     run_manifest = {
         **manifest,
         "stage": "complete",
-        "pixel_bbox": pixel_bbox,
-        "size_estimate": size_estimate,
+        "downloader": "opera-utils disp-s1-download",
         "artifacts": artifacts,
         "timings": prof.summary(),
     }

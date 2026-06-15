@@ -48,7 +48,7 @@ def _add_stage_commands(subparsers: argparse._SubParsersAction) -> None:
     ref.add_argument("--stack", required=True, help="Input combined stack NetCDF.")
     ref.add_argument("--output-stack", required=True, help="Output corrected stack NetCDF.")
     ref.add_argument("--output-summary", required=True, help="Output reference-summary JSON path.")
-    ref.add_argument("--mode", required=True, choices=("auto", "manual", "point", "none"))
+    ref.add_argument("--mode", required=True, choices=("auto", "manual", "point"))
     ref.add_argument("--anchor-dir", help="Directory holding per-frame anchor JSON (required for auto).")
     ref.add_argument("--reference-lat", type=float, help="Reference latitude (required for 'point' and 'manual').")
     ref.add_argument("--reference-lon", type=float, help="Reference longitude (required for 'point' and 'manual').")
