@@ -86,11 +86,16 @@ export function itemLayers(item) {
 // granule_from_subside_manifest (stac-platform/stacmap/manifest.py).
 export function itemMeta(item) {
   const p = item?.properties || {}
+  const refLat = p['subside:reference_lat']
+  const refLon = p['subside:reference_lon']
+  const hasRef = Number.isFinite(Number(refLat)) && Number.isFinite(Number(refLon))
   return {
     start: p.start_datetime || p.datetime || null,
     end: p.end_datetime || null,
     productCount: p['subside:product_count'] ?? null,
     frameIds: p['subside:frame_ids'] || null,
+    // The static reference point velocities are measured against, if published.
+    reference: hasRef ? { lat: Number(refLat), lon: Number(refLon), mode: p['subside:reference_mode'] || null } : null,
   }
 }
 

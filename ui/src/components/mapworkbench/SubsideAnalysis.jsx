@@ -56,6 +56,44 @@ function observedRisk(range) {
   return { rate: subsiding, label: 'Severe', color: '#dc2626' }
 }
 
+// Human context for the raster a user is viewing: what the quantity is, its
+// units, the time window it was derived over, and the sign convention. The
+// window comes from the Item's datetime range (itemMeta) — for velocity that's
+// the span the linear rate was fit over; for cumulative it's start→end.
+function layerContext(layer, meta) {
+  if (!layer) return null
+  const d = (s) => (s ? String(s).slice(0, 10) : null)
+  const start = d(meta?.start)
+  const end = d(meta?.end)
+  const window = start ? `${start} → ${end || '—'}` : null
+  const ref = meta?.reference
+  const reference = ref
+    ? `${ref.lat.toFixed(5)}, ${ref.lon.toFixed(5)}${ref.mode ? ` (${ref.mode})` : ''}`
+    : null
+  const key = layer.key || ''
+  if (key === 'velocity' || /velocit/i.test(layer.label || '')) {
+    return {
+      what: 'Average rate of line-of-sight (LOS) ground motion — the slope of a straight-line fit to each pixel’s displacement time series.',
+      unit: layer.unit || 'mm/yr',
+      windowLabel: 'Rate fit over',
+      window,
+      reference,
+      sign: 'Negative = moving away from the satellite (typically subsidence); positive = uplift. Measured relative to the static reference point below.',
+    }
+  }
+  if (key === 'cumulative' || key === 'cog' || /cumulative|displacement/i.test(layer.label || '')) {
+    return {
+      what: 'Total line-of-sight (LOS) ground displacement accumulated across the window, relative to the static reference point.',
+      unit: layer.unit || (key === 'cog' ? 'm' : 'mm'),
+      windowLabel: 'Accumulated',
+      window,
+      reference,
+      sign: 'Negative = motion away from the satellite (subsidence).',
+    }
+  }
+  return { what: layer.label, unit: layer.unit || '', windowLabel: 'Window', window, reference, sign: null }
+}
+
 export function SubsideAnalysis({
   panelHost, analysisAoiRequest, onWantsReferenceChange, referencePoint, onClearReferencePoint,
 }) {
@@ -662,6 +700,24 @@ export function SubsideAnalysis({
                       <span>{legendRange ? Number(legendRange.max ?? legendRange.vmax).toPrecision(3) : 'high'}</span>
                     </div>
                   </div>
+                  {(() => {
+                    const ctx = layerContext(selectedLayer, meta)
+                    return ctx ? (
+                      <div className="sap-layer-context">
+                        <div className="sap-layer-what">{ctx.what}</div>
+                        <dl className="sap-meta">
+                          <div><dt>Units</dt><dd>{ctx.unit}</dd></div>
+                          {ctx.window ? (
+                            <div><dt>{ctx.windowLabel}</dt><dd>{ctx.window}</dd></div>
+                          ) : null}
+                          {ctx.reference ? (
+                            <div><dt>Static reference</dt><dd>{ctx.reference}</dd></div>
+                          ) : null}
+                        </dl>
+                        {ctx.sign ? <div className="sap-hint">{ctx.sign}</div> : null}
+                      </div>
+                    ) : null
+                  })()}
                 </>
               ) : (
                 <>

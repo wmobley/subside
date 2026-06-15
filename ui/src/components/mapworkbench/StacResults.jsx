@@ -4,9 +4,9 @@
 // The two toggles live in the Layers panel (StacResults portals them into the
 // mount point SubsideLayers provides) and render every public run of that type
 // in view. Renders nothing when VITE_STAC_API_BASE is unset.
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ImageOverlay, Popup, useMap, useMapEvents } from 'react-leaflet'
+import { CircleMarker, ImageOverlay, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 
 import { itemLayers, itemMeta, overlayHref, searchItems, stacEnabled } from '../../lib/stacApi'
 import { StacCogLayer } from './StacCogLayer'
@@ -65,6 +65,15 @@ function formatBbox(bbox) {
   const values = bbox.map(Number)
   if (values.some((v) => !Number.isFinite(v))) return null
   return values.map((v) => v.toFixed(5)).join(', ')
+}
+
+// Identify one run in the per-run toggle list: its date window, plus the
+// reference mode for velocity runs (so overlapping runs are distinguishable).
+function runRowLabel(item, kind) {
+  const m = itemMeta(item)
+  const win = m.start ? `${m.start.slice(0, 10)} → ${(m.end || '').slice(0, 10) || '—'}` : (item.id || 'run')
+  const ref = kind === 'velocity' && m.reference?.mode ? ` · ref ${m.reference.mode}` : ''
+  return win + ref
 }
 
 function RasterLegend({ range, fallbackUnit }) {
@@ -149,6 +158,12 @@ function RunDetailsPopup({ selection, onUseBbox }) {
               <dd>{meta.frameIds.join(', ')}</dd>
             </div>
           ) : null}
+          {meta.reference ? (
+            <div>
+              <dt>Static reference{meta.reference.mode ? ` (${meta.reference.mode})` : ''}</dt>
+              <dd>{meta.reference.lat.toFixed(5)}, {meta.reference.lon.toFixed(5)}</dd>
+            </div>
+          ) : null}
           {layer?.range ? (
             <div>
               <dt>Layer range</dt>
@@ -180,6 +195,23 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
   // Off by default so the map stays clean; the counts show what's available.
   const [showDisplacement, setShowDisplacement] = useState(false)
   const [showVelocity, setShowVelocity] = useState(false)
+  // Per-run visibility: a group's master toggle reveals individual run rows, all
+  // ON by default (so "see overlap" still works); this set holds the runs the user
+  // has explicitly hidden. Tracking the *hidden* set (not the shown set) means runs
+  // panning into view stay visible without re-checking them.
+  const [hiddenIds, setHiddenIds] = useState(() => new Set())
+
+  const toggleRun = (id) => {
+    setHiddenIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else {
+        next.add(id)
+        setSelection((sel) => (sel?.item?.id === id ? null : sel))  // drop popup for a hidden run
+      }
+      return next
+    })
+  }
 
   const refresh = () => {
     if (!stacEnabled() || !map) return
@@ -223,11 +255,50 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
       return cog ? <StacCogLayer key={it.id} href={cog.href} range={cog.range} opacity={0.65} fit={false} onClick={(event) => selectRun(it, kind, event.latlng)} /> : null
     }
     const vel = itemLayers(it).find((l) => l.key === 'velocity') || itemLayers(it).find((l) => l.type === 'cog')
-    return vel ? <StacCogLayer key={it.id} href={vel.href} range={vel.range} opacity={0.65} fit={false} onClick={(event) => selectRun(it, kind, event.latlng)} /> : null
+    if (!vel) return null
+    const ref = itemMeta(it).reference
+    return (
+      <Fragment key={it.id}>
+        <StacCogLayer href={vel.href} range={vel.range} opacity={0.65} fit={false} onClick={(event) => selectRun(it, kind, event.latlng)} />
+        {ref ? (
+          <CircleMarker
+            center={[ref.lat, ref.lon]}
+            radius={6}
+            pathOptions={{ color: '#111', weight: 2, fillColor: '#fde725', fillOpacity: 1 }}
+            eventHandlers={{ click: (event) => selectRun(it, kind, event.latlng) }}
+          >
+            <Tooltip>
+              Static reference{ref.mode ? ` (${ref.mode})` : ''}: {ref.lat.toFixed(5)}, {ref.lon.toFixed(5)}
+            </Tooltip>
+          </CircleMarker>
+        ) : null}
+      </Fragment>
+    )
   }
 
-  // Two checkboxes styled like the registered-layer rows (checkbox · swatch ·
-  // name · count), portalled into the Layers panel.
+  // Per-run rows shown under a group when its master toggle is on: one checkbox
+  // per in-view run (hidden = in hiddenIds), so users can isolate/compare specific
+  // overlapping footprints. Capped at MAX_RUNS to match what's rendered.
+  const runRows = (runs, kind) => {
+    const shown = runs.slice(0, MAX_RUNS)
+    return (
+      <div className="slp-run-list">
+        {shown.map((it) => (
+          <label key={it.id} className="slp-row slp-run-row">
+            <input type="checkbox" checked={!hiddenIds.has(it.id)} onChange={() => toggleRun(it.id)} />
+            <span className="slp-name">{runRowLabel(it, kind)}</span>
+          </label>
+        ))}
+        {runs.length > MAX_RUNS ? (
+          <div className="slp-run-more">+{runs.length - MAX_RUNS} more in view — zoom in to narrow</div>
+        ) : null}
+        {!shown.length ? <div className="slp-run-more">No runs in this area.</div> : null}
+      </div>
+    )
+  }
+
+  // Master toggle per group (checkbox · swatch · name · count) + a legend and the
+  // per-run rows when on. Portalled into the Layers panel.
   const panelContent = (
     <>
       <div className="slp-section">Previous runs</div>
@@ -238,6 +309,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
         <span className="slp-count">{dispRuns.length}</span>
       </label>
       {showDisplacement ? <RasterLegend range={displacementLegend} fallbackUnit="m" /> : null}
+      {showDisplacement ? runRows(dispRuns, 'displacement') : null}
       <label className="slp-row">
         <input type="checkbox" checked={showVelocity} onChange={(e) => { setShowVelocity(e.target.checked); if (!e.target.checked && selection?.kind === 'velocity') setSelection(null) }} />
         <span className="slp-swatch" style={{ background: '#7c3aed' }} />
@@ -245,14 +317,15 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
         <span className="slp-count">{velocityRuns.length}</span>
       </label>
       {showVelocity ? <RasterLegend range={velocityLegend} fallbackUnit="mm/yr" /> : null}
+      {showVelocity ? runRows(velocityRuns, 'velocity') : null}
       {error ? <div className="slp-error">{error}</div> : null}
     </>
   )
 
   return (
     <>
-      {showDisplacement && dispRuns.slice(0, MAX_RUNS).map((it) => renderRun(it, 'displacement'))}
-      {showVelocity && velocityRuns.slice(0, MAX_RUNS).map((it) => renderRun(it, 'velocity'))}
+      {showDisplacement && dispRuns.slice(0, MAX_RUNS).filter((it) => !hiddenIds.has(it.id)).map((it) => renderRun(it, 'displacement'))}
+      {showVelocity && velocityRuns.slice(0, MAX_RUNS).filter((it) => !hiddenIds.has(it.id)).map((it) => renderRun(it, 'velocity'))}
       <RunDetailsPopup selection={selection} onUseBbox={onUseBboxForAnalysis} />
       {panelHost ? createPortal(panelContent, panelHost) : null}
     </>

@@ -1627,6 +1627,24 @@ button {
   display: inline-block;
 }
 
+/* Per-run rows under a group's master toggle: indented, smaller, with a guide rail. */
+.slp-run-list {
+  margin: 0 0 6px 16px;
+  padding-left: 8px;
+  border-left: 1px solid var(--tacc-gray-lighter);
+}
+
+.slp-run-row {
+  font-size: 11px;
+  color: var(--tacc-text-medium);
+}
+
+.slp-run-more {
+  font-size: 11px;
+  color: var(--tacc-text-light);
+  padding: 2px 0;
+}
+
 .slp-legend {
   margin-top: 8px;
   padding-top: 8px;
@@ -2131,6 +2149,27 @@ button {
   margin: 0;
   font-weight: 600;
   text-align: right;
+}
+
+/* Context for the raster being viewed: what it is, units, time window, sign. */
+.sap-layer-context {
+  margin: 6px 0 8px;
+  padding: 8px;
+  border: 1px solid var(--tacc-gray-lighter);
+  border-left: 3px solid var(--tacc-accent);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.sap-layer-what {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--tacc-text-dark);
+  margin-bottom: 4px;
+}
+
+.sap-layer-context .sap-meta {
+  margin: 4px 0 4px;
 }
 
 /* Maps page: map fills the section once the MODFLOW sidebar is gone. */
