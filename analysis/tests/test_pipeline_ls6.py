@@ -51,14 +51,14 @@ def test_stack_to_velocity_on_real_products():
     assert np.isfinite(p2) and np.isfinite(p98)
 
 
-def test_velocity_check_equivalence_on_real_stack():
-    """The closed-form solver must match lstsq on the real stack too."""
+def test_velocity_check_faithful_to_notebook_on_real_stack():
+    """The shipped solver must reproduce the notebook's cell-24 lstsq on real data."""
     from analysis.werc import stack as stack_mod, velocity_check
 
     nc_dir = _netcdf_dir()
     stack = stack_mod.build_displacement_stack(stack_mod.load_disp_product_list(nc_dir))
-    closed = velocity_check.closed_form_velocity(stack)
-    ref = velocity_check.lstsq_velocity(stack)
-    metrics = velocity_check.diff_metrics(closed, ref)
+    shipped = velocity_check.shipped_velocity(stack)
+    ref = velocity_check.notebook_lstsq(stack)
+    metrics = velocity_check.diff_metrics(shipped, ref)
     assert metrics["max_abs_diff"] < 1e-5
     assert metrics["nan_disagreement"] == 0

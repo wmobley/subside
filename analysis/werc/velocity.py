@@ -12,26 +12,18 @@ def decimal_year(dates) -> np.ndarray:
     return np.asarray(series.year + (series.dayofyear - 1) / 365.25, dtype=float)
 
 
-#: Pixel columns processed per matvec block. Caps the working set at roughly
-#: ``nt * _PIXEL_CHUNK`` float32s (a few hundred MB) so the fit scales to a
-#: full-archive stack (hundreds of acquisitions over a whole frame) without the
-#: float64 upcast + LAPACK gelsd workspace that made ``lstsq`` OOM on a 128 GB node.
-_PIXEL_CHUNK = 2_000_000
-
-
 def estimate_velocity_linear(stack: xr.Dataset) -> xr.DataArray:
     """Fit ``displacement(t) = velocity * t + intercept`` per pixel.
 
-    Returns velocity (m/year) as an :class:`xr.DataArray` on the stack grid.
+    Follows the WERC notebook (OPERA DISP-S1.ipynb, cell 24) exactly: build the
+    design matrix ``A = [t, 1]`` and solve one least-squares system over the whole
+    stack with :func:`numpy.linalg.lstsq`, one right-hand side per pixel. The slope
+    row is the velocity (m/year). Kept faithful to the example deliberately.
 
-    The per-pixel rate is the ordinary-least-squares slope, which has a closed
-    form — ``slope = Σ(t-t̄)·d / Σ(t-t̄)²`` — so we compute it directly instead of
-    calling :func:`numpy.linalg.lstsq` per pixel. lstsq would solve a 2-parameter
-    system with one right-hand side *per pixel*: it upcasts the whole cube to
-    float64 and gives LAPACK's gelsd a workspace sized by the pixel count, which
-    exhausts memory on large stacks. The centered-time dot product below is one
-    BLAS matvec in float32, chunked over pixels, and the discarded intercept
-    falls out because ``Σ(t-t̄) = 0``.
+    Note: lstsq upcasts the displacement cube to float64 and sizes LAPACK's gelsd
+    workspace by the pixel count, so memory scales with ``nt * npix`` — large
+    (full-archive / full-frame) stacks can exhaust RAM. See ``velocity_check`` to
+    profile it, and stream over spatial blocks if a cube is too big to fit.
     """
 
     disp = stack["displacement"].values  # (nt, ny, nx); meters
@@ -39,16 +31,9 @@ def estimate_velocity_linear(stack: xr.Dataset) -> xr.DataArray:
     nt, ny, nx = disp.shape
 
     tdec = decimal_year(times)
-    tc = (tdec - tdec.mean()).astype(np.float32)  # centered time -> intercept drops out
-    denom = float(np.dot(tc, tc))
-
-    flat = disp.reshape(nt, -1)  # (nt, npix) view of the C-contiguous cube
-    npix = flat.shape[1]
-    vel_flat = np.empty(npix, dtype=np.float32)
-    for start in range(0, npix, _PIXEL_CHUNK):
-        block = flat[:, start:start + _PIXEL_CHUNK]   # (nt, k); NaNs propagate per-pixel
-        vel_flat[start:start + _PIXEL_CHUNK] = (tc @ block) / denom
-    vel = vel_flat.reshape(ny, nx)
+    design = np.vstack([tdec, np.ones_like(tdec)]).T  # (nt, 2)
+    coef, *_ = np.linalg.lstsq(design, disp.reshape(nt, -1), rcond=None)
+    vel = coef[0].reshape(ny, nx).astype(np.float32)
 
     return xr.DataArray(
         vel,

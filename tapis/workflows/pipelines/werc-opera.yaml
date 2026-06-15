@@ -41,6 +41,19 @@ params:
   update_conda_env:    {type: string, default: "false"}
   tapis_base_url:      {type: string, default: "https://portals.tapis.io"}
   tapis_token:         {type: string, required: true, description: "User Tapis bearer token used by hosted function tasks"}
+  # --- First-attempt queue. The API predicts this from nt × AOI-pixels and sends
+  #     "normal" up front for big jobs (skipping a doomed vm-small attempt); it
+  #     defaults to vm-small (32 GB) for everything else / non-API triggers. ---
+  run_queue:           {type: string, default: "vm-small", description: "Queue for the first attempt (vm-small | normal)."}
+  run_cores:           {type: integer, default: 16}
+  run_memory_mb:       {type: integer, default: 32000}
+  # --- OOM escalation backstop: if the first attempt fails out-of-memory, retry
+  #     once on a bigger single node. oom_retry: auto (retry only on detected OOM) |
+  #     always (retry any failure) | off. ls6 normal = 256 GB / 128 cores. ---
+  oom_retry:           {type: string, default: "auto", description: "auto | always | off"}
+  oom_queue:           {type: string, default: "normal", description: "Queue to escalate to on OOM (ls6 normal = 256 GB node)."}
+  oom_cores:           {type: integer, default: 128}
+  oom_memory_mb:       {type: integer, default: 245000}
   # --- STAC/CKAN publishing (stac-platform). Leave ckan_token/stac_url blank to
   #     disable: the stac-publish task no-ops when either is unset. ---
   stac_collection:     {type: string, default: "subsidence-rates", description: "CKAN dataset = STAC Collection id"}
@@ -80,6 +93,13 @@ tasks:
       REFERENCE_LON:        {type: string, value_from: {args: reference_lon}}
       ANCHOR_RADIUS_M:      {type: number, value_from: {args: anchor_radius_m}}
       N_REFERENCE_PIXELS:   {type: number, value_from: {args: n_reference_pixels}}
+      RUN_QUEUE:            {type: string, value_from: {args: run_queue}}
+      RUN_CORES:            {type: number, value_from: {args: run_cores}}
+      RUN_MEMORY_MB:        {type: number, value_from: {args: run_memory_mb}}
+      OOM_RETRY:            {type: string, value_from: {args: oom_retry}}
+      OOM_QUEUE:            {type: string, value_from: {args: oom_queue}}
+      OOM_CORES:            {type: number, value_from: {args: oom_cores}}
+      OOM_MEMORY_MB:        {type: number, value_from: {args: oom_memory_mb}}
     output:
       job_uuid: {type: string}
       archive:  {type: string}
@@ -136,54 +156,95 @@ tasks:
       if netrc_uri:
           file_inputs.append({"name": "earthdata-netrc", "sourceUrl": netrc_uri, "targetPath": ".netrc"})
 
-      body = {
-          "name": f"subside-werc-opera-{start}-{end}",
-          "appId": "subside-werc-opera-analysis",
-          "appVersion": "0.1.1",
-          "nodeCount": 1,
-          "coresPerNode": 16,
-          "memoryMB": 128000,
-          "maxMinutes": int(val("MAX_MINUTES", 720)),
-          "execSystemId": "ls6",
-          "execSystemExecDir": "${JobWorkingDir}",
-          "execSystemInputDir": "${JobWorkingDir}",
-          "execSystemOutputDir": "${JobWorkingDir}/output",
-          "execSystemLogicalQueue": "vm-small",
-          "archiveSystemId": "ls6",
-          "archiveSystemDir": "HOST_EVAL($WORK)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}",
-          "archiveOnAppError": True,
-          "fileInputs": file_inputs,
-          "parameterSet": {
-              "envVariables": env,
-              "schedulerOptions": [{"name": "TACC Allocation", "arg": alloc_arg(allocation)}],
-          },
-      }
+      def build_body(queue, cores, memory_mb):
+          return {
+              "name": f"subside-werc-opera-{start}-{end}",
+              "appId": "subside-werc-opera-analysis",
+              "appVersion": "0.1.1",
+              "nodeCount": 1,
+              "coresPerNode": int(cores),
+              "memoryMB": int(memory_mb),
+              "maxMinutes": int(val("MAX_MINUTES", 720)),
+              "execSystemId": "ls6",
+              "execSystemExecDir": "${JobWorkingDir}",
+              "execSystemInputDir": "${JobWorkingDir}",
+              "execSystemOutputDir": "${JobWorkingDir}/output",
+              "execSystemLogicalQueue": queue,
+              "archiveSystemId": "ls6",
+              "archiveSystemDir": "HOST_EVAL($WORK)/tapis-jobs-archive/${JobCreateDate}/${JobName}-${JobUUID}",
+              "archiveOnAppError": True,
+              "fileInputs": file_inputs,
+              "parameterSet": {
+                  "envVariables": env,
+                  "schedulerOptions": [{"name": "TACC Allocation", "arg": alloc_arg(allocation)}],
+              },
+          }
 
-      result = t.jobs.submitJob(**body)
-      job_uuid = getattr(result, "uuid", None)
-      if not job_uuid:
-          fail(f"submitJob did not return a uuid: {result}")
-      ctx.set_output("job_uuid", job_uuid)
-      print(f"submitted Tapis job {job_uuid}")
+      def submit_and_wait(body):
+          result = t.jobs.submitJob(**body)
+          job_uuid = getattr(result, "uuid", None)
+          if not job_uuid:
+              fail(f"submitJob did not return a uuid: {result}")
+          ctx.set_output("job_uuid", job_uuid)
+          print(f"submitted Tapis job {job_uuid} on queue={body['execSystemLogicalQueue']} "
+                f"mem={body['memoryMB']}MB cores={body['coresPerNode']}")
+          last = ""
+          while True:
+              job = t.jobs.getJob(jobUuid=job_uuid)
+              status = str(getattr(job, "status", "") or "").upper()
+              if status != last:
+                  print(f"job {job_uuid} status={status}")
+                  last = status
+              if status in SUCCESS or status in FAILURE:
+                  return status, job_uuid, job
+              time.sleep(30)
 
-      last = ""
-      while True:
-          job = t.jobs.getJob(jobUuid=job_uuid)
-          status = str(getattr(job, "status", "") or "").upper()
-          if status != last:
-              print(f"job {job_uuid} status={status}")
-              last = status
-          if status in SUCCESS:
-              archive_system = getattr(job, "archiveSystemId", "") or ""
-              archive_dir = str(getattr(job, "archiveSystemDir", "") or "").lstrip("/")
-              archive = f"tapis://{archive_system}/{archive_dir}" if archive_system and archive_dir else ""
-              ctx.set_output("archive", archive)
-              ctx.stdout(f"job {job_uuid} archive={archive}")
-              raise SystemExit(0)
-          if status in FAILURE:
-              msg = getattr(job, "lastMessage", "") or f"Job {job_uuid} failed with status {status}"
-              fail(str(msg))
-          time.sleep(30)
+      # OOM signatures: our own MemoryError sentinel (exit 42, see analysis.werc.cli),
+      # a SLURM cgroup OOM-kill (OUT_OF_MEMORY / oom-kill / signal 9 / exit 137), or a
+      # raw "MemoryError" in the surfaced message.
+      OOM_HINTS = ("out_of_memory", "oom-kill", "oomkill", "memoryerror", "out of memory",
+                   "exit code 42", "exitcode 42", "code 42", "exit code 137", "exitcode 137",
+                   "code 137", "signal 9", "killed", "exceeded", "memory limit")
+
+      def is_oom(job):
+          blob = " ".join(
+              str(getattr(job, a, "") or "")
+              for a in ("lastMessage", "remoteOutcome", "condition", "remoteResult", "status")
+          ).lower()
+          return any(h in blob for h in OOM_HINTS)
+
+      def archive_uri(job):
+          system = getattr(job, "archiveSystemId", "") or ""
+          path = str(getattr(job, "archiveSystemDir", "") or "").lstrip("/")
+          return f"tapis://{system}/{path}" if system and path else ""
+
+      # 1) primary attempt on the queue the API picked (vm-small=32 GB by default,
+      #    or normal=256 GB up front when it predicted the cube is too big for
+      #    vm-small — see manager._pick_run_queue).
+      run_queue = str(val("RUN_QUEUE", "vm-small"))
+      status, job_uuid, job = submit_and_wait(
+          build_body(run_queue, int(val("RUN_CORES", 16)), int(val("RUN_MEMORY_MB", 32000)))
+      )
+
+      # 2) on failure, escalate ONCE to a bigger single node (ls6 normal = 256 GB /
+      #    128 cores) — UNLESS we already ran there. "auto" retries only on detected
+      #    OOM; "always" retries any failure; "off" never retries.
+      mode = str(val("OOM_RETRY", "auto")).lower()
+      oom_queue = str(val("OOM_QUEUE", "normal"))
+      if status in FAILURE and mode != "off" and oom_queue != run_queue:
+          if mode == "always" or (mode == "auto" and is_oom(job)):
+              reason = "forced (oom_retry=always)" if mode == "always" else "looks like OOM"
+              print(f"run failed on {run_queue} ({str(getattr(job, 'lastMessage', '') or '')[:200]!r}); "
+                    f"escalating to queue={oom_queue} [{reason}]")
+              status, job_uuid, job = submit_and_wait(
+                  build_body(oom_queue, int(val("OOM_CORES", 128)), int(val("OOM_MEMORY_MB", 245000)))
+              )
+
+      if status in SUCCESS:
+          ctx.set_output("archive", archive_uri(job))
+          ctx.stdout(f"job {job_uuid} archive={archive_uri(job)}")
+          raise SystemExit(0)
+      fail(str(getattr(job, "lastMessage", "") or f"Job {job_uuid} failed with status {status}"))
 
   - id: publish
     type: function

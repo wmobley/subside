@@ -1,21 +1,20 @@
-"""Validate the WERC velocity solver against the notebook's exact ``lstsq``.
+"""Check the WERC velocity solver and profile its memory/time across cube sizes.
 
-[analysis/werc/velocity.py] computes the per-pixel linear rate as a closed-form
-OLS slope (``Σ(t-t̄)·d / Σ(t-t̄)²``) instead of the notebook's
-``np.linalg.lstsq(A, disp.reshape(nt,-1))`` (OPERA DISP-S1.ipynb cell 24). The two
-are mathematically identical, but the closed form is memory-safe — lstsq upcasts
-the whole cube to float64 and hands LAPACK's gelsd a workspace sized by the pixel
-count, which OOM'd a full-archive run on a 128 GB node.
+The shipped solver ([analysis/werc/velocity.py] ``estimate_velocity_linear``)
+follows the WERC notebook (OPERA DISP-S1.ipynb cell 24) exactly:
+``np.linalg.lstsq(A, disp.reshape(nt,-1))``. This tool, on real or synthetic data
+across a range of cube sizes:
 
-This tool *proves* that on real data, across a range of cube sizes:
+  * **faithfulness** — confirms the shipped solver reproduces an *independent*
+    re-implementation of the notebook's cell-24 lstsq (max/mean |Δ| on co-finite
+    pixels; ~0 since it's the same algorithm). Guards against future drift.
+  * **memory** — marginal RSS the solver adds over the loaded displacement, in a
+    clean child process. lstsq upcasts the cube to float64 and sizes LAPACK's
+    gelsd workspace by the pixel count, so this grows ~``nt × npix × 8`` bytes —
+    use it to see how big a cube the node can take before it OOMs.
+  * **time** — wall time.
 
-  * **equivalence** — max/mean |Δ| between the closed-form and lstsq slopes on the
-    co-finite pixels (should be ~1e-7 m/yr, i.e. float round-off);
-  * **memory** — peak RSS of each method (run in a clean child process), showing
-    the closed form stays bounded while lstsq balloons with pixel count;
-  * **time** — wall time of each.
-
-It exits non-zero if any size exceeds ``--tol``, so it doubles as a CI gate.
+It exits non-zero if any size exceeds ``--tol``, so it doubles as a regression gate.
 
 Usage::
 
@@ -23,13 +22,18 @@ Usage::
     python -m analysis.werc.velocity_check --stack stack.nc --memory --report-out report.json
     python -m analysis.werc.velocity_check --netcdf-dir output/OPERA_L3_DISP-S1 --memory
 
-    # No data handy — synthetic cubes of several sizes (equivalence sanity only):
+    # No data handy — synthetic cubes of several sizes:
     python -m analysis.werc.velocity_check --synthetic
 
 Size variety comes from center-cropping the real stack to spatial fractions
 (``--fractions 1,0.5,0.25``) and optionally sub-setting time
 (``--time-fractions``), so every variant is *real values*, just a different
 ``(nt, ny, nx)``.
+
+NOTE on the memory profile: it materializes only the windowed displacement, so it
+measures the *solver's* marginal memory — NOT production's footprint. Production
+(``load_stack().load()`` + ``stack["displacement"].values``) holds the whole cube
+resident; this tool isolates the solver on purpose.
 """
 
 from __future__ import annotations
@@ -45,7 +49,7 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
-from analysis.etl.stack import load_stack, save_stack
+from analysis.etl.stack import DEFAULT_ENGINE as _ENGINE, load_stack, save_stack
 
 from . import velocity
 from .stack import build_displacement_stack, load_disp_product_list
@@ -54,13 +58,14 @@ from .stack import build_displacement_stack, load_disp_product_list
 # --- the two solvers -------------------------------------------------------
 
 
-def closed_form_velocity(stack: xr.Dataset) -> np.ndarray:
-    """The shipped solver (memory-safe closed-form slope)."""
+def shipped_velocity(stack: xr.Dataset) -> np.ndarray:
+    """The shipped solver — analysis.werc.velocity.estimate_velocity_linear."""
     return velocity.estimate_velocity_linear(stack).values
 
 
-def lstsq_velocity(stack: xr.Dataset) -> np.ndarray:
-    """The notebook's exact solver (OPERA DISP-S1.ipynb cell 24) — reference."""
+def notebook_lstsq(stack: xr.Dataset) -> np.ndarray:
+    """Independent re-implementation of the notebook's cell-24 lstsq (the reference
+    the shipped solver must match)."""
     disp = stack["displacement"].values
     times = stack["time"].values
     nt, ny, nx = disp.shape
@@ -100,34 +105,63 @@ def _rss_to_mb(ru_maxrss: int) -> float:
     return ru_maxrss / (1024 ** 2) if sys.platform == "darwin" else ru_maxrss / 1024
 
 
-def _measure_child(q: "mp.Queue", stack_path: str, window: dict, method: str) -> None:
+def _current_rss_mb() -> float:
+    """Current (not high-water) resident set size in MB. Linux /proc; else ru_maxrss."""
+    try:
+        import os
+        with open("/proc/self/statm") as fh:
+            resident_pages = int(fh.read().split()[1])
+        return resident_pages * os.sysconf("SC_PAGE_SIZE") / (1024 ** 2)
+    except Exception:
+        import resource
+        return _rss_to_mb(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+
+
+def _measure_child(q: "mp.Queue", stack_path: str, window: dict) -> None:
+    """Measure the shipped solver's *marginal* memory in a fresh process.
+
+    Open lazily and materialize ONLY the windowed displacement into a minimal
+    Dataset, so the baseline scales with the cube and doesn't dominate. Report
+    ``solver_mb`` = peak RSS during the solve minus the post-load baseline — the
+    memory the solver itself adds (its float64 upcast + gelsd workspace).
+    Measuring absolute peak instead lets the load mask the solver's growth.
+    """
     import resource
 
-    import xarray as _xr  # noqa: F401  (ensure backend import cost is in this proc)
+    import xarray as xr
 
-    stk = load_stack(stack_path)
-    sub = stk.isel(
-        time=slice(*window["t"]), y=slice(*window["y"]), x=slice(*window["x"])
+    ds = xr.open_dataset(stack_path, engine=_ENGINE)  # lazy — nothing materialized yet
+    sub = ds.isel(time=slice(*window["t"]), y=slice(*window["y"]), x=slice(*window["x"]))
+    mini = xr.Dataset(
+        {"displacement": sub["displacement"]},
+        coords={"time": sub["time"], "y": sub["y"], "x": sub["x"]},
     )
-    fn = closed_form_velocity if method == "closed" else lstsq_velocity
+    mini["displacement"].load()  # materialize ONLY this window's displacement (float32)
+    baseline = _current_rss_mb()
+
     t0 = time.perf_counter()
-    out = fn(sub)
+    out = shipped_velocity(mini)
     elapsed = time.perf_counter() - t0
-    # touch the result so it isn't optimized away
-    _ = float(np.nansum(out))
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    q.put({"elapsed_s": elapsed, "peak_rss_mb": _rss_to_mb(peak)})
+    _ = float(np.nansum(out))  # touch result so it isn't optimized away
+
+    peak = _rss_to_mb(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    q.put({
+        "elapsed_s": elapsed,
+        "baseline_mb": baseline,
+        "peak_rss_mb": peak,
+        "solver_mb": max(0.0, peak - baseline),  # marginal memory the solver adds
+    })
 
 
-def peak_rss(stack_path: str, window: dict, method: str) -> dict[str, float]:
-    """Run one solver in a fresh process; return its wall time + peak RSS (MB)."""
-    ctx = mp.get_context("spawn")  # fresh interpreter -> clean peak RSS
+def peak_rss(stack_path: str, window: dict) -> dict[str, float]:
+    """Run the shipped solver in a fresh process; return wall time + its marginal RSS (MB)."""
+    ctx = mp.get_context("spawn")  # fresh interpreter -> clean measurement
     q: "mp.Queue" = ctx.Queue()
-    p = ctx.Process(target=_measure_child, args=(q, stack_path, window, method))
+    p = ctx.Process(target=_measure_child, args=(q, stack_path, window))
     p.start()
     p.join()
     if p.exitcode != 0:
-        return {"elapsed_s": float("nan"), "peak_rss_mb": float("nan"), "died": p.exitcode}
+        return {"elapsed_s": float("nan"), "solver_mb": float("nan"), "died": p.exitcode}
     return q.get()
 
 
@@ -219,24 +253,23 @@ def main(argv: list[str] | None = None) -> int:
         nt, ny, nx = (sub.sizes["time"], sub.sizes["y"], sub.sizes["x"])
 
         t0 = time.perf_counter()
-        closed = closed_form_velocity(sub)
-        closed_s = time.perf_counter() - t0
+        shipped = shipped_velocity(sub)
+        shipped_s = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        ref = lstsq_velocity(sub)
-        lstsq_s = time.perf_counter() - t0
+        ref = notebook_lstsq(sub)
+        notebook_s = time.perf_counter() - t0
 
         row: dict[str, Any] = {
             "variant": label, "nt": nt, "ny": ny, "nx": nx, "npix": ny * nx,
-            "closed_s_inproc": round(closed_s, 3), "lstsq_s_inproc": round(lstsq_s, 3),
-            **diff_metrics(closed, ref),
+            "shipped_s_inproc": round(shipped_s, 3), "notebook_s_inproc": round(notebook_s, 3),
+            **diff_metrics(shipped, ref),
         }
         row["pass"] = row["max_abs_diff"] <= args.tol and row["nan_disagreement"] == 0
         ok = ok and row["pass"]
 
         if args.memory and stack_path:
-            row["closed_mem"] = peak_rss(stack_path, window, "closed")
-            row["lstsq_mem"] = peak_rss(stack_path, window, "lstsq")
+            row["mem"] = peak_rss(stack_path, window)
 
         rows.append(row)
 
@@ -244,25 +277,30 @@ def main(argv: list[str] | None = None) -> int:
         tmp_path.unlink()
 
     # --- report ---
-    print("\n===== WERC velocity solver: closed-form vs notebook lstsq =====")
+    print("\n===== WERC velocity solver: shipped vs notebook cell-24 lstsq =====")
     src_label = "synthetic" if args.synthetic else (args.stack or args.netcdf_dir)
     print(f"source: {src_label}   tol: {args.tol:g} m/yr\n")
-    hdr = f"{'variant':>14} {'nt':>4} {'pixels':>12} {'maxΔ(m/yr)':>12} {'meanΔ':>10} {'closed_s':>9} {'lstsq_s':>9}"
+    hdr = f"{'variant':>14} {'nt':>4} {'pixels':>12} {'maxΔ(m/yr)':>12} {'meanΔ':>10} {'shipped_s':>10} {'notebk_s':>9}"
     if args.memory:
-        hdr += f" {'closed_MB':>10} {'lstsq_MB':>10}"
+        # Marginal memory the solver ADDS over the loaded displacement (MB). The
+        # solver is lstsq (matches the notebook), so this grows ~nt×npix×8 bytes
+        # for its float64 copy — your OOM signal for big cubes.
+        hdr += f" {'solverΔMB':>10}"
     hdr += "  result"
     print(hdr)
     print("-" * len(hdr))
     for r in rows:
         line = (f"{r['variant']:>14} {r['nt']:>4} {r['npix']:>12,} "
                 f"{r['max_abs_diff']:>12.2e} {r['mean_abs_diff']:>10.2e} "
-                f"{r['closed_s_inproc']:>9} {r['lstsq_s_inproc']:>9}")
+                f"{r['shipped_s_inproc']:>10} {r['notebook_s_inproc']:>9}")
         if args.memory:
-            cm = r.get("closed_mem", {}).get("peak_rss_mb", float("nan"))
-            lm = r.get("lstsq_mem", {}).get("peak_rss_mb", float("nan"))
-            line += f" {cm:>10.0f} {lm:>10.0f}"
+            mb = r.get("mem", {}).get("solver_mb", float("nan"))
+            line += f" {mb:>10.0f}"
         line += "   PASS" if r["pass"] else "   FAIL"
         print(line)
+    if args.memory:
+        print("\n(solverΔMB = memory the lstsq solver adds beyond the loaded "
+              "displacement; grows ~nt×npix×8 bytes for its float64 copy.)")
 
     if args.report_out:
         Path(args.report_out).write_text(json.dumps(

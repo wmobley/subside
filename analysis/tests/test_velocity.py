@@ -1,10 +1,11 @@
 """Fast unit tests for the velocity solver.
 
-Confirms the shipped closed-form OLS slope ([analysis/werc/velocity.py]) equals
-the notebook's exact ``np.linalg.lstsq`` (OPERA DISP-S1.ipynb cell 24) and
-recovers a known rate, on small synthetic cubes. The on-real-data / large-cube
-memory benchmark is the separate ``analysis.werc.velocity_check`` tool, exercised
-on ls6 (see test_pipeline_ls6.py).
+The shipped solver ([analysis/werc/velocity.py]) follows the WERC notebook
+(OPERA DISP-S1.ipynb cell 24): ``np.linalg.lstsq(A, disp.reshape(nt,-1))``. These
+tests confirm it recovers a known rate and stays faithful to an independent
+re-implementation of that lstsq, on small synthetic cubes. The on-real-data /
+large-cube memory + faithfulness profile is the separate
+``analysis.werc.velocity_check`` tool, exercised on ls6 (see test_pipeline_ls6.py).
 """
 
 from __future__ import annotations

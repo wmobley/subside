@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import replace
 
 from analysis.h2i_lab.config import H2IRunConfig
@@ -95,17 +96,21 @@ def _run_full_pipeline(args: argparse.Namespace) -> dict:
     return runner_mod.run(config)
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+# Distinct exit code so the orchestrating pipeline can tell an out-of-memory
+# failure apart from any other error and retry on a bigger queue. 137 (128+SIGKILL)
+# would collide with a SLURM cgroup OOM-kill; 42 is our own "Python MemoryError".
+OOM_EXIT_CODE = 42
 
+
+def _dispatch(args) -> dict:
     if args.command in ("preflight", "run"):
-        payload = _run_full_pipeline(args)
-    elif args.command == "build-stack":
-        payload = runner_mod.run_build_stack(
+        return _run_full_pipeline(args)
+    if args.command == "build-stack":
+        return runner_mod.run_build_stack(
             args.netcdf_dir, args.output_stack, args.output_products,
         )
-    elif args.command == "compute-reference":
-        payload = runner_mod.run_compute_reference(
+    if args.command == "compute-reference":
+        return runner_mod.run_compute_reference(
             args.stack, args.output_stack, args.output_summary,
             mode=args.mode,
             anchor_dir=args.anchor_dir,
@@ -114,19 +119,30 @@ def main(argv: list[str] | None = None) -> int:
             anchor_radius_m=args.anchor_radius_m,
             n_reference_pixels=args.n_reference_pixels,
         )
-    elif args.command == "estimate-velocity":
-        payload = runner_mod.run_estimate_velocity(
+    if args.command == "estimate-velocity":
+        return runner_mod.run_estimate_velocity(
             args.stack, args.output_velocity, args.output_summary,
         )
-    elif args.command == "export-geotiffs":
-        payload = runner_mod.run_export_geotiffs(
+    if args.command == "export-geotiffs":
+        return runner_mod.run_export_geotiffs(
             args.stack, args.velocity, args.output_dir,
             reference_summary_path=args.reference_summary,
             displacement_geotiff_name=args.displacement_geotiff_name,
             velocity_geotiff_name=args.velocity_geotiff_name,
         )
-    else:  # pragma: no cover — argparse enforces required choices
-        raise SystemExit(f"Unknown command: {args.command}")
+    raise SystemExit(f"Unknown command: {args.command}")  # pragma: no cover
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    try:
+        payload = _dispatch(args)
+    except MemoryError as exc:
+        # Signal OOM with a dedicated code so the pipeline can escalate to a
+        # bigger-memory queue instead of treating it as a generic failure.
+        print(f"WERC_OOM: out of memory during '{args.command}': {exc}", file=sys.stderr)
+        return OOM_EXIT_CODE
 
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     return 0

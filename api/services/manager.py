@@ -17,9 +17,56 @@ from typing import Any
 
 import yaml
 
+from . import discovery
 from .. import config
 from ..config import PIPELINE_DIR, PIPELINES, STAGING_PREFIX, STAGING_SYSTEM, TAPIS_BASE_URL
 from ..models import Artifact, RunRequest
+
+# --- OOM-aware queue selection for werc ------------------------------------
+# werc's velocity step (np.linalg.lstsq over the whole displacement cube) holds
+# ~_BYTES_PER_ELEM * n_acquisitions * AOI_pixels bytes resident. ls6 vm-small is
+# only 32 GB; when the estimate won't fit we submit the first attempt straight to
+# a 256 GB node instead of wasting a guaranteed-OOM vm-small attempt. The
+# pipeline's OOM escalation (werc-opera.yaml) is the backstop if this under-shoots
+# or discovery is unavailable.
+_BYTES_PER_ELEM = 20            # resident stack (~12) + lstsq float64 copy (~8)
+_VM_SMALL_BUDGET_GB = 26        # 32 GB node minus OS/python/libs headroom
+_SMALL_QUEUE = ("vm-small", 16, 32000)
+_BIG_QUEUE = ("normal", 128, 245000)
+
+
+def _aoi_pixels(bbox: dict, resolution_m: float = 30.0) -> float:
+    """Approximate OPERA-pixel count for a lon/lat bbox at ~30 m."""
+    import math
+    lat_mid = 0.5 * (float(bbox["lat_min"]) + float(bbox["lat_max"]))
+    width_m = abs(float(bbox["lon_max"]) - float(bbox["lon_min"])) * 111_320 * math.cos(math.radians(lat_mid))
+    height_m = abs(float(bbox["lat_max"]) - float(bbox["lat_min"])) * 110_540
+    return (width_m / resolution_m) * (height_m / resolution_m)
+
+
+def _pick_run_queue(req: RunRequest) -> tuple[str, int, int]:
+    """Choose the first-attempt (queue, cores, memoryMB) for the run job.
+
+    Only werc is memory-heavy enough to matter. If the estimated velocity peak
+    (~_BYTES_PER_ELEM * nt * npix) exceeds vm-small's usable RAM, go straight to
+    the big node. Any discovery failure falls back to vm-small (the pipeline's
+    OOM escalation still protects the run).
+    """
+    if req.pipeline != "werc":
+        return _SMALL_QUEUE
+    try:
+        frames = discovery.find_frames(req.aoi_geojson, req.min_overlap_percent)
+        frame_ids = frames.get("frame_ids", [])
+        bbox = frames.get("bbox")
+        if not frame_ids or not bbox:
+            return _SMALL_QUEUE
+        nt = discovery.search_products(frame_ids, req.start_date, req.end_date).get("product_count", 0)
+        peak_gb = _BYTES_PER_ELEM * nt * _aoi_pixels(bbox) / 1e9
+        if peak_gb > _VM_SMALL_BUDGET_GB:
+            return _BIG_QUEUE
+    except Exception:
+        pass  # discovery flaky -> default small; OOM escalation is the backstop
+    return _SMALL_QUEUE
 
 # Flat 12 h job walltime (see analysis.h2i_lab.estimate): a SLURM job frees its
 # node the moment it finishes, so the cap is a safety ceiling, not a cost, and
@@ -172,7 +219,8 @@ def _stage(client, username: str, run_id: str, req: RunRequest) -> dict:
 
 
 def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str,
-                   max_minutes: int | None = None) -> dict[str, dict]:
+                   max_minutes: int | None = None,
+                   run_queue: tuple[str, int, int] | None = None) -> dict[str, dict]:
     args: dict[str, dict] = {
         "start_date": {"value": req.start_date},
         "end_date": {"value": req.end_date},
@@ -195,6 +243,13 @@ def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str,
             "anchor_radius_m": {"value": req.anchor_radius_m},
             "n_reference_pixels": {"value": req.n_reference_pixels},
         })
+        if run_queue:
+            queue, cores, memory_mb = run_queue
+            args.update({
+                "run_queue": {"value": queue},
+                "run_cores": {"value": cores},
+                "run_memory_mb": {"value": memory_mb},
+            })
 
     if config.SUBSIDE_STAC_URL:
         args.update({
@@ -257,7 +312,8 @@ def submit_run(client, req: RunRequest) -> dict:
     pipeline_id = _pipeline_id(req.pipeline)
     run_name = f"subside-api-{pipeline_id}-{req.start_date}-{req.end_date}-{short_id}"
     max_minutes = _resolve_walltime(req)
-    run_args = _workflow_args(req, staged, allocation, token, max_minutes)
+    run_queue = _pick_run_queue(req)
+    run_args = _workflow_args(req, staged, allocation, token, max_minutes, run_queue=run_queue)
     run_uuid = _trigger_pipeline(client, req.pipeline, run_name, run_args)
     return {
         "uuid": run_uuid,

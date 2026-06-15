@@ -40,6 +40,19 @@ NETCDF_DIR="${NETCDF_DIR:-}"
 # (They need a *directory* of NetCDFs; a bare --stack file won't trigger them.)
 export WERC_TEST_NETCDF_DIR="${WERC_TEST_NETCDF_DIR:-$NETCDF_DIR}"
 
+# Fail fast with a clear message if a real-data input was given but has no data,
+# instead of a confusing "skipped" (stage 2) + late abort (stage 5).
+if [ -n "$NETCDF_DIR" ] && ! ls "$NETCDF_DIR"/*.nc >/dev/null 2>&1; then
+  echo "ERROR: NETCDF_DIR='$NETCDF_DIR' has no *.nc files (looked under $PWD)." >&2
+  echo "       Point it at a directory of OPERA DISP-S1 NetCDFs — an absolute path is safest." >&2
+  echo "       Find candidates:  find \"\$SCRATCH\" \"\$WORK\" -name '*DISP-S1*.nc' 2>/dev/null | head" >&2
+  exit 1
+fi
+if [ -n "$STACK" ] && [ ! -f "$STACK" ]; then
+  echo "ERROR: STACK='$STACK' not found (looked under $PWD). Use an absolute path." >&2
+  exit 1
+fi
+
 # Activate the conda env if it isn't already active and conda is on PATH.
 if [ "${CONDA_DEFAULT_ENV:-}" != "$CONDA_ENV" ] && command -v conda >/dev/null 2>&1; then
   # shellcheck disable=SC1091
@@ -91,7 +104,7 @@ PYCODE
 
 # 2) Velocity solver equivalence — synthetic, no data/network needed.
 echo
-echo "### 4/5  velocity solver: synthetic equivalence (closed-form vs notebook lstsq) ###"
+echo "### 4/5  velocity solver: synthetic faithfulness (shipped vs notebook lstsq) ###"
 $PY -m analysis.werc.velocity_check --synthetic --fractions "$FRACTIONS" --tol "$TOL"
 
 # 3) Velocity solver on REAL data + per-method peak memory, if a stack/dir is given.
