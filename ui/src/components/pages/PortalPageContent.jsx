@@ -97,22 +97,29 @@ function AboutPage() {
             <h2 className="about-section-title">Partner Organizations</h2>
             <div className="about-partner-grid">
               {partners.map((partner) => (
-                <a
-                  className="about-partner"
-                  key={partner.abbr || partner.name}
-                  href={partner.url || '#'}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <div className="about-partner-head">
-                    <span className="about-partner-abbr">{partner.abbr}</span>
-                    {partner.role ? <span className="about-partner-role">{partner.role}</span> : null}
-                  </div>
-                  <div className="about-partner-name">{partner.name}</div>
+                <div className="about-partner" key={partner.abbr || partner.name}>
+                  <h3 className="about-partner-name">
+                    {partner.url ? (
+                      <a href={partner.url} target="_blank" rel="noreferrer">
+                        {partner.name}
+                        {partner.abbr ? ` (${partner.abbr})` : ''}
+                      </a>
+                    ) : (
+                      <>
+                        {partner.name}
+                        {partner.abbr ? ` (${partner.abbr})` : ''}
+                      </>
+                    )}
+                  </h3>
+                  {partner.role ? (
+                    <div className="about-partner-role-row">
+                      <span className="about-partner-role">{partner.role}</span>
+                    </div>
+                  ) : null}
                   <div className="about-partner-desc">
                     <ReactMarkdown>{partner.description}</ReactMarkdown>
                   </div>
-                </a>
+                </div>
               ))}
             </div>
             <p className="about-stakeholders">

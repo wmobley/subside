@@ -32,7 +32,7 @@ export function PortalCards({ onNavigate }) {
             ))}
           </ul>
           <button
-            className={`portal-btn ${card.requiresLogin ? 'portal-btn-outline' : ''}`}
+            className="portal-btn"
             type="button"
             onClick={() => choose(card)}
           >

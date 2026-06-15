@@ -52,10 +52,15 @@ export function PortalHeader({ activePage, onPageChange }) {
 
       <div className="subside-header-main">
         <div className="subside-container subside-header-content">
-          <div className="subside-logo">
+          <button
+            type="button"
+            className="subside-logo"
+            onClick={() => onPageChange('home')}
+            aria-label="SUBSIDE Data Discovery Portal — go to homepage"
+          >
             <span className="subside-logo-badge">SUBSIDE</span>
             <span className="subside-logo-text">Data Discovery Portal</span>
-          </div>
+          </button>
 
           <nav className="subside-nav" aria-label="Primary">
             <ul className="subside-nav-links">
