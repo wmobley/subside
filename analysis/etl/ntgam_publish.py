@@ -223,11 +223,14 @@ def main() -> None:
         print(f"dataset ready: {ds.get('name')} ({ds.get('id')})")
         for r in resources:
             if r["kind"] == "cog":
-                out = tmp / f"cog_{r['src_name']}"; to_cog(wl / r["src_name"], out)
+                out = tmp / f"cog_{r['src_name']}"
+                to_cog(wl / r["src_name"], out)
             elif r["kind"] == "storativity":
-                out = tmp / "ntgam_storativity.parquet"; export_storativity(args.geodb, out)
+                out = tmp / "ntgam_storativity.parquet"
+                export_storativity(args.geodb, out)
             else:
-                out = tmp / "ntgam_dis_geometry.zip"; make_dis_zip(args.model, out)
+                out = tmp / "ntgam_dis_geometry.zip"
+                make_dis_zip(args.model, out)
             up = ckan.upload_resource(pkg["name"], str(out), item_id=ITEM_ID,
                                       name=r["name"], fmt=r["fmt"])
             ckan._action_json("resource_patch", {

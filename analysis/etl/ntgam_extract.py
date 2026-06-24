@@ -173,7 +173,7 @@ def extract(lon: float, lat: float, geodb: Path, model_ws: Path,
         "_provenance": {
             "model_cell": {"row": row, "col": col},
             "water_level_years": years,
-            "layer_thickness_ft": {LAYERS[l]: round(thk[l], 2) for l in thk},
+            "layer_thickness_ft": {LAYERS[i]: round(thk[i], 2) for i in thk},
             "from_gam": ["land_surface(DIS top)", "thickness(head points thk)",
                          "water_levels(head rasters)", "storage(gdb storativity)"],
             "from_lookup": ["lithology", "clay_type", "compressibility", "porosity", "temp", "tds"],
