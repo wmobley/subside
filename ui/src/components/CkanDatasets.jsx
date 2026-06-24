@@ -5,6 +5,7 @@ import { DatasetResults } from './datasets/DatasetResults'
 
 const EMPTY_FILTERS = {
   query: '',
+  group: '',
   format: '',
   tag: '',
   region: '',

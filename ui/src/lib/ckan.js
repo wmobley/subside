@@ -68,6 +68,7 @@ export function filterDatasets(datasets, filters) {
   const bbox = getActiveBbox(filters)
   return datasets.filter((dataset) => {
     if (queryTerms.length && !queryTerms.every((term) => dataset.searchText.includes(term))) return false
+    if (filters.group && dataset.organization !== filters.group) return false
     if (filters.format && !dataset.formats.includes(filters.format)) return false
     if (filters.tag && !dataset.tags.includes(filters.tag)) return false
     if (bbox && (!dataset.bbox || !bboxesIntersect(dataset.bbox, bbox))) return false
@@ -80,7 +81,21 @@ export function getFilterOptions(datasets) {
   return {
     formats: uniqueSorted(datasets.flatMap((dataset) => dataset.formats)),
     tags: uniqueSorted(datasets.flatMap((dataset) => dataset.tags)),
+    groups: uniqueOrganizations(datasets),
   }
+}
+
+// CKAN organizations surfaced as "Groups" in the portal UI. Keyed by org slug
+// (the filter value) with the human-readable title as the label.
+function uniqueOrganizations(datasets) {
+  const byName = new Map()
+  for (const dataset of datasets) {
+    if (!dataset.organization || byName.has(dataset.organization)) continue
+    byName.set(dataset.organization, dataset.organizationTitle || dataset.organization)
+  }
+  return [...byName.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label))
 }
 
 export function getActiveBbox(filters) {
@@ -103,6 +118,8 @@ function normalizeDataset(dataset) {
     id: dataset.id,
     name: dataset.name,
     title: dataset.title || dataset.name,
+    organization: dataset.organization?.name || '',
+    organizationTitle: dataset.organization?.title || dataset.organization?.name || '',
     notes: dataset.notes || '',
     url: `${CKAN_ORIGIN}/dataset/${dataset.name}`,
     metadataModified: dataset.metadata_modified,

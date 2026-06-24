@@ -26,6 +26,16 @@ export function DatasetFilters({
       </div>
 
       <div className="query-field">
+        <label htmlFor="ckan-group">Groups</label>
+        <select id="ckan-group" value={filters.group} onChange={(event) => onFilterChange('group', event.target.value)}>
+          <option value="">All groups</option>
+          {options.groups.map((group) => (
+            <option key={group.value} value={group.value}>{group.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="query-field">
         <label htmlFor="ckan-format">Format</label>
         <select id="ckan-format" value={filters.format} onChange={(event) => onFilterChange('format', event.target.value)}>
           <option value="">Any format</option>
