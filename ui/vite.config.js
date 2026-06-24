@@ -10,6 +10,7 @@ const CERT = './.certs/subside.local.pem'
 const https = fs.existsSync(KEY) && fs.existsSync(CERT)
   ? { key: fs.readFileSync(KEY), cert: fs.readFileSync(CERT) }
   : undefined
+const ckanTarget = process.env.VITE_CKAN_BASE || 'https://ckan.tacc.utexas.edu'
 
 export default defineConfig({
   plugins: [react()],
@@ -25,7 +26,7 @@ export default defineConfig({
       // SUBSIDE FastAPI (auth / runs / forecast / layers / tiles / availability).
       '/api/subside': 'http://127.0.0.1:8000',
       '/ckan': {
-        target: 'https://ckan.tacc.utexas.edu',
+        target: ckanTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ckan/, ''),
       },

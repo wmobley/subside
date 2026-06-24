@@ -1,6 +1,27 @@
-const CKAN_ORIGIN = 'https://ckan.tacc.utexas.edu'
+import { getConfig } from './runtimeConfig'
+
+const CKAN_ORIGIN = (getConfig('VITE_CKAN_BASE') || 'https://ckan.tacc.utexas.edu').replace(/\/$/, '')
 const CKAN_PROXY_BASE = '/ckan'
-const SUBSIDE_ORG = 'twdb-subside'
+
+// Sources to surface in the SUBSIDE portal. Each entry contributes one clause to
+// the CKAN Solr filter query. `tag` restricts an organization to datasets carrying
+// that tag (used for the shared ptdatax-software org); omit it to include the whole org.
+const SUBSIDE_SOURCES = [
+  { org: 'twdb-subside' },
+  { org: 'twdb-gams' },
+  { org: 'ptdatax-software', tag: 'subside' },
+]
+
+// Override hook: VITE_CKAN_ORG keeps the legacy single-org behaviour when set.
+const SUBSIDE_ORG = getConfig('VITE_CKAN_ORG')
+
+function buildSourcesFilter() {
+  const sources = SUBSIDE_ORG ? [{ org: SUBSIDE_ORG }] : SUBSIDE_SOURCES
+  const clauses = sources.map(({ org, tag }) =>
+    tag ? `(organization:${org} AND tags:${tag})` : `organization:${org}`,
+  )
+  return clauses.length > 1 ? clauses.join(' OR ') : clauses[0]
+}
 
 export const REGION_PRESETS = [
   { value: '', label: 'All regions', bbox: null },
@@ -14,7 +35,7 @@ export const REGION_PRESETS = [
 
 export async function fetchSubsideDatasets() {
   const params = new URLSearchParams({
-    fq: `organization:${SUBSIDE_ORG}`,
+    fq: buildSourcesFilter(),
     rows: '100',
     sort: 'metadata_modified desc',
   })

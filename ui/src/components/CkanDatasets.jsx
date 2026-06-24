@@ -79,7 +79,7 @@ export function CkanDatasets() {
       <div className="ckan-browser-head">
         <div>
           <h2>TWDB SUBSIDE Catalog</h2>
-          <p>{catalogCount || datasets.length} datasets from the CKAN `twdb-subside` organization.</p>
+          <p>{catalogCount || datasets.length} datasets from the CKAN twdb-subside and twdb-gams organizations, plus subside-tagged datasets from ptdatax-software.</p>
         </div>
         <a className="portal-btn portal-btn-outline" href="https://ckan.tacc.utexas.edu/organization/twdb-subside" target="_blank" rel="noreferrer">
           Open CKAN
