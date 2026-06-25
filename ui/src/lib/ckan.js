@@ -7,10 +7,13 @@ const CKAN_PROXY_BASE = '/ckan'
 // the CKAN Solr filter query. `tag` restricts an organization to datasets carrying
 // that tag (used for the shared ptdatax-software org); omit it to include the whole org.
 const SUBSIDE_SOURCES = [
-  { org: 'twdb-subside' },
-  { org: 'twdb-gams' },
-  { org: 'ptdatax-software', tag: 'subside' },
+  { org: 'twdb-subside', label: 'Subside' },
+  { org: 'twdb-gams', label: 'Gams' },
+  { org: 'ptdatax-software', tag: 'subside', label: 'Software' },
 ]
+
+// Friendly group labels keyed by org slug, used by the "Groups" filter dropdown.
+const SOURCE_LABELS = new Map(SUBSIDE_SOURCES.map(({ org, label }) => [org, label]))
 
 // Override hook: VITE_CKAN_ORG keeps the legacy single-org behaviour when set.
 const SUBSIDE_ORG = getConfig('VITE_CKAN_ORG')
@@ -20,7 +23,10 @@ function buildSourcesFilter() {
   const clauses = sources.map(({ org, tag }) =>
     tag ? `(organization:${org} AND tags:${tag})` : `organization:${org}`,
   )
-  return clauses.length > 1 ? clauses.join(' OR ') : clauses[0]
+  // CKAN/Solr silently ignores the filter when a bare top-level OR joins the
+  // clauses (it falls back to matching everything), so wrap the whole OR
+  // expression in a single outer group.
+  return clauses.length > 1 ? `(${clauses.join(' OR ')})` : clauses[0]
 }
 
 export const REGION_PRESETS = [
@@ -91,7 +97,8 @@ function uniqueOrganizations(datasets) {
   const byName = new Map()
   for (const dataset of datasets) {
     if (!dataset.organization || byName.has(dataset.organization)) continue
-    byName.set(dataset.organization, dataset.organizationTitle || dataset.organization)
+    const label = SOURCE_LABELS.get(dataset.organization) || dataset.organizationTitle || dataset.organization
+    byName.set(dataset.organization, label)
   }
   return [...byName.entries()]
     .map(([value, label]) => ({ value, label }))
