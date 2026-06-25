@@ -2,7 +2,7 @@
 
 ## Status
 
-In Review
+Implemented
 
 ## Objective
 
@@ -216,6 +216,39 @@ place is awkward. Plan:
   `7e38e97b-…-007` run to completion and publish its outputs manually, rather
   than cancel + resubmit. (Tracked separately from this code change.)
 
+## Implementation summary (2026-06-25)
+
+Implemented as designed. Both pipelines now route job-status polling through a
+`_get_job(job_uuid)` helper with `_is_terminal_api_error()` and
+`POLL_RETRY_DELAYS = (15, 30, 60, 120, 120, 120, 120)` (~9.5 min consecutive-
+failure tolerance, budget reset per successful poll).
+
+- `subside/tapis/workflows/pipelines/werc-opera.yaml` — helpers added before
+  `submit_and_wait`; loop now calls `job = _get_job(job_uuid)`.
+- `subside/tapis/workflows/pipelines/h2i-opera.yaml` — helpers added before the
+  inline poll loop; loop now calls `job = _get_job(job_uuid)`.
+
+Deviations from the approved design:
+- In h2i the helper's local variable is named `last_exc` (not `last`) to avoid
+  shadowing the existing `last` status-tracking variable in that task's scope.
+  Behaviour is identical.
+
+Validation performed:
+- YAML parse + `compile()` of every embedded task body in both pipelines: pass.
+- Unit test of the extracted `_get_job` helper (with `time.sleep` stubbed),
+  covering: transient-then-success (budget resets, 1 retry), budget exhausted
+  (8 attempts then re-raise), terminal auth error (immediate, no retry),
+  terminal 404/`NO_JOB` text (immediate, no retry), clean success (single call):
+  all pass.
+
+NOT yet done (external write — needs explicit approval):
+- Re-registering the pipelines so the engine picks up the new task code:
+  `python tapis/workflows/register.py --pipelines-only --recreate-pipelines`.
+  Until this runs, the live engine still uses the old (unguarded) task code.
+
 ## User feedback / decisions
 
-_(pending review of this spec)_
+- 2026-06-25: User approved implementation ("ok implement it") after reviewing
+  the spec. Open questions (retry-budget ceiling, distinct outage notification,
+  extra failure metadata) were not separately answered; implemented with the
+  spec's proposed defaults.

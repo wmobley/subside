@@ -180,6 +180,35 @@ tasks:
               },
           }
 
+      # Resilient job-status polling: a single dropped connection to the Tapis
+      # API must NOT fail a multi-hour run and orphan a healthy (queued/running)
+      # HPC job. Each poll gets its own retry budget that RESETS on every
+      # successful call, so only a *sustained* outage (budget exhausted) fails
+      # the task. Genuine terminal errors (job-not-found / auth) still fail fast.
+      POLL_RETRY_DELAYS = (15, 30, 60, 120, 120, 120, 120)  # ~9.5 min tolerance
+
+      def _is_terminal_api_error(exc):
+          name = type(exc).__name__.lower()
+          text = str(exc).lower()
+          return ("notauthorized" in name or "unauthorized" in name
+                  or "no_job" in text or "job not found" in text or "404" in text)
+
+      def _get_job(job_uuid):
+          last = None
+          for attempt, delay in enumerate((0, *POLL_RETRY_DELAYS), start=1):
+              if delay:
+                  print(f"poll {job_uuid}: retrying after {delay}s")
+                  time.sleep(delay)
+              try:
+                  return t.jobs.getJob(jobUuid=job_uuid)
+              except Exception as exc:
+                  if _is_terminal_api_error(exc):
+                      raise
+                  last = exc
+                  print(f"poll {job_uuid}: attempt {attempt} failed: "
+                        f"{type(exc).__name__}: {str(exc)[:240]}")
+          raise last
+
       def submit_and_wait(body):
           result = t.jobs.submitJob(**body)
           job_uuid = getattr(result, "uuid", None)
@@ -190,7 +219,7 @@ tasks:
                 f"mem={body['memoryMB']}MB cores={body['coresPerNode']}")
           last = ""
           while True:
-              job = t.jobs.getJob(jobUuid=job_uuid)
+              job = _get_job(job_uuid)
               status = str(getattr(job, "status", "") or "").upper()
               if status != last:
                   print(f"job {job_uuid} status={status}")
