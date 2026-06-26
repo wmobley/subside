@@ -81,7 +81,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("uuid", nargs="?", help="Pipeline run uuid. Omit (or pass --list) to list recent runs.")
     p.add_argument("--list", "-l", action="store_true", help="List recent runs (uuid/status/date) and exit.")
-    p.add_argument("--pipeline", choices=["h2i", "werc"], default="h2i")
+    p.add_argument("--pipeline", choices=list(smoke_test.PIPELINES), default="h2i")
     p.add_argument("--group", default=register.DEFAULT_GROUP)
     p.add_argument("--out", default=None, help="JSON output path (default: run-<uuid>.json next to cwd)")
     args = p.parse_args(argv)

@@ -110,10 +110,12 @@ TEST_DATA = {
 PIPELINES = {
     "h2i": "subside-h2i-opera",
     "werc": "subside-werc-opera",
+    "publish": "subside-publish",
 }
 PIPELINE_FILES = {
     "h2i": "h2i-opera.yaml",
     "werc": "werc-opera.yaml",
+    "publish": "subside-publish.yaml",
 }
 
 # Terminal run/task statuses (compared case-insensitively). Anything not in
