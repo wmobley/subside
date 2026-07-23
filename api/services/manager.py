@@ -219,6 +219,7 @@ def _stage(client, username: str, run_id: str, req: RunRequest) -> dict:
 
 
 def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str,
+                   username: str = "",
                    max_minutes: int | None = None,
                    run_queue: tuple[str, int, int] | None = None) -> dict[str, dict]:
     args: dict[str, dict] = {
@@ -259,6 +260,9 @@ def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str,
             "ckan_token": {"value": _ckan_auth_token(config.SUBSIDE_CKAN_TOKEN or token)},
             "stac_url": {"value": config.SUBSIDE_STAC_URL},
             "stac_token": {"value": config.SUBSIDE_STAC_TOKEN or token},
+            # Who to credit as the CKAN dataset's "author" -- the logged-in
+            # SUBSIDE user who submitted this run, not a fixed service contact.
+            "submitter_username": {"value": username},
         })
     return args
 
@@ -306,14 +310,19 @@ def submit_run(client, req: RunRequest) -> dict:
     if not token:
         raise ValueError("Could not resolve the caller's Tapis token for the workflow run.")
 
-    username = getattr(client, "username", None) or "user"
+    # Fall back to the "user" placeholder for the staging path only (it can't
+    # be empty); the CKAN author arg gets the real claim or "" so
+    # _dataset_payload's own fallback (not the literal word "user") applies.
+    real_username = getattr(client, "username", None) or ""
+    username = real_username or "user"
     short_id = uuid.uuid4().hex[:12]
     staged = _stage(client, username, short_id, req)
     pipeline_id = _pipeline_id(req.pipeline)
     run_name = f"subside-api-{pipeline_id}-{req.start_date}-{req.end_date}-{short_id}"
     max_minutes = _resolve_walltime(req)
     run_queue = _pick_run_queue(req)
-    run_args = _workflow_args(req, staged, allocation, token, max_minutes, run_queue=run_queue)
+    run_args = _workflow_args(req, staged, allocation, token, username=real_username,
+                              max_minutes=max_minutes, run_queue=run_queue)
     run_uuid = _trigger_pipeline(client, req.pipeline, run_name, run_args)
     return {
         "uuid": run_uuid,

@@ -41,6 +41,7 @@ params:
   update_conda_env:    {type: string, default: "false"}
   tapis_base_url:      {type: string, default: "https://portals.tapis.io"}
   tapis_token:         {type: string, required: true, description: "User Tapis bearer token used by hosted function tasks"}
+  submitter_username:  {type: string, default: "", required: false, description: "SUBSIDE username who submitted this run (used as the CKAN dataset author)"}
   # --- First-attempt queue. The API predicts this from nt × AOI-pixels and sends
   #     "normal" up front for big jobs (skipping a doomed vm-small attempt); it
   #     defaults to vm-small (32 GB) for everything else / non-API triggers. ---
@@ -401,6 +402,7 @@ tasks:
     input:
       TAPIS_BASE_URL: {type: string, value_from: {args: tapis_base_url}}
       TAPIS_TOKEN:    {type: string, value_from: {args: tapis_token}}
+      SUBMITTER_USERNAME: {type: string, value_from: {args: submitter_username}}
       ARCHIVE_URI: {type: string, value_from: {task_output: {task_id: run, output_id: archive}}}
       COLLECTION:  {type: string, value_from: {args: stac_collection}}
       ITEM_ID:     {type: string, value_from: {args: stac_item_id}}
@@ -618,8 +620,9 @@ tasks:
               ]],
           })
 
-      def _dataset_payload(collection, org, manifest):
+      def _dataset_payload(collection, org, manifest, submitter_username=""):
           cfg = manifest.get("config") or {}
+          submitter_username = str(submitter_username or "").strip()
           payload = {
               "name": collection,
               "title": "SUBSIDE OPERA Subsidence Products",
@@ -632,8 +635,11 @@ tasks:
               "owner_org": org,
               "private": False,
               "license_id": "cc-by",
-              "author": "William Mobley",
-              "author_email": "wmobley@tacc.utexas.edu",
+              # Credit the SUBSIDE user who submitted this run; fall back to the
+              # project contact when no submitter identity was passed through
+              # (e.g. the subside-publish recovery pipeline run manually).
+              "author": submitter_username or "William Mobley",
+              "author_email": "" if submitter_username else "wmobley@tacc.utexas.edu",
               "maintainer": "William Mobley",
               "maintainer_email": "wmobley@tacc.utexas.edu",
               "tags": [
@@ -1033,7 +1039,10 @@ tasks:
               url=str(val("CKAN_URL", "https://ckan.tacc.utexas.edu")),
               token=ckan_token,
               org=str(val("CKAN_ORG", "tacc-water")),
-              dataset_meta=_dataset_payload(collection_id, str(val("CKAN_ORG", "tacc-water")), manifest),
+              dataset_meta=_dataset_payload(
+                  collection_id, str(val("CKAN_ORG", "tacc-water")), manifest,
+                  submitter_username=str(val("SUBMITTER_USERNAME", "")),
+              ),
               tapis_urls=tapis_urls,
               resource_meta=resource_meta,
               manifest=manifest,

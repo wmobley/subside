@@ -18,6 +18,11 @@ params:
     type: string
     required: true
     description: Owner's Tapis bearer token (reads the archive + authors CKAN/STAC writes).
+  submitter_username:
+    type: string
+    default: ''
+    required: false
+    description: SUBSIDE username who submitted the original run (used as the CKAN dataset author).
   manifest_name:
     type: string
     default: ''
@@ -334,6 +339,10 @@ tasks:
       type: string
       value_from:
         args: tapis_token
+    SUBMITTER_USERNAME:
+      type: string
+      value_from:
+        args: submitter_username
     ARCHIVE_URI:
       type: string
       value_from:
@@ -595,8 +604,9 @@ tasks:
             ]],
         })
 
-    def _dataset_payload(collection, org, manifest):
+    def _dataset_payload(collection, org, manifest, submitter_username=""):
         cfg = manifest.get("config") or {}
+        submitter_username = str(submitter_username or "").strip()
         payload = {
             "name": collection,
             "title": "SUBSIDE OPERA Subsidence Products",
@@ -609,8 +619,11 @@ tasks:
             "owner_org": org,
             "private": False,
             "license_id": "cc-by",
-            "author": "William Mobley",
-            "author_email": "wmobley@tacc.utexas.edu",
+            # Credit the SUBSIDE user who submitted the original run; fall back
+            # to the project contact when no submitter identity is available
+            # (this recovery pipeline is often run manually by an operator).
+            "author": submitter_username or "William Mobley",
+            "author_email": "" if submitter_username else "wmobley@tacc.utexas.edu",
             "maintainer": "William Mobley",
             "maintainer_email": "wmobley@tacc.utexas.edu",
             "tags": [
@@ -1010,7 +1023,10 @@ tasks:
             url=str(val("CKAN_URL", "https://ckan.tacc.utexas.edu")),
             token=ckan_token,
             org=str(val("CKAN_ORG", "tacc-water")),
-            dataset_meta=_dataset_payload(collection_id, str(val("CKAN_ORG", "tacc-water")), manifest),
+            dataset_meta=_dataset_payload(
+                collection_id, str(val("CKAN_ORG", "tacc-water")), manifest,
+                submitter_username=str(val("SUBMITTER_USERNAME", "")),
+            ),
             tapis_urls=tapis_urls,
             resource_meta=resource_meta,
             manifest=manifest,
