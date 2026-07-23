@@ -15,13 +15,40 @@ import glob
 from analysis.etl.archive import archive_results  # noqa: F401  re-exported
 
 
+def _displacement_is_valid(netcdf_path: str | Path) -> bool:
+    """True if the displacement band has at least one finite (non-nodata) pixel."""
+
+    import numpy as np
+    import rioxarray as rxr
+
+    data = rxr.open_rasterio(netcdf_path)
+    disp = data["displacement"].sel(band=1)
+    return bool(np.isfinite(disp.values).any())
+
+
 def latest_netcdf(results_path: str | Path) -> Path:
-    """Return the last NetCDF product in the results directory."""
+    """Return the most recent NetCDF product with usable displacement data.
+
+    Candidates are tried newest-first (by filename sort, as before). Frames are
+    downloaded and AOI-cropped independently, so one frame's cropped product can
+    land entirely on nodata for a given date even though the frame passed the
+    overlap gate — skip that candidate in favor of the next most recent one
+    instead of silently propagating an all-NaN band into the preview/COG.
+    """
 
     files = sorted(Path(path) for path in glob.glob(str(Path(results_path) / "*.nc")))
     if not files:
         raise FileNotFoundError(f"No NetCDF files found under {results_path}")
-    return files[-1]
+
+    for candidate in reversed(files):
+        if _displacement_is_valid(candidate):
+            return candidate
+        print(f"Skipping {candidate.name}: displacement band is entirely nodata over the AOI")
+
+    raise RuntimeError(
+        f"No NetCDF product under {results_path} has valid displacement data over the AOI "
+        f"(checked {len(files)} file(s))."
+    )
 
 
 def make_displacement_overlay_png(netcdf_path: str | Path, output_png: str | Path) -> dict[str, float]:
