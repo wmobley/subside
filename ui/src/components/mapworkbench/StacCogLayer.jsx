@@ -31,11 +31,13 @@ function viridis(t) {
   return `rgb(${c[0]},${c[1]},${c[2]})`
 }
 
-export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, onError }) {
+export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, onContextMenu, onError }) {
   const map = useMap()
   const onClickRef = useRef(onClick)
+  const onContextMenuRef = useRef(onContextMenu)
   const onErrorRef = useRef(onError)
   onClickRef.current = onClick
+  onContextMenuRef.current = onContextMenu
   onErrorRef.current = onError
 
   useEffect(() => {
@@ -58,7 +60,7 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
         layer = new GeoRasterLayer({
           georaster,
           opacity,
-          interactive: Boolean(onClickRef.current),
+          interactive: Boolean(onClickRef.current || onContextMenuRef.current),
           resolution: 256,
           pixelValuesToColorFn: (values) => {
             const v = values[0]
@@ -68,6 +70,12 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
         })
         if (onClickRef.current) {
           layer.on('click', (event) => onClickRef.current?.(event))
+        }
+        if (onContextMenuRef.current) {
+          layer.on('contextmenu', (event) => {
+            event.originalEvent?.preventDefault?.()
+            onContextMenuRef.current?.(event)
+          })
         }
         layer.addTo(map)
         if (fit) {

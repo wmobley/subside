@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import { CircleMarker, ImageOverlay, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 
 import { itemLayers, itemMeta, overlayHref, searchItems, stacEnabled } from '../../lib/stacApi'
+import { RunActionsMenu } from './RunActionsMenu'
 import { StacCogLayer } from './StacCogLayer'
 
 // Cap rendered runs per category per viewport so a dense area can't fire an
@@ -192,6 +193,10 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
   const [items, setItems] = useState([])
   const [error, setError] = useState(null)
   const [selection, setSelection] = useState(null)
+  // The open "..." actions menu (Download / Zoom In) for one run, if any --
+  // shared between the Layers panel's kebab button and a right-click on the
+  // rendered layer, so both trigger the identical menu/behavior.
+  const [actionsMenu, setActionsMenu] = useState(null)
   // Off by default so the map stays clean; the counts show what's available.
   const [showDisplacement, setShowDisplacement] = useState(false)
   const [showVelocity, setShowVelocity] = useState(false)
@@ -235,6 +240,31 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
     setSelection({ item, kind, latlng: latlng || map.getCenter(), onClose: () => setSelection(null) })
   }
 
+  // Opens the shared "..." actions menu at a screen point (viewport px), from
+  // either the kebab button's own bounding rect or a right-click's clientX/Y.
+  const openActionsMenu = (item, kind, point) => {
+    setActionsMenu({ item, kind, top: point.y, left: point.x })
+  }
+  const closeActionsMenu = () => setActionsMenu(null)
+
+  const openActionsMenuFromClick = (event, item, kind) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    openActionsMenu(item, kind, { x: rect.left, y: rect.bottom + 4 })
+  }
+
+  const openActionsMenuFromContextMenu = (event, item, kind) => {
+    event.originalEvent?.preventDefault?.()
+    const native = event.originalEvent
+    openActionsMenu(item, kind, { x: native?.clientX ?? 0, y: native?.clientY ?? 0 })
+  }
+
+  const zoomToRun = (item) => {
+    if (!hasBbox(item)) return
+    map.fitBounds(bboxToBounds(item.bbox))
+  }
+
   // The renderable layer for a run: displacement prefers the cheap overlay PNG,
   // else its COG; velocity is the velocity COG (cloud-optimized, streamed).
   const renderRun = (it, kind) => {
@@ -247,25 +277,48 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
             bounds={bboxToBounds(it.bbox)}
             opacity={0.6}
             interactive
-            eventHandlers={{ click: (event) => selectRun(it, kind, event.latlng) }}
+            eventHandlers={{
+              click: (event) => selectRun(it, kind, event.latlng),
+              contextmenu: (event) => openActionsMenuFromContextMenu(event, it, kind),
+            }}
           />
         )
       }
       const cog = itemLayers(it).find((l) => l.type === 'cog')
-      return cog ? <StacCogLayer key={it.id} href={cog.href} range={cog.range} opacity={0.65} fit={false} onClick={(event) => selectRun(it, kind, event.latlng)} /> : null
+      return cog ? (
+        <StacCogLayer
+          key={it.id}
+          href={cog.href}
+          range={cog.range}
+          opacity={0.65}
+          fit={false}
+          onClick={(event) => selectRun(it, kind, event.latlng)}
+          onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
+        />
+      ) : null
     }
     const vel = itemLayers(it).find((l) => l.key === 'velocity') || itemLayers(it).find((l) => l.type === 'cog')
     if (!vel) return null
     const ref = itemMeta(it).reference
     return (
       <Fragment key={it.id}>
-        <StacCogLayer href={vel.href} range={vel.range} opacity={0.65} fit={false} onClick={(event) => selectRun(it, kind, event.latlng)} />
+        <StacCogLayer
+          href={vel.href}
+          range={vel.range}
+          opacity={0.65}
+          fit={false}
+          onClick={(event) => selectRun(it, kind, event.latlng)}
+          onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
+        />
         {ref ? (
           <CircleMarker
             center={[ref.lat, ref.lon]}
             radius={6}
             pathOptions={{ color: '#111', weight: 2, fillColor: '#fde725', fillOpacity: 1 }}
-            eventHandlers={{ click: (event) => selectRun(it, kind, event.latlng) }}
+            eventHandlers={{
+              click: (event) => selectRun(it, kind, event.latlng),
+              contextmenu: (event) => openActionsMenuFromContextMenu(event, it, kind),
+            }}
           >
             <Tooltip>
               Static reference{ref.mode ? ` (${ref.mode})` : ''}: {ref.lat.toFixed(5)}, {ref.lon.toFixed(5)}
@@ -287,6 +340,14 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
           <label key={it.id} className="slp-row slp-run-row">
             <input type="checkbox" checked={!hiddenIds.has(it.id)} onChange={() => toggleRun(it.id)} />
             <span className="slp-name">{runRowLabel(it, kind)}</span>
+            <button
+              type="button"
+              className="slp-run-actions-btn"
+              aria-label="Run actions"
+              onClick={(event) => openActionsMenuFromClick(event, it, kind)}
+            >
+              ⋮
+            </button>
           </label>
         ))}
         {runs.length > MAX_RUNS ? (
@@ -327,6 +388,16 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
       {showDisplacement && dispRuns.slice(0, MAX_RUNS).filter((it) => !hiddenIds.has(it.id)).map((it) => renderRun(it, 'displacement'))}
       {showVelocity && velocityRuns.slice(0, MAX_RUNS).filter((it) => !hiddenIds.has(it.id)).map((it) => renderRun(it, 'velocity'))}
       <RunDetailsPopup selection={selection} onUseBbox={onUseBboxForAnalysis} />
+      {actionsMenu ? (
+        <RunActionsMenu
+          top={actionsMenu.top}
+          left={actionsMenu.left}
+          downloadHref={runLayer(actionsMenu.item, actionsMenu.kind)?.href || null}
+          downloadName={runLayer(actionsMenu.item, actionsMenu.kind)?.label || null}
+          onZoomIn={hasBbox(actionsMenu.item) ? () => zoomToRun(actionsMenu.item) : null}
+          onClose={closeActionsMenu}
+        />
+      ) : null}
       {panelHost ? createPortal(panelContent, panelHost) : null}
     </>
   )
