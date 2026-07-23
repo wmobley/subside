@@ -11,3 +11,4 @@ pyproj
 scipy
 rioxarray
 rasterio
+requests
