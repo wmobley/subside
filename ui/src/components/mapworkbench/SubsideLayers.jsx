@@ -19,6 +19,7 @@ import { useMap } from 'react-leaflet'
 import { useAuth } from '../../lib/auth'
 import { listContextLayers } from '../../lib/stacContext'
 import { ContextLayer } from './ContextLayer'
+import { RunActionsMenu } from './RunActionsMenu'
 
 // Resolve a layer's default-on state against auth: `visible_when` (authed/anon/
 // always/never) wins; otherwise the plain `default_visible` boolean applies.
@@ -54,6 +55,11 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
   const [catalog, setCatalog] = useState([]) // all vector layers, from STAC (or fallback)
   const [enabled, setEnabled] = useState(() => new Set())
   const [error, setError] = useState('')
+  // Per-layer transparency override, keyed by layer id; layers not present here
+  // render at their catalog-provided (or default) opacity. Opened via the "..."
+  // kebab on each row (actionsMenu holds which layer's popover is open).
+  const [opacityById, setOpacityById] = useState(() => new Map())
+  const [actionsMenu, setActionsMenu] = useState(null)
 
   // Leaflet control container the panel is portalled into.
   const [controlEl] = useState(() => {
@@ -129,6 +135,17 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
     })
   }
 
+  const setLayerOpacity = (id, value) => {
+    setOpacityById((current) => new Map(current).set(id, value))
+  }
+
+  const openLayerActionsMenu = (event, id) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    setActionsMenu({ id, top: rect.bottom + 4, left: rect.left })
+  }
+
   // Panel rows, grouped by `group`. Consolidate by group name (not just when the
   // group changes between consecutive items) so each group renders one header even
   // when the catalog interleaves groups (STAC item order isn't group-contiguous).
@@ -151,6 +168,14 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
           <span className="slp-swatch" style={{ background: layer.color }} />
           <span className="slp-name">{layer.label}</span>
           {layer.featureCount != null ? <span className="slp-count">{layer.featureCount}</span> : null}
+          <button
+            type="button"
+            className="slp-row-actions-btn"
+            aria-label={`${layer.label} layer actions`}
+            onClick={(event) => openLayerActionsMenu(event, layer.id)}
+          >
+            ⋮
+          </button>
         </label>
       ))}
     </div>
@@ -168,12 +193,14 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
     </div>
   )
 
+  const activeMenuLayer = actionsMenu ? catalog.find((l) => l.id === actionsMenu.id) : null
+
   return (
     <>
       {catalog.filter((l) => enabled.has(l.id)).map((layer) => (
         <ContextLayer
           key={layer.id}
-          layer={layer}
+          layer={{ ...layer, opacity: opacityById.get(layer.id) ?? layer.opacity ?? 1 }}
           onError={setError}
           onFeatureClick={handleFeatureClick}
           // On reference-candidate layers, let a click offer "use as velocity
@@ -184,6 +211,17 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
         />
       ))}
       {createPortal(panel, controlEl)}
+      {actionsMenu ? (
+        <RunActionsMenu
+          top={actionsMenu.top}
+          left={actionsMenu.left}
+          showDownload={false}
+          showZoomIn={false}
+          opacity={opacityById.get(actionsMenu.id) ?? activeMenuLayer?.opacity ?? 1}
+          onOpacityChange={(value) => setLayerOpacity(actionsMenu.id, value)}
+          onClose={() => setActionsMenu(null)}
+        />
+      ) : null}
     </>
   )
 }

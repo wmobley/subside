@@ -8,7 +8,7 @@
 //
 // The layer config shape is produced by lib/stacContext.js. Adding a new context
 // layer is a STAC Item registration — no change here.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { GeoJSON, TileLayer, WMSTileLayer } from 'react-leaflet'
 
 import { ReferenceFeatureServer, ReferenceGeoJSON } from './ReferenceLayers'
@@ -17,17 +17,28 @@ import { VectorTileLayer } from './VectorTileLayer'
 // Turn a layer's style hint ({color, fillColor, fillOpacity, weight, radius,
 // geomType}) into a VectorGrid style function, picking sensible per-geometry
 // defaults — mirrors SubsideLayers' built-in MVT styling.
-function vectorGridStyle(style, fallbackColor) {
+//
+// `opacityRef` is read live on every tile draw (not captured at creation time):
+// Leaflet.VectorGrid has no layer-level setOpacity, so the transparency slider
+// works by mutating this ref and bumping `styleVersion` (see below) to force a
+// redraw — the frozen style function then picks up the new value.
+function vectorGridStyle(style, fallbackColor, opacityRef) {
   const s = style || {}
   const color = s.color || fallbackColor
   const geom = s.geomType || ''
   if (/line/i.test(geom)) {
-    return () => ({ weight: s.weight ?? 2, color })
+    return () => ({ weight: s.weight ?? 2, color, opacity: opacityRef.current })
   }
   if (/point/i.test(geom)) {
-    return () => ({ radius: s.radius ?? 4, color, fill: true, fillColor: s.fillColor || color, fillOpacity: s.fillOpacity ?? 0.8 })
+    return () => ({
+      radius: s.radius ?? 4, color, fill: true, fillColor: s.fillColor || color,
+      opacity: opacityRef.current, fillOpacity: (s.fillOpacity ?? 0.8) * opacityRef.current,
+    })
   }
-  return () => ({ weight: s.weight ?? 1, color, fill: true, fillColor: s.fillColor || color, fillOpacity: s.fillOpacity ?? 0.15 })
+  return () => ({
+    weight: s.weight ?? 1, color, fill: true, fillColor: s.fillColor || color,
+    opacity: opacityRef.current, fillOpacity: (s.fillOpacity ?? 0.15) * opacityRef.current,
+  })
 }
 
 // Plain remote GeoJSON (no aquifer name-scale): single-color, from the style hint.
@@ -61,6 +72,11 @@ export function ContextLayer({ layer, onError, onFeatureClick, onPickReference }
   const { service, href } = layer
   const opacity = layer.opacity ?? 1
 
+  // Stable across renders (unlike the style function itself, which VectorGrid
+  // freezes at layer-creation time) — see vectorGridStyle's comment above.
+  const mvtOpacityRef = useRef(opacity)
+  mvtOpacityRef.current = opacity
+
   if (service === 'wms') {
     return (
       <WMSTileLayer
@@ -88,7 +104,7 @@ export function ContextLayer({ layer, onError, onFeatureClick, onPickReference }
 
   if (service === 'mvt') {
     const keys = layer.sourceLayers && layer.sourceLayers.length ? layer.sourceLayers : [layer.id]
-    const styleFn = vectorGridStyle(layer.style, layer.color)
+    const styleFn = vectorGridStyle(layer.style, layer.color, mvtOpacityRef)
     const vectorTileLayerStyles = Object.fromEntries(keys.map((k) => [k, styleFn]))
     return (
       <VectorTileLayer
@@ -96,6 +112,7 @@ export function ContextLayer({ layer, onError, onFeatureClick, onPickReference }
         vectorTileLayerStyles={vectorTileLayerStyles}
         onFeatureClick={onFeatureClick}
         maxNativeZoom={layer.maxZoom || 14}
+        styleVersion={opacity}
       />
     )
   }
@@ -122,7 +139,7 @@ export function ContextLayer({ layer, onError, onFeatureClick, onPickReference }
   // geojson: aquifer-style multi-color rendering when a `kind` is present
   // (preserves the prior look); otherwise a plain single-color GeoJSON.
   if (layer.kind) {
-    return <ReferenceGeoJSON url={href} kind={layer.kind} onError={onError} />
+    return <ReferenceGeoJSON url={href} kind={layer.kind} opacity={opacity} onError={onError} />
   }
   return (
     <PlainGeoJSON url={href} style={layer.style} color={layer.color} opacity={layer.opacity} onError={onError} />

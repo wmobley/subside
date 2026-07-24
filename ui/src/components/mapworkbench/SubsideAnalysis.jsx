@@ -78,7 +78,7 @@ function layerContext(layer, meta) {
       windowLabel: 'Rate fit over',
       window,
       reference,
-      sign: 'Negative = moving away from the satellite (typically subsidence); positive = uplift. Measured relative to the static reference point below.',
+      sign: 'Negative = moving away from the satellite (subsidence, i.e. sinking faster); positive = moving toward it (uplift, i.e. rising). Measured relative to the static reference point below.',
     }
   }
   if (key === 'cumulative' || key === 'cog' || /cumulative|displacement/i.test(layer.label || '')) {
@@ -88,7 +88,7 @@ function layerContext(layer, meta) {
       windowLabel: 'Accumulated',
       window,
       reference,
-      sign: 'Negative = motion away from the satellite (subsidence).',
+      sign: 'Negative = motion away from the satellite (subsidence, i.e. more sinking); positive = motion toward it (uplift, i.e. less sinking).',
     }
   }
   return { what: layer.label, unit: layer.unit || '', windowLabel: 'Window', window, reference, sign: null }

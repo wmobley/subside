@@ -1710,6 +1710,40 @@ button {
   background: none;
 }
 
+.slp-run-actions-opacity {
+  cursor: default;
+}
+
+.slp-run-actions-opacity-label {
+  display: block;
+  font-size: 11px;
+  color: var(--tacc-text-medium);
+  margin-bottom: 2px;
+}
+
+.slp-run-actions-opacity input[type='range'] {
+  width: 100%;
+}
+
+/* "..." kebab button on a catalog layer row or group toggle row (same look as
+   the per-run kebab, but sits inline in a .slp-row rather than a run sub-row). */
+.slp-row-actions-btn {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--tacc-text-medium);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.slp-row-actions-btn:hover {
+  background: var(--tacc-gray-light);
+  color: var(--tacc-text-dark);
+}
+
 .slp-legend {
   margin-top: 8px;
   padding-top: 8px;
@@ -1746,6 +1780,12 @@ button {
   margin-top: 1px;
   font-size: 10px;
   color: var(--tacc-text-medium);
+}
+
+.slp-raster-legend-sign {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--tacc-text-light);
 }
 
 .slp-stats {

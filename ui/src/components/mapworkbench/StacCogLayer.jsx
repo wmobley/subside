@@ -36,14 +36,24 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
   const onClickRef = useRef(onClick)
   const onContextMenuRef = useRef(onContextMenu)
   const onErrorRef = useRef(onError)
+  const layerRef = useRef(null)
   onClickRef.current = onClick
   onContextMenuRef.current = onContextMenu
   onErrorRef.current = onError
+
+  // The GeoRasterLayer is imperative and only built once per `href` (below); a
+  // later opacity change (e.g. the transparency slider) needs to reach the
+  // already-created layer directly rather than waiting for a rebuild.
+  useEffect(() => {
+    layerRef.current?.setOpacity(opacity)
+  }, [opacity])
 
   useEffect(() => {
     if (!href) return undefined
     let layer
     let cancelled = false
+    let retryTimeout = null
+    let retriesLeft = 3
     loadGeoraster()
       // Pass the URL (not an ArrayBuffer): georaster opens the COG with
       // geotiff.fromUrl, probes for an `.ovr` overview, parses only the header,
@@ -77,7 +87,20 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
             onContextMenuRef.current?.(event)
           })
         }
+        // Individual tiles can fail on transient range-request errors against
+        // the remote COG (e.g. a burst of concurrent tile fetches). Leaflet
+        // leaves those tiles blank with no retry of its own, so debounce a
+        // bounded redraw to recover them once the burst subsides.
+        layer.on('tileerror', () => {
+          if (cancelled || retriesLeft <= 0 || retryTimeout) return
+          retryTimeout = setTimeout(() => {
+            retryTimeout = null
+            retriesLeft -= 1
+            if (!cancelled) layer.redraw()
+          }, 1000)
+        })
         layer.addTo(map)
+        layerRef.current = layer
         if (fit) {
           try { map.fitBounds(layer.getBounds()) } catch { /* ignore */ }
         }
@@ -86,7 +109,9 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
 
     return () => {
       cancelled = true
+      if (retryTimeout) clearTimeout(retryTimeout)
       if (layer) map.removeLayer(layer)
+      layerRef.current = null
     }
   }, [map, href]) // eslint-disable-line react-hooks/exhaustive-deps
 

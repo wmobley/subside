@@ -77,6 +77,9 @@ function runRowLabel(item, kind) {
   return win + ref
 }
 
+// LOS convention shared by both product types: negative = moving away from the
+// satellite (subsidence/sinking); positive = moving toward it (uplift). See
+// SubsideAnalysis.jsx's layerContext() for the same wording in the run-detail view.
 function RasterLegend({ range, fallbackUnit }) {
   return (
     <div className="slp-raster-legend">
@@ -86,6 +89,7 @@ function RasterLegend({ range, fallbackUnit }) {
         <span>{range?.unit || fallbackUnit || ''}</span>
         <span>{range ? legendValue(range.max) : 'high'}</span>
       </div>
+      <div className="slp-raster-legend-sign">Negative = subsidence (sinking) · Positive = uplift</div>
     </div>
   )
 }
@@ -200,6 +204,15 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
   // Off by default so the map stays clean; the counts show what's available.
   const [showDisplacement, setShowDisplacement] = useState(false)
   const [showVelocity, setShowVelocity] = useState(false)
+  // Per-group transparency, applied to every run rendered under that group (the
+  // group is the "layer" as far as the Layers panel is concerned; individual
+  // runs within it don't get their own override). Defaults match the previous
+  // hardcoded per-kind opacity.
+  const [displacementOpacity, setDisplacementOpacity] = useState(0.6)
+  const [velocityOpacity, setVelocityOpacity] = useState(0.65)
+  // The open "..." actions menu for a group toggle row (Transparency only),
+  // separate from `actionsMenu` (per-run Download/Zoom In/Transparency) below.
+  const [groupActionsMenu, setGroupActionsMenu] = useState(null)
   // Per-run visibility: a group's master toggle reveals individual run rows, all
   // ON by default (so "see overlap" still works); this set holds the runs the user
   // has explicitly hidden. Tracking the *hidden* set (not the shown set) means runs
@@ -260,6 +273,13 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
     openActionsMenu(item, kind, { x: native?.clientX ?? 0, y: native?.clientY ?? 0 })
   }
 
+  const openGroupActionsMenu = (event, kind) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    setGroupActionsMenu({ kind, top: rect.bottom + 4, left: rect.left })
+  }
+
   const zoomToRun = (item) => {
     if (!hasBbox(item)) return
     map.fitBounds(bboxToBounds(item.bbox))
@@ -275,7 +295,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
             key={it.id}
             url={overlayHref(it)}
             bounds={bboxToBounds(it.bbox)}
-            opacity={0.6}
+            opacity={displacementOpacity}
             interactive
             eventHandlers={{
               click: (event) => selectRun(it, kind, event.latlng),
@@ -290,7 +310,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
           key={it.id}
           href={cog.href}
           range={cog.range}
-          opacity={0.65}
+          opacity={displacementOpacity}
           fit={false}
           onClick={(event) => selectRun(it, kind, event.latlng)}
           onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
@@ -305,7 +325,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
         <StacCogLayer
           href={vel.href}
           range={vel.range}
-          opacity={0.65}
+          opacity={velocityOpacity}
           fit={false}
           onClick={(event) => selectRun(it, kind, event.latlng)}
           onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
@@ -368,6 +388,14 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
         <span className="slp-swatch" style={{ background: '#406d68' }} />
         <span className="slp-name">Displacement</span>
         <span className="slp-count">{dispRuns.length}</span>
+        <button
+          type="button"
+          className="slp-row-actions-btn"
+          aria-label="Displacement layer actions"
+          onClick={(event) => openGroupActionsMenu(event, 'displacement')}
+        >
+          ⋮
+        </button>
       </label>
       {showDisplacement ? <RasterLegend range={displacementLegend} fallbackUnit="m" /> : null}
       {showDisplacement ? runRows(dispRuns, 'displacement') : null}
@@ -376,6 +404,14 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
         <span className="slp-swatch" style={{ background: '#7c3aed' }} />
         <span className="slp-name">Subsidence Velocity</span>
         <span className="slp-count">{velocityRuns.length}</span>
+        <button
+          type="button"
+          className="slp-row-actions-btn"
+          aria-label="Subsidence Velocity layer actions"
+          onClick={(event) => openGroupActionsMenu(event, 'velocity')}
+        >
+          ⋮
+        </button>
       </label>
       {showVelocity ? <RasterLegend range={velocityLegend} fallbackUnit="mm/yr" /> : null}
       {showVelocity ? runRows(velocityRuns, 'velocity') : null}
@@ -396,6 +432,17 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
           downloadName={runLayer(actionsMenu.item, actionsMenu.kind)?.label || null}
           onZoomIn={hasBbox(actionsMenu.item) ? () => zoomToRun(actionsMenu.item) : null}
           onClose={closeActionsMenu}
+        />
+      ) : null}
+      {groupActionsMenu ? (
+        <RunActionsMenu
+          top={groupActionsMenu.top}
+          left={groupActionsMenu.left}
+          showDownload={false}
+          showZoomIn={false}
+          opacity={groupActionsMenu.kind === 'displacement' ? displacementOpacity : velocityOpacity}
+          onOpacityChange={groupActionsMenu.kind === 'displacement' ? setDisplacementOpacity : setVelocityOpacity}
+          onClose={() => setGroupActionsMenu(null)}
         />
       ) : null}
       {panelHost ? createPortal(panelContent, panelHost) : null}
