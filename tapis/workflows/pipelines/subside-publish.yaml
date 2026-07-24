@@ -406,6 +406,7 @@ tasks:
     from owe_python_sdk.runtime import execution_context as ctx
     from tapipy.tapis import Tapis
     from stacmap.ckan import dataset_name
+    from stacmap.geocode import resolve_location
     from stacmap.manifest import parse_manifest
     from stacmap.publish import publish_from_dir
     from stacmap.stac_client import StacClient
@@ -1040,6 +1041,7 @@ tasks:
                 files_dir=tmpdir,
                 ckan=ckan_client,
                 stac_client=stac_client,
+                resolve_location=resolve_location,
             )
             _annotate_stac_assets(item, ckan_client)
             stac_client.upsert_item(collection_id, item)

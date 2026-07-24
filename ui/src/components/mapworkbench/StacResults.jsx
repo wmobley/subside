@@ -68,13 +68,32 @@ function formatBbox(bbox) {
   return values.map((v) => v.toFixed(5)).join(', ')
 }
 
-// Identify one run in the per-run toggle list: its date window, plus the
-// reference mode for velocity runs (so overlapping runs are distinguishable).
+// Publisher item ids look like `subside-{pipeline}-{start}-{end}-{uuid}-{jobSuffix}`
+// (e.g. `subside-werc-2025-06-01-2025-09-01-17482688-525b-4e67-8b0d-52d29964626c-007`).
+// Pulls the same `<short-uuid>-<jobSuffix>` disambiguator CKAN already shows in its
+// resource titles ("... - run 17482688-007"), so the two stay consistent.
+const RUN_ID_RE = /^subside-[a-z0-9]+-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}-([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-(\d+)$/i
+function runIdSuffix(item) {
+  const m = RUN_ID_RE.exec(item.id || '')
+  return m ? `${m[1]}-${m[2]}` : null
+}
+
+// Identify one run in the per-run toggle list: its date window, location (if
+// resolved at publish time), frame(s), and run id (so runs sharing a date
+// window — reprocessing passes, alternate framing — are still distinguishable),
+// plus the reference mode for velocity runs. Location is a readability aid, not
+// a disambiguator: it's the run id that guarantees uniqueness.
 function runRowLabel(item, kind) {
   const m = itemMeta(item)
   const win = m.start ? `${m.start.slice(0, 10)} → ${(m.end || '').slice(0, 10) || '—'}` : (item.id || 'run')
+  const loc = m.location ? ` · ${m.location}` : ''
+  const frames = m.frameIds?.length
+    ? ` · ${m.frameIds.length > 1 ? 'Frames' : 'Frame'} ${m.frameIds.join(', ')}`
+    : ''
+  const runId = runIdSuffix(item)
+  const run = runId ? ` · run ${runId}` : ''
   const ref = kind === 'velocity' && m.reference?.mode ? ` · ref ${m.reference.mode}` : ''
-  return win + ref
+  return win + loc + frames + run + ref
 }
 
 // LOS convention shared by both product types: negative = moving away from the
@@ -151,6 +170,12 @@ function RunDetailsPopup({ selection, onUseBbox }) {
               <dd>{meta.start.slice(0, 10)} → {(meta.end || '').slice(0, 10) || '—'}</dd>
             </div>
           ) : null}
+          {meta.location ? (
+            <div>
+              <dt>Location</dt>
+              <dd>{meta.location}</dd>
+            </div>
+          ) : null}
           {meta.productCount != null ? (
             <div>
               <dt>OPERA products</dt>
@@ -161,6 +186,12 @@ function RunDetailsPopup({ selection, onUseBbox }) {
             <div>
               <dt>{meta.frameIds.length > 1 ? 'Frames' : 'Frame'}</dt>
               <dd>{meta.frameIds.join(', ')}</dd>
+            </div>
+          ) : null}
+          {runIdSuffix(item) ? (
+            <div>
+              <dt>Run ID</dt>
+              <dd>{runIdSuffix(item)}</dd>
             </div>
           ) : null}
           {meta.reference ? (
@@ -359,7 +390,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
         {shown.map((it) => (
           <label key={it.id} className="slp-row slp-run-row">
             <input type="checkbox" checked={!hiddenIds.has(it.id)} onChange={() => toggleRun(it.id)} />
-            <span className="slp-name">{runRowLabel(it, kind)}</span>
+            <span className="slp-name" title={runRowLabel(it, kind)}>{runRowLabel(it, kind)}</span>
             <button
               type="button"
               className="slp-run-actions-btn"

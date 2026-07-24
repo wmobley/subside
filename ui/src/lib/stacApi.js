@@ -82,8 +82,8 @@ export function itemLayers(item) {
 }
 
 // Human-facing item metadata the panels surface (acquisition window, how many
-// OPERA products went in, which frames). Keys are set by the publisher's
-// granule_from_subside_manifest (stac-platform/stacmap/manifest.py).
+// OPERA products went in, which frames, and a best-effort location name).
+// Keys are set by the publisher's parse_manifest (stac-platform/stacmap/manifest.py).
 export function itemMeta(item) {
   const p = item?.properties || {}
   const refLat = p['subside:reference_lat']
@@ -94,6 +94,9 @@ export function itemMeta(item) {
     end: p.end_datetime || null,
     productCount: p['subside:product_count'] ?? null,
     frameIds: p['subside:frame_ids'] || null,
+    // Best-effort place name (e.g. "New Braunfels, Texas"), resolved once at
+    // publish time -- absent on runs published before this field existed.
+    location: p['subside:location'] || null,
     // The static reference point velocities are measured against, if published.
     reference: hasRef ? { lat: Number(refLat), lon: Number(refLon), mode: p['subside:reference_mode'] || null } : null,
   }
