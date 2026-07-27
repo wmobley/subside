@@ -279,6 +279,24 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
   // click on one would. Keyed by `${kind}:${item.id}`; a plain ref (not state)
   // since it's only read inside the probe effect below, never rendered.
   const samplersRef = useRef(new Map())
+
+  // The registered layer whose bounds contain (lat, lon) and whose sampled
+  // pixel there isn't nodata, checked topmost-rendered-first (same order a
+  // real overlapping-layer click would resolve). Shared by a real map click,
+  // a right-click, and an address-search probe — see samplersRef above for
+  // why layer-level click events can't do this themselves.
+  const findSampledRunAt = async (lat, lon) => {
+    const point = { lat, lng: lon }
+    const registered = [...samplersRef.current.values()].reverse()
+    for (const { bounds, sampleAt, item, kind } of registered) {
+      if (!bounds?.contains?.(point)) continue
+      const value = await sampleAt(lat, lon)
+      if (value == null) continue
+      return { item, kind, value }
+    }
+    return null
+  }
+
   // The open "..." actions menu (Download / Zoom In) for one run, if any --
   // shared between the Layers panel's kebab button and a right-click on the
   // rendered layer, so both trigger the identical menu/behavior.
@@ -320,31 +338,39 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
       .catch((err) => setError(err?.message || 'STAC search failed'))
   }
 
+  // A real click/right-click on a rendered COG-backed layer: the layers
+  // themselves can't fire this (see samplersRef/findSampledRunAt above), so
+  // the map itself is the interactive surface. No hit -> no popup, and a
+  // right-click with no hit falls through to the browser's own context menu.
+  const handleMapClick = (event) => {
+    const { lat, lng: lon } = event.latlng
+    findSampledRunAt(lat, lon).then((hit) => {
+      if (!hit) return
+      setSelection({ item: hit.item, kind: hit.kind, latlng: event.latlng, value: hit.value, onClose: () => setSelection(null) })
+    })
+  }
+  const handleMapContextMenu = (event) => {
+    const { lat, lng: lon } = event.latlng
+    findSampledRunAt(lat, lon).then((hit) => {
+      if (!hit) return
+      event.originalEvent?.preventDefault?.()
+      setActionsMenu({ item: hit.item, kind: hit.kind, top: event.originalEvent?.clientY ?? 0, left: event.originalEvent?.clientX ?? 0 })
+    })
+  }
+
   // Re-search on pan/zoom end.
-  useMapEvents({ moveend: refresh, zoomend: refresh })
+  useMapEvents({ moveend: refresh, zoomend: refresh, click: handleMapClick, contextmenu: handleMapContextMenu })
   useEffect(refresh, [map])
 
-  // Address-search selected a point: check whether any currently-rendered
-  // Displacement/Velocity layer has a pixel there (topmost-first, same as a
-  // real click would resolve overlapping layers) and open the same popup a
-  // click would. No match (or the sampled pixel is nodata) -> no popup.
+  // Address-search selected a point: same lookup a real click does above.
   useEffect(() => {
     if (!probeLocation) return undefined
-    const { lat, lon } = probeLocation
-    const point = { lat, lng: lon }
     let cancelled = false
-    ;(async () => {
-      const registered = [...samplersRef.current.values()].reverse()
-      for (const { bounds, sampleAt, item, kind } of registered) {
-        if (cancelled) return
-        if (!bounds?.contains?.(point)) continue
-        const value = await sampleAt(lat, lon)
-        if (cancelled) return
-        if (value == null) continue
-        setSelection({ item, kind, latlng: point, value, onClose: () => setSelection(null) })
-        return
-      }
-    })()
+    findSampledRunAt(probeLocation.lat, probeLocation.lon).then((hit) => {
+      if (cancelled || !hit) return
+      const latlng = { lat: probeLocation.lat, lng: probeLocation.lon }
+      setSelection({ item: hit.item, kind: hit.kind, latlng, value: hit.value, onClose: () => setSelection(null) })
+    })
     return () => { cancelled = true }
   }, [probeLocation])
 
@@ -354,6 +380,14 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
   const dispRuns = items.filter((it) => !isVelocityRun(it))
   const displacementLegend = combinedRange(dispRuns, 'displacement')
   const velocityLegend = combinedRange(velocityRuns, 'velocity')
+  // Color every currently-shown run of a kind against the SAME min/max (the
+  // legend's combined range across all of them), not each run's own range —
+  // otherwise two runs sitting side by side on the map use different color
+  // scales and the same color means different physical values in each, while
+  // the single shared legend shown for the group would be flat wrong for one
+  // of them. Falls back to the per-run range if nothing in view has one.
+  const displacementColorRange = displacementLegend ? { vmin: displacementLegend.min, vmax: displacementLegend.max } : null
+  const velocityColorRange = velocityLegend ? { vmin: velocityLegend.min, vmax: velocityLegend.max } : null
 
   const selectRun = (item, kind, latlng, value) => {
     setSelection({ item, kind, latlng: latlng || map.getCenter(), value, onClose: () => setSelection(null) })
@@ -411,11 +445,9 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
           <StacCogLayer
             key={it.id}
             href={cog.href}
-            range={cog.range}
+            range={displacementColorRange || cog.range}
             opacity={displacementOpacity}
             fit={false}
-            onClick={(event, value) => selectRun(it, kind, event.latlng, value)}
-            onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
             onReady={(info) => registerSampler(kind, it, info)}
           />
         )
@@ -444,11 +476,9 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
       <Fragment key={it.id}>
         <StacCogLayer
           href={vel.href}
-          range={vel.range}
+          range={velocityColorRange || vel.range}
           opacity={velocityOpacity}
           fit={false}
-          onClick={(event, value) => selectRun(it, kind, event.latlng, value)}
-          onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
           onReady={(info) => registerSampler(kind, it, info)}
         />
         {ref ? (

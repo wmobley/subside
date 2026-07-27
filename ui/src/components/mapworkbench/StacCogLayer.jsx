@@ -33,15 +33,11 @@ function viridis(t) {
   return `rgb(${c[0]},${c[1]},${c[2]})`
 }
 
-export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, onContextMenu, onError, onReady }) {
+export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onError, onReady }) {
   const map = useMap()
-  const onClickRef = useRef(onClick)
-  const onContextMenuRef = useRef(onContextMenu)
   const onErrorRef = useRef(onError)
   const onReadyRef = useRef(onReady)
   const layerRef = useRef(null)
-  onClickRef.current = onClick
-  onContextMenuRef.current = onContextMenu
   onErrorRef.current = onError
   onReadyRef.current = onReady
 
@@ -74,27 +70,23 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
         layer = new GeoRasterLayer({
           georaster,
           opacity,
-          interactive: Boolean(onClickRef.current || onContextMenuRef.current),
           resolution: 256,
+          // Without this, georaster-stack defaults to nearest-neighbor
+          // ("near-vectorize") per-tile, which keeps nodata gaps hard-edged
+          // and blocky at zoom instead of smooth like the server-built
+          // (cubic-resampled) overview pyramid.
+          resampleMethod: 'bilinear',
           pixelValuesToColorFn: (values) => {
             const v = values[0]
             if (v == null || Number.isNaN(v) || v === noData) return null
             return viridis((v - min) / span)
           },
         })
-        if (onClickRef.current) {
-          layer.on('click', (event) => {
-            sampleGeorasterValue(georaster, event.latlng.lat, event.latlng.lng)
-              .catch(() => null)
-              .then((value) => onClickRef.current?.(event, value))
-          })
-        }
-        if (onContextMenuRef.current) {
-          layer.on('contextmenu', (event) => {
-            event.originalEvent?.preventDefault?.()
-            onContextMenuRef.current?.(event)
-          })
-        }
+        // georaster-layer-for-leaflet@4.1.2 is a plain L.GridLayer with no
+        // click/interactive-target support of its own — a `layer.on('click', ...)`
+        // here would never fire. Real click/contextmenu handling lives at the
+        // map level instead (StacResults.jsx), using `onReady`'s sampler below
+        // to test the actual clicked point against this layer's bounds/pixels.
         // Individual tiles can fail on transient range-request errors against
         // the remote COG (e.g. a burst of concurrent tile fetches). Leaflet
         // leaves those tiles blank with no retry of its own, so debounce a
@@ -112,8 +104,9 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
         if (fit) {
           try { map.fitBounds(layer.getBounds()) } catch { /* ignore */ }
         }
-        // Lets a consumer probe an arbitrary lat/lon on demand (e.g. the
-        // address-search flow), not just react to a Leaflet click.
+        // Exposes this layer's bounds + a point sampler so StacResults can
+        // test a real map click, a right-click, or an address-search result
+        // against it — see the note above on why that can't happen here.
         onReadyRef.current?.({
           bounds: layer.getBounds(),
           sampleAt: (lat, lon) => sampleGeorasterValue(georaster, lat, lon),

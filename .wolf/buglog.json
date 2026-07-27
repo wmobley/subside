@@ -24,6 +24,30 @@
       "related_bugs": ["bug-001"],
       "occurrences": 1,
       "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-003",
+      "timestamp": "2026-07-27",
+      "error_message": "User: 'Clicking doesn't work to show up a popup at all.' Broke for every run after 'Render the Cogs' made StacCogLayer the only displacement rendering path (previously masked because most displacement runs used ImageOverlay instead).",
+      "file": "ui/src/components/mapworkbench/StacCogLayer.jsx, ui/src/components/mapworkbench/StacResults.jsx",
+      "root_cause": "georaster-layer-for-leaflet@4.1.2 (checked both dist entry points actually resolved by package.json's main/module fields) is a plain L.GridLayer.extend({...}) with ZERO click/interactive-target support — it never calls Leaflet's addInteractiveTarget and never fires 'click'/'contextmenu' on the layer instance. StacCogLayer.jsx's `layer.on('click', ...)` therefore never fired from a real user click; it only appeared to work because velocity (which always used StacCogLayer) was rarely tested and displacement usually rendered via ImageOverlay instead (react-leaflet's own working event wiring).",
+      "fix": "Moved real interactivity from the (non-functional) layer-level Leaflet event to the map level: StacResults.jsx now attaches `click`/`contextmenu` via `useMapEvents`, reusing the existing `samplersRef` registry (bounds + sampleAt per rendered layer, same mechanism already built for the address-search probe) via a new shared `findSampledRunAt(lat, lon)` helper (topmost-registered-first). Removed the dead onClick/onContextMenu props + layer.on(...) wiring from StacCogLayer.jsx entirely rather than leave misleading code that looks functional but isn't. Verified with a real Playwright/Chromium click (not just a synthetic function call) against a minimal harness mounting the actual StacCogLayer + a local range-request-capable COG server: click reached useMapEvents({click}), bounds.contains() matched, and sampleAt() returned the exact GDAL ground-truth value.",
+      "tags": ["ui", "leaflet", "georaster-layer-for-leaflet", "interactivity", "click", "regression", "stac-results", "stac-cog-layer"],
+      "related_bugs": ["bug-002"],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-004",
+      "timestamp": "2026-07-27",
+      "error_message": "User: 'Also are all images normalized across the maximum range of values across all images? They should be.' — implicitly reporting they weren't.",
+      "file": "ui/src/components/mapworkbench/StacResults.jsx",
+      "root_cause": "combinedRange(dispRuns/velocityRuns, kind) computes the min/max across every currently-shown run of a kind, but that value was only ever passed to RasterLegend (the panel's legend labels) — each individual StacCogLayer was colored using its OWN per-run range (cog.range/vel.range) via pixelValuesToColorFn. So the legend showed one scale while the map rendered a different scale per run, and colors weren't comparable between simultaneously-displayed runs.",
+      "fix": "Added displacementColorRange/velocityColorRange ({vmin, vmax} built from the same combinedRange() legend value) and pass that into StacCogLayer's `range` prop for both displacement and velocity, falling back to the per-run range only if no combined range exists (e.g. no run in view carries range metadata at all).",
+      "tags": ["ui", "cog", "color-scale", "normalization", "stac-results", "legend"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
     }
   ]
 }
