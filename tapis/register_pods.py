@@ -155,6 +155,20 @@ def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
         "image": f"ghcr.io/{owner}/subside-api:{tag}",
         "description": "SUBSIDE FastAPI gateway (full geo stack)",
         "networking": {"default": {"protocol": "http", "port": 8000}},
+        # Tapis Pods' own ingress-level CORS check, separate from the FastAPI
+        # app's CORSMiddleware (SUBSIDE_CORS_ORIGINS above) — both have to
+        # allow the UI's origin or the browser blocks the request before it
+        # even reaches the app. Deployment-derived, same as ui_url above.
+        # IMPORTANT: update_pod() appears to replace the whole cors_allow_*
+        # block rather than merge it field-by-field — passing only
+        # cors_allow_origins wiped cors_allow_methods/headers to [] on a live
+        # update. Always set all four together (values are Tapis Pods'
+        # existing defaults, reconstructed from the pod's own prior spec).
+        "cors_allow_origins": [ui_url],
+        "cors_allow_methods": ["GET", "POST", "OPTIONS", "DELETE", "PUT", "HEAD", "PATCH"],
+        "cors_allow_headers": ["content-type", "authorization", "x-tapis-token",
+                                "x-tapis-tenant", "x-tapis-username", "x-tapis-site"],
+        "cors_allow_credentials": False,
         # Geo/scientific stack baked in → heavier runtime footprint.
         "resources": {"cpu_request": 500, "cpu_limit": 2000,
                       "mem_request": 1024, "mem_limit": 4096},

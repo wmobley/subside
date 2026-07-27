@@ -1837,6 +1837,30 @@ button {
 /* Previous-runs (STAC) list, portalled into the Layers panel by StacResults. */
 .slp-prevruns:empty { display: none; }   /* no empty section when STAC is off */
 
+/* Location/date filters above the Displacement/Velocity group toggles. */
+.slp-run-filters {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.slp-filter-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  padding: 3px 6px;
+  border: 1px solid var(--tacc-gray-light);
+  border-radius: 4px;
+}
+
+.slp-filter-select {
+  font-size: 11px;
+  padding: 3px 4px;
+  border: 1px solid var(--tacc-gray-light);
+  border-radius: 4px;
+  background: #fff;
+}
+
 .slp-prevruns-head {
   display: flex;
   align-items: center;

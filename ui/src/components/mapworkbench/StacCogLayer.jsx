@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 
+import { withLoadSlot } from '../../lib/loadQueue'
 import { sampleGeorasterValue } from '../../lib/pixelSample'
 
 const loadGeoraster = () => Promise.all([
@@ -53,14 +54,27 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onError, 
     let layer
     let cancelled = false
     let retryTimeout = null
-    let retriesLeft = 3
-    loadGeoraster()
-      // Pass the URL (not an ArrayBuffer): georaster opens the COG with
-      // geotiff.fromUrl, probes for an `.ovr` overview, parses only the header,
-      // and reads tiles via HTTP range requests on demand (GeoRasterLayer calls
-      // the lazy `getValues` per tile). So we stream the overview/tiles for the
-      // current view instead of downloading the whole file — the point of a COG.
-      .then(([parseGeoraster, GeoRasterLayer]) => parseGeoraster(href).then((g) => [g, GeoRasterLayer]))
+    let retriesLeft = 5
+    // Opening the COG (header read via geotiff.fromUrl) goes through a shared
+    // concurrency gate (see lib/loadQueue.js): with up to ~24 runs per kind,
+    // firing every layer's initial open at once floods the browser's ~6
+    // connections-per-origin limit on CKAN's HTTP/1.1 and starves them all,
+    // instead of each streaming cleanly via range requests as a COG should.
+    // NB: this only covers the open step, not ongoing per-tile reads —
+    // georaster-stack reads tile data via its own pool of Web Workers
+    // (3 per layer), each with an isolated fetch() invisible to any
+    // main-thread interception, so per-tile congestion on zoom/pan (a real,
+    // separate, currently-unmitigated risk) can't be gated the same way.
+    withLoadSlot(
+      () => loadGeoraster()
+        // Pass the URL (not an ArrayBuffer): georaster opens the COG with
+        // geotiff.fromUrl, probes for an `.ovr` overview, parses only the header,
+        // and reads tiles via HTTP range requests on demand (GeoRasterLayer calls
+        // the lazy `getValues` per tile). So we stream the overview/tiles for the
+        // current view instead of downloading the whole file — the point of a COG.
+        .then(([parseGeoraster, GeoRasterLayer]) => parseGeoraster(href).then((g) => [g, GeoRasterLayer])),
+      () => cancelled,
+    )
       .then(([georaster, GeoRasterLayer]) => {
         if (cancelled) return
         const min = range?.vmin ?? georaster.mins?.[0] ?? 0
@@ -88,16 +102,19 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onError, 
         // map level instead (StacResults.jsx), using `onReady`'s sampler below
         // to test the actual clicked point against this layer's bounds/pixels.
         // Individual tiles can fail on transient range-request errors against
-        // the remote COG (e.g. a burst of concurrent tile fetches). Leaflet
-        // leaves those tiles blank with no retry of its own, so debounce a
-        // bounded redraw to recover them once the burst subsides.
+        // the remote COG (e.g. connection-limit congestion — see loadQueue.js).
+        // Leaflet leaves those tiles blank with no retry of its own, so
+        // debounce a bounded redraw to recover them once the burst subsides.
+        // Backs off (1s, 2s, 3s, ...) rather than a fixed 1s each time, since
+        // the congestion this is recovering from can take a few seconds to clear.
         layer.on('tileerror', () => {
           if (cancelled || retriesLeft <= 0 || retryTimeout) return
+          const attempt = 6 - retriesLeft // 1st attempt = 1, ...
           retryTimeout = setTimeout(() => {
             retryTimeout = null
             retriesLeft -= 1
             if (!cancelled) layer.redraw()
-          }, 1000)
+          }, attempt * 1000)
         })
         layer.addTo(map)
         layerRef.current = layer

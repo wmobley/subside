@@ -14,9 +14,45 @@ import { itemLayers, itemMeta, overlayHref, searchItems, stacEnabled } from '../
 import { RunActionsMenu } from './RunActionsMenu'
 import { StacCogLayer } from './StacCogLayer'
 
-// Cap rendered runs per category per viewport so a dense area can't fire an
-// unbounded number of raster loads. searchItems already caps the query at 50.
+// Cap how many runs are LISTED per category per viewport (searchItems already
+// caps the query at 50) — how many actually RENDER as live layers is separate
+// and much smaller: only opted-in runs render (see isRunVisible below), so a
+// dense area no longer means a burst of concurrent raster loads just from
+// having many runs in view.
 const MAX_RUNS = 24
+
+// Date-range presets that narrow the underlying STAC search itself (bbox AND
+// datetime), not just which already-fetched runs are visible — areas with a
+// long processing history can have dozens of runs per viewport, and most of
+// that history usually isn't relevant to "what does it look like now."
+const DATE_RANGE_PRESETS = [
+  { value: 'all', label: 'All time' },
+  { value: '3m', label: 'Last 3 months' },
+  { value: '6m', label: 'Last 6 months' },
+  { value: '1y', label: 'Last year' },
+]
+
+function datetimeParamFor(preset) {
+  const months = { '3m': 3, '6m': 6, '1y': 12 }[preset]
+  if (!months) return undefined
+  const from = new Date()
+  from.setMonth(from.getMonth() - months)
+  return `${from.toISOString()}/..`
+}
+
+// The most recently-acquired run in a list (by itemMeta().start), or null if
+// empty — the one run shown by default before a user has picked anything for
+// that kind (see isRunVisible/toggleRun).
+function mostRecentId(runs) {
+  if (!runs.length) return null
+  let best = runs[0]
+  let bestStart = itemMeta(best).start || ''
+  for (const it of runs) {
+    const start = itemMeta(it).start || ''
+    if (start > bestStart) { best = it; bestStart = start }
+  }
+  return best.id
+}
 
 function bboxToBounds(b) {
   return [[b[1], b[0]], [b[3], b[2]]] // [[s,w],[n,e]] for Leaflet
@@ -313,19 +349,43 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
   // The open "..." actions menu for a group toggle row (Transparency only),
   // separate from `actionsMenu` (per-run Download/Zoom In/Transparency) below.
   const [groupActionsMenu, setGroupActionsMenu] = useState(null)
-  // Per-run visibility: a group's master toggle reveals individual run rows, all
-  // ON by default (so "see overlap" still works); this set holds the runs the user
-  // has explicitly hidden. Tracking the *hidden* set (not the shown set) means runs
-  // panning into view stay visible without re-checking them.
-  const [hiddenIds, setHiddenIds] = useState(() => new Set())
+  // Narrows the underlying STAC search (date) and the fetched run list
+  // (location, client-side) — see DATE_RANGE_PRESETS/datetimeParamFor above.
+  const [dateRangePreset, setDateRangePreset] = useState('all')
+  const [locationFilter, setLocationFilter] = useState('')
+  // Per-run visibility is opt-in, not opt-out: a group's master toggle reveals
+  // individual run rows, but only the single most-recently-acquired run of
+  // that kind renders by default (see mostRecentId/isRunVisible) — with up to
+  // ~24 runs listed per kind, defaulting all of them to visible meant up to
+  // ~24 live COG layers competing for the browser's connection budget at
+  // once. `shownIds` only takes effect once the user has manually toggled at
+  // least one run for that kind (tracked by `pickedKinds`); until then,
+  // isRunVisible falls back to "just the most recent one."
+  const [shownIds, setShownIds] = useState(() => new Set())
+  const [pickedKinds, setPickedKinds] = useState(() => new Set())
 
-  const toggleRun = (id) => {
-    setHiddenIds((prev) => {
+  const isRunVisible = (id, kind, runs) => {
+    if (pickedKinds.has(kind)) return shownIds.has(id)
+    return id === mostRecentId(runs)
+  }
+
+  const toggleRun = (id, kind, runs) => {
+    const firstInteractionForKind = !pickedKinds.has(kind)
+    setPickedKinds((prev) => (prev.has(kind) ? prev : new Set(prev).add(kind)))
+    setShownIds((prev) => {
+      // First toggle for this kind: seed with whatever was showing by
+      // default (the most-recent run) so flipping a *different* run on
+      // doesn't silently hide the one already visible.
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else {
+      if (firstInteractionForKind) {
+        const def = mostRecentId(runs)
+        if (def) next.add(def)
+      }
+      if (next.has(id)) {
+        next.delete(id)
+        setSelection((sel) => (sel?.item?.id === id ? null : sel)) // drop popup for a hidden run
+      } else {
         next.add(id)
-        setSelection((sel) => (sel?.item?.id === id ? null : sel))  // drop popup for a hidden run
       }
       return next
     })
@@ -333,7 +393,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
 
   const refresh = () => {
     if (!stacEnabled() || !map) return
-    searchItems(map.getBounds())
+    searchItems(map.getBounds(), { datetime: datetimeParamFor(dateRangePreset) })
       .then((features) => { setItems(features); setError(null) })
       .catch((err) => setError(err?.message || 'STAC search failed'))
   }
@@ -358,9 +418,9 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
     })
   }
 
-  // Re-search on pan/zoom end.
+  // Re-search on pan/zoom end, and whenever the date range changes.
   useMapEvents({ moveend: refresh, zoomend: refresh, click: handleMapClick, contextmenu: handleMapContextMenu })
-  useEffect(refresh, [map])
+  useEffect(refresh, [map, dateRangePreset])
 
   // Address-search selected a point: same lookup a real click does above.
   useEffect(() => {
@@ -376,8 +436,15 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
 
   if (!stacEnabled()) return null
 
-  const velocityRuns = items.filter(isVelocityRun)
-  const dispRuns = items.filter((it) => !isVelocityRun(it))
+  // Location is a pure client-side narrowing of whatever the current
+  // viewport+date search already returned (STAC search itself is bbox-based,
+  // not location-name-based) — but applied here, before everything else, so
+  // the group counts, legend range, run rows, and what's eligible to be the
+  // "most recent" default all consistently reflect the filter.
+  const needle = locationFilter.trim().toLowerCase()
+  const matchesLocation = (it) => !needle || (itemMeta(it).location || '').toLowerCase().includes(needle)
+  const velocityRuns = items.filter(isVelocityRun).filter(matchesLocation)
+  const dispRuns = items.filter((it) => !isVelocityRun(it)).filter(matchesLocation)
   const displacementLegend = combinedRange(dispRuns, 'displacement')
   const velocityLegend = combinedRange(velocityRuns, 'velocity')
   // Color every currently-shown run of a kind against the SAME min/max (the
@@ -500,9 +567,10 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
     )
   }
 
-  // Per-run rows shown under a group when its master toggle is on: one checkbox
-  // per in-view run (hidden = in hiddenIds), so users can isolate/compare specific
-  // overlapping footprints. Capped at MAX_RUNS to match what's rendered.
+  // Per-run rows shown under a group when its master toggle is on: one
+  // checkbox per in-view run, so users can isolate/compare specific
+  // overlapping footprints. Only the checked ones actually render as live
+  // layers (see isRunVisible) — capped at MAX_RUNS to match what's listed.
   const runRows = (runs, kind) => {
     const shown = runs.slice(0, MAX_RUNS)
     return (
@@ -511,7 +579,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
           const parts = runRowParts(it, kind)
           return (
             <label key={it.id} className="slp-row slp-run-row">
-              <input type="checkbox" checked={!hiddenIds.has(it.id)} onChange={() => toggleRun(it.id)} />
+              <input type="checkbox" checked={isRunVisible(it.id, kind, runs)} onChange={() => toggleRun(it.id, kind, runs)} />
               <span className="slp-name" title={runRowTooltip(it, kind)}>
                 <span className="slp-run-title">{parts.title}</span>
                 {parts.dates ? <span className="slp-run-dates">Dates: {parts.dates}</span> : null}
@@ -541,6 +609,25 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
   const panelContent = (
     <>
       <div className="slp-section">Previous runs</div>
+      <div className="slp-run-filters">
+        <input
+          type="text"
+          className="slp-filter-input"
+          placeholder="Filter by location…"
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+        />
+        <select
+          className="slp-filter-select"
+          value={dateRangePreset}
+          onChange={(e) => setDateRangePreset(e.target.value)}
+          aria-label="Date range"
+        >
+          {DATE_RANGE_PRESETS.map((p) => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </select>
+      </div>
       <label className="slp-row">
         <input type="checkbox" checked={showDisplacement} onChange={(e) => { setShowDisplacement(e.target.checked); if (!e.target.checked && selection?.kind === 'displacement') setSelection(null) }} />
         <span className="slp-swatch" style={{ background: '#406d68' }} />
@@ -579,8 +666,8 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
 
   return (
     <>
-      {showDisplacement && dispRuns.slice(0, MAX_RUNS).filter((it) => !hiddenIds.has(it.id)).map((it) => renderRun(it, 'displacement'))}
-      {showVelocity && velocityRuns.slice(0, MAX_RUNS).filter((it) => !hiddenIds.has(it.id)).map((it) => renderRun(it, 'velocity'))}
+      {showDisplacement && dispRuns.slice(0, MAX_RUNS).filter((it) => isRunVisible(it.id, 'displacement', dispRuns)).map((it) => renderRun(it, 'displacement'))}
+      {showVelocity && velocityRuns.slice(0, MAX_RUNS).filter((it) => isRunVisible(it.id, 'velocity', velocityRuns)).map((it) => renderRun(it, 'velocity'))}
       <RunDetailsPopup selection={selection} onUseBbox={onUseBboxForAnalysis} />
       {actionsMenu ? (
         <RunActionsMenu

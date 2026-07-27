@@ -48,6 +48,66 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-005",
+      "timestamp": "2026-07-27",
+      "error_message": "Browser console (production): \"Access to fetch at 'https://subsideapi.pods.portals.tapis.io/api/subside/tiles/texas_counties/6/13/27.mvt' from origin 'https://subsideui.pods.portals.tapis.io' has been blocked by CORS policy\" — user thought it might be CKAN rate-limiting; it was not.",
+      "file": "tapis/register_pods.py",
+      "root_cause": "TWO independent CORS layers exist for the API pod: (1) FastAPI's own CORSMiddleware, driven by SUBSIDE_CORS_ORIGINS (already correctly deployment-derived in register_pods.py's build_specs()); (2) Tapis Pods' own ingress-level cors_allow_origins field, which register_pods.py never set at all. The live pod's platform-level cors_allow_origins was stuck at [\"https://subside.pods.portals.tapis.io\"] (no \"ui\") — a stale value predating the split into separate subsideapi/subsideui pods. Layer (2) blocks the request before it ever reaches the FastAPI app, so layer (1) being correct didn't matter.",
+      "fix": "Added `\"cors_allow_origins\": [ui_url]` to the api pod spec in build_specs(), deployment-derived the same way SUBSIDE_CORS_ORIGINS already is. Verified via `--dry-run` that it computed correctly. UPDATE: user ran it live — see bug-006 for a regression this surfaced, and the confirmation that the origin fix itself did resolve the original CORS error.",
+      "tags": ["tapis-pods", "cors", "deployment", "production", "register-pods", "infra"],
+      "related_bugs": ["bug-006"],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-006",
+      "timestamp": "2026-07-27",
+      "error_message": "User ran the register_pods.py update for bug-005's fix; live subsideapi pod's cors_allow_methods/cors_allow_headers came back as EMPTY ARRAYS (previously had sensible values: GET/POST/OPTIONS/DELETE/PUT/HEAD/PATCH and content-type/authorization/x-tapis-* headers) — a regression, not present before this fix.",
+      "file": "tapis/register_pods.py",
+      "root_cause": "Passing only `cors_allow_origins` in the pod spec to t.pods.update_pod() appears to make Tapis Pods treat the CORS config as a single unit that gets fully replaced, not deep-merged per-field — so omitting cors_allow_methods/cors_allow_headers/cors_allow_credentials wiped them to empty instead of leaving the previous values alone. cors_max_age (100) was NOT wiped, suggesting it's tracked independently of the other four.",
+      "fix": "Added cors_allow_methods/cors_allow_headers/cors_allow_credentials explicitly alongside cors_allow_origins in build_specs() (reconstructed known-good values from the pods original spec before it was wiped). Verified via --dry-run. NOT yet applied to the live pod — needs the same register_pods.py --pods api --restart run, with explicit user go-ahead.",
+      "tags": ["tapis-pods", "cors", "deployment", "production", "register-pods", "regression"],
+      "related_bugs": ["bug-005"],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-007",
+      "timestamp": "2026-07-27",
+      "error_message": "User (after CORS fixed): map still showing missing/blank raster blocks; attached a HAR (subsideui.pods.portals.tapis.io.har) and guessed CKAN rate-limiting.",
+      "file": "ui/src/components/mapworkbench/StacCogLayer.jsx",
+      "root_cause": "Confirmed via the HAR: 32 distinct COG files loading simultaneously, all HTTP/1.1 to ckan.tacc.utexas.edu (browsers cap ~6 concurrent connections per origin on HTTP/1.1), individual range requests taking 200ms-1.5s each, bursts of many simultaneous requests to the same file. No actual HTTP errors in the HAR (no 4xx/5xx) -- tiles were being starved/abandoned by connection-limit queuing, not failing outright. StacCogLayer's existing tileerror retry was also too thin for this (3 retries, fixed 1s apart) to recover from congestion that can take several seconds to clear. User's framing: COGs stream fine individually (confirmed with their own 22GB COG example) -- the bug is opening ~24-32 of them in one simultaneous burst with no coordination, not the COG format/approach itself.",
+      "fix": "Added ui/src/lib/loadQueue.js: a small shared concurrency gate (withLoadSlot, MAX_CONCURRENT_LOADS=4) that every StacCogLayer's expensive open+header-read phase now goes through, staggering ~24-32 simultaneous opens into waves of 4 instead of firing them all at once; verified with a standalone test that peak concurrency never exceeds the limit and a cancelled-before-its-turn layer skips its turn without consuming a slot. Also widened the tileerror retry backoff from a fixed 1s x3 to 1s/2s/3s/4s/5s x5, since congestion recovery can take longer than 3 seconds.",
+      "tags": ["ui", "cog", "concurrency", "performance", "stac-cog-layer", "connection-limit", "http1.1"],
+      "related_bugs": ["bug-008"],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-008",
+      "timestamp": "2026-07-27",
+      "error_message": "User asked 'on zoom are we reloading that stack of rasters?' -- proactive check, not a reported symptom yet. Verified with a real Playwright test (20 StacCogLayer instances mounted, then a programmatic zoom): peak concurrent requests during zoom = 37, vs 11 during initial (queue-throttled) load. bug-007's loadQueue fix does NOT cover this -- it only gates the initial open step.",
+      "file": "ui/src/components/mapworkbench/StacCogLayer.jsx",
+      "root_cause": "Confirmed via node_modules source: georaster-stack (georaster-layer-for-leaflet's tile-read dependency) spawns `this.tileWorkers = range(3).map(() => create_worker())` -- a pool of 3 Web Workers PER LAYER -- and reads tile data from inside them (`chooseAtRandom(this.tileWorkers)`). Workers have an isolated global scope, so a main-thread `window.fetch` patch is invisible to fetches issued inside them. With ~20 mounted layers that's up to 60 independent worker threads capable of firing uncoordinated requests to the same origin on every zoom/pan, none of which the loadQueue (or any main-thread interception) can reach.",
+      "fix": "ATTEMPTED AND REVERTED: built ui/src/lib/fetchGate.js to patch window.fetch globally (gating any request carrying a Range header) and installed it once from StacCogLayer.jsx, removing the narrower per-layer open-step queue since the fetch-level gate should have superseded it. Verified via the SAME Playwright test this had ZERO effect (peak concurrency measured 59 during initial load, worse than ungated) -- confirmed via debug logging that the patched fetch() *was* being called and correctly detecting Range headers for some requests, but overall concurrency was unaffected, consistent with a large share of the actual tile-read traffic bypassing it via the worker pool. Reverted fetchGate.js entirely and restored the original bug-007 per-layer withLoadSlot wrapping (verified-working for the open step) with a comment documenting why it can't cover ongoing tile reads. NOT YET FIXED: the zoom/pan-triggered per-tile burst across many already-mounted layers remains a real, confirmed, unmitigated risk. A real fix would need something that can intercept worker-issued fetches (e.g. a Service Worker, which CAN intercept fetch from same-origin Workers) or an architectural change (fewer simultaneously-mounted live COGs, e.g. reverting to the ImageOverlay-hybrid approach discussed earlier) -- not attempted, needs user direction given the cost/risk of either option.",
+      "tags": ["ui", "cog", "concurrency", "web-worker", "georaster-stack", "performance", "unresolved", "stac-cog-layer"],
+      "related_bugs": ["bug-007"],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-008-resolution",
+      "timestamp": "2026-07-27",
+      "error_message": "Follow-up to bug-008: user chose the architectural mitigation over a Service Worker.",
+      "file": "ui/src/components/mapworkbench/StacResults.jsx",
+      "root_cause": "N/A - design choice, not a defect.",
+      "fix": "Reduced how many live COG layers can be mounted at once instead of trying to throttle their network traffic (which bug-008 showed can't be done reliably from the main thread). Per-run visibility changed from opt-out (all in-view runs visible by default) to opt-in (only the single most-recently-acquired run per kind visible by default; runs.jsx's isRunVisible/toggleRun/shownIds/pickedKinds). Added a date-range preset filter narrowing the STAC search itself (bbox+datetime) and a client-side location text filter, both reducing how many runs even reach the point of being a rendering candidate.",
+      "tags": ["ui", "cog", "concurrency", "ux", "stac-results", "design-decision"],
+      "related_bugs": ["bug-008"],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
     }
   ]
 }
