@@ -108,6 +108,18 @@
       "related_bugs": ["bug-008"],
       "occurrences": 1,
       "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-009",
+      "timestamp": "2026-07-27",
+      "error_message": "User: two screenshots of the same velocity run/pixel (same popup value -55.2 mm/yr) at two zoom levels, with completely different-looking raster colors underneath. 'There is a problem here.'",
+      "file": "ui/src/components/mapworkbench/StacResults.jsx",
+      "root_cause": "Interaction bug between bug-004's fix (color every shown run against a SHARED combined min/max, not each run's own range) and bug-008-resolution's opt-in-visibility feature. displacementLegend/velocityLegend (and the colorRange derived from them) were computed from combinedRange(dispRuns/velocityRuns, ...) -- ALL runs the current viewport's STAC search returned, not just the runs actually rendered. Since zoom/pan changes the search bbox, it changes which OTHER (unrendered, not even opted-into) runs are candidates, which shifts the combined min/max, which recolors the one run that IS visible -- same pixel value, different color, purely because the viewport moved. Verified the mechanism with a standalone simulation (old behavior: same shown run's color range changed from [-162.6,31.2] to [-300,300] purely by adding unrelated off-screen candidates to the pool).",
+      "fix": "Added visibleDispRuns/visibleVelocityRuns = dispRuns/velocityRuns filtered by isRunVisible, and compute displacementLegend/velocityLegend (and thus displacementColorRange/velocityColorRange) from those instead of the full candidate list. A run's color scale is now stable for as long as it's the one being shown, regardless of what else the viewport search happens to also return. Re-ran the standalone simulation with the fix: same shown run's range now stays [-162.6,31.2] in both the 'many extra candidates' and 'no extra candidates' cases.",
+      "tags": ["ui", "cog", "color-scale", "zoom", "regression", "stac-results"],
+      "related_bugs": ["bug-004", "bug-008-resolution"],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
     }
   ]
 }

@@ -22,6 +22,7 @@ import {
   bboxToAoiGeoJSON, fetchAvailability, getRunResults, getRunStatus, listRuns, submitRun,
 } from '../../lib/subsideApi'
 import { getWorkflowDocs } from '../../lib/content'
+import { cssGradient } from '../../lib/colorRamps'
 import { estimateRuntime } from '../../lib/estimateRuntime'
 import { useAuth } from '../../lib/auth'
 import { layerContext } from '../../lib/layerContext'
@@ -41,6 +42,13 @@ const OUTCOMES = [
   { pipeline: 'h2i', label: 'See surface displacement', hint: 'a snapshot map — faster' },
   { pipeline: 'werc', label: 'Measure how fast it is sinking', hint: 'velocity, mm/yr — slower' },
 ]
+
+// Same velocity-vs-displacement test used throughout this file (layerOptions
+// lookup below, layerContext.js) — kept as one function so the palette
+// choice can't drift out of sync with what "velocity" means elsewhere.
+function isVelocityLayer(layer) {
+  return layer?.key === 'velocity' || /velocit/i.test(layer?.label || '')
+}
 
 // Band the *observed* risk from the velocity layer's value range. LOS velocity
 // is mm/yr; negative = motion toward subsidence. We band on the fastest
@@ -656,7 +664,10 @@ export function SubsideAnalysis({
                   </button>
                   <div className="sap-results-head">{selectedLayer.label}</div>
                   <div className="sap-legend2">
-                    <div className="sap-legend-bar" />
+                    <div
+                      className="sap-legend-bar"
+                      style={{ background: cssGradient(isVelocityLayer(selectedLayer) ? 'plasma' : 'viridis') }}
+                    />
                     <div className="sap-legend-labels">
                       <span>{legendRange ? Number(legendRange.min ?? legendRange.vmin).toPrecision(3) : 'low'}</span>
                       <span>{selectedLayer.unit || ''}</span>
@@ -795,7 +806,12 @@ export function SubsideAnalysis({
   return (
     <>
       {selectedLayer?.type === 'cog' ? (
-        <StacCogLayer href={selectedLayer.href} range={selectedLayer.range} onError={setResultsErr} />
+        <StacCogLayer
+          href={selectedLayer.href}
+          range={selectedLayer.range}
+          palette={isVelocityLayer(selectedLayer) ? 'plasma' : 'viridis'}
+          onError={setResultsErr}
+        />
       ) : null}
       {selectedLayer?.type === 'png' && stacItem?.bbox ? (
         <ImageOverlay url={selectedLayer.href} bounds={bboxToBounds(stacItem.bbox)} opacity={0.8} />

@@ -1799,11 +1799,13 @@ button {
   margin: 2px 0 6px 22px;
 }
 
+/* background is set inline (see RasterLegend in StacResults.jsx) from the
+   same color-ramp source of truth StacCogLayer uses to render the raster
+   itself, so the legend can't drift out of sync with the map's colors. */
 .slp-raster-legend-bar {
   height: 10px;
   border: 1px solid #999;
   border-radius: 3px;
-  background: linear-gradient(to right, #440154, #482878, #3e4989, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725);
 }
 
 .slp-raster-legend-labels {
@@ -2239,11 +2241,12 @@ button {
   margin-bottom: 6px;
 }
 
+/* background is set inline (see SubsideAnalysis.jsx) from the same
+   color-ramp source of truth StacCogLayer uses to render the raster itself. */
 .sap-legend-bar {
   height: 12px;
   border: 1px solid #999;
   border-radius: 3px;
-  background: linear-gradient(to right, #440154, #482878, #3e4989, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725);
 }
 
 .sap-legend-labels {

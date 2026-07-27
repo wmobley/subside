@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import { CircleMarker, ImageOverlay, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 
 import { useAuth } from '../../lib/auth'
+import { cssGradient } from '../../lib/colorRamps'
 import { layerContext } from '../../lib/layerContext'
 import { itemLayers, itemMeta, overlayHref, searchItems, stacEnabled } from '../../lib/stacApi'
 import { RunActionsMenu } from './RunActionsMenu'
@@ -148,10 +149,10 @@ function runRowTooltip(item, kind) {
 // LOS convention shared by both product types: negative = moving away from the
 // satellite (subsidence/sinking); positive = moving toward it (uplift). See
 // SubsideAnalysis.jsx's layerContext() for the same wording in the run-detail view.
-function RasterLegend({ range, fallbackUnit }) {
+function RasterLegend({ range, fallbackUnit, palette = 'viridis' }) {
   return (
     <div className="slp-raster-legend">
-      <div className="slp-raster-legend-bar" />
+      <div className="slp-raster-legend-bar" style={{ background: cssGradient(palette) }} />
       <div className="slp-raster-legend-labels">
         <span>{range ? legendValue(range.min) : 'low'}</span>
         <span>{range?.unit || fallbackUnit || ''}</span>
@@ -445,14 +446,25 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
   const matchesLocation = (it) => !needle || (itemMeta(it).location || '').toLowerCase().includes(needle)
   const velocityRuns = items.filter(isVelocityRun).filter(matchesLocation)
   const dispRuns = items.filter((it) => !isVelocityRun(it)).filter(matchesLocation)
-  const displacementLegend = combinedRange(dispRuns, 'displacement')
-  const velocityLegend = combinedRange(velocityRuns, 'velocity')
+  // The color scale (and its matching legend) is computed from only the runs
+  // actually being RENDERED right now (isRunVisible), not every run the
+  // current viewport's search happened to also return. Using the full
+  // candidate list here was a real bug: panning/zooming changes which OTHER
+  // (unrendered, not even opted-in) runs are "in view", which shifted this
+  // combined min/max, which silently recolored an unchanged, still-visible
+  // run — the exact same pixel value could render as a different color
+  // purely because the viewport moved. Scoping to what's visible makes a
+  // run's colors stable for as long as it stays the one being shown.
+  const visibleDispRuns = dispRuns.filter((it) => isRunVisible(it.id, 'displacement', dispRuns))
+  const visibleVelocityRuns = velocityRuns.filter((it) => isRunVisible(it.id, 'velocity', velocityRuns))
+  const displacementLegend = combinedRange(visibleDispRuns, 'displacement')
+  const velocityLegend = combinedRange(visibleVelocityRuns, 'velocity')
   // Color every currently-shown run of a kind against the SAME min/max (the
   // legend's combined range across all of them), not each run's own range —
   // otherwise two runs sitting side by side on the map use different color
   // scales and the same color means different physical values in each, while
   // the single shared legend shown for the group would be flat wrong for one
-  // of them. Falls back to the per-run range if nothing in view has one.
+  // of them. Falls back to the per-run range if nothing visible has one.
   const displacementColorRange = displacementLegend ? { vmin: displacementLegend.min, vmax: displacementLegend.max } : null
   const velocityColorRange = velocityLegend ? { vmin: velocityLegend.min, vmax: velocityLegend.max } : null
 
@@ -546,6 +558,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
           range={velocityColorRange || vel.range}
           opacity={velocityOpacity}
           fit={false}
+          palette="plasma"
           onReady={(info) => registerSampler(kind, it, info)}
         />
         {ref ? (
@@ -658,7 +671,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
           ⋮
         </button>
       </label>
-      {showVelocity ? <RasterLegend range={velocityLegend} fallbackUnit="mm/yr" /> : null}
+      {showVelocity ? <RasterLegend range={velocityLegend} fallbackUnit="mm/yr" palette="plasma" /> : null}
       {showVelocity ? runRows(velocityRuns, 'velocity') : null}
       {error ? <div className="slp-error">{error}</div> : null}
     </>
