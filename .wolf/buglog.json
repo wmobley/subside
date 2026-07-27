@@ -12,6 +12,18 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-002",
+      "timestamp": "2026-07-27",
+      "error_message": "User clicked a visibly-colored Displacement pixel and the popup said 'Exact value unavailable for this preview layer' — user reported 'there's clearly data there but we can't get the value, something is broken.'",
+      "file": "ui/src/components/mapworkbench/StacResults.jsx, ui/src/lib/pixelSample.js",
+      "root_cause": "Most displacement runs render via the cheap pre-rendered PNG overlay path (ImageOverlay), not StacCogLayer — a flat image with no per-pixel access from the browser, so the original click handler for that path never sampled anything. The real COG asset is still published alongside the overlay (itemLayers returns both a 'cog' and an 'overlay' entry), it just wasn't used for sampling.",
+      "fix": "Added sampleCogValueAt(href, lat, lon) to pixelSample.js — lazily parses just the underlying COG (cached per href) and samples it on demand. Wired into the ImageOverlay click handler (updates the open popup's value once resolved) and into the address-search probe effect (checks overlay-backed runs via bbox after the registered-sampler COG layers). Regression caught during this fix: a first pass statically imported `georaster` in pixelSample.js, which pulled the ~580KB georaster bundle out of its lazy chunk into the main bundle (caught via `npm run build` chunk output before shipping) — fixed by dynamic-importing it the same way StacCogLayer already does.",
+      "tags": ["ui", "pixel-sample", "image-overlay", "cog", "bundle-size", "stac-results"],
+      "related_bugs": ["bug-001"],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
     }
   ]
 }

@@ -1640,6 +1640,39 @@ button {
 .slp-run-row {
   font-size: 11px;
   color: var(--tacc-text-medium);
+  align-items: flex-start;
+}
+
+/* Run row name: location (bold) on its own line, then dates, then frames/run
+   id — replaces the old single truncated "date · location · frames · run"
+   string, which buried the readable part (location) behind the least useful
+   part (run id) once it got cut off. Selector matches `.slp-row .slp-name`'s
+   specificity (two classes) so this override actually wins over it. */
+.slp-run-row .slp-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.slp-run-title,
+.slp-run-dates,
+.slp-run-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slp-run-title {
+  font-weight: 600;
+  color: var(--tacc-text-dark);
+}
+
+.slp-run-dates,
+.slp-run-meta {
+  color: var(--tacc-text-light);
+  font-size: 10px;
 }
 
 .slp-run-more {

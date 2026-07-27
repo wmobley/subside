@@ -80,22 +80,33 @@ function runIdSuffix(item) {
   return m ? `${m[1]}-${m[2]}` : null
 }
 
-// Identify one run in the per-run toggle list: its date window, location (if
-// resolved at publish time), frame(s), and run id (so runs sharing a date
-// window — reprocessing passes, alternate framing — are still distinguishable),
-// plus the reference mode for velocity runs. Location is a readability aid, not
-// a disambiguator: it's the run id that guarantees uniqueness.
-function runRowLabel(item, kind) {
+// Identify one run in the per-run toggle list: its location (if resolved at
+// publish time) as the headline, its date window, and its frame(s)/run id (so
+// runs sharing a date window — reprocessing passes, alternate framing — are
+// still distinguishable), plus the reference mode for velocity runs. Split
+// into three lines (rather than one long string) so the important part —
+// where — isn't buried/truncated behind the least important part — the run id.
+function runRowParts(item, kind) {
   const m = itemMeta(item)
-  const win = m.start ? `${m.start.slice(0, 10)} → ${(m.end || '').slice(0, 10) || '—'}` : (item.id || 'run')
-  const loc = m.location ? ` · ${m.location}` : ''
+  const dates = m.start ? `${m.start.slice(0, 10)} → ${(m.end || '').slice(0, 10) || '—'}` : null
+  const title = m.location || dates || item.id || 'run'
   const frames = m.frameIds?.length
-    ? ` · ${m.frameIds.length > 1 ? 'Frames' : 'Frame'} ${m.frameIds.join(', ')}`
-    : ''
+    ? `${m.frameIds.length > 1 ? 'Frames' : 'Frame'} ${m.frameIds.join(', ')}`
+    : null
   const runId = runIdSuffix(item)
-  const run = runId ? ` · run ${runId}` : ''
-  const ref = kind === 'velocity' && m.reference?.mode ? ` · ref ${m.reference.mode}` : ''
-  return win + loc + frames + run + ref
+  const ref = kind === 'velocity' && m.reference?.mode ? `ref ${m.reference.mode}` : null
+  return {
+    title,
+    // Only show a separate dates line when the title above is the location —
+    // otherwise the dates would just repeat the title.
+    dates: m.location && dates ? dates : null,
+    meta: [frames, runId ? `run ${runId}` : null, ref].filter(Boolean).join(' · ') || null,
+  }
+}
+
+function runRowTooltip(item, kind) {
+  const { title, dates, meta } = runRowParts(item, kind)
+  return [title, dates ? `Dates: ${dates}` : null, meta].filter(Boolean).join(' · ')
 }
 
 // LOS convention shared by both product types: negative = moving away from the
@@ -321,10 +332,10 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
     if (!probeLocation) return undefined
     const { lat, lon } = probeLocation
     const point = { lat, lng: lon }
-    const candidates = [...samplersRef.current.values()].reverse()
     let cancelled = false
     ;(async () => {
-      for (const { bounds, sampleAt, item, kind } of candidates) {
+      const registered = [...samplersRef.current.values()].reverse()
+      for (const { bounds, sampleAt, item, kind } of registered) {
         if (cancelled) return
         if (!bounds?.contains?.(point)) continue
         const value = await sampleAt(lat, lon)
@@ -388,10 +399,27 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
     map.fitBounds(bboxToBounds(item.bbox))
   }
 
-  // The renderable layer for a run: displacement prefers the cheap overlay PNG,
-  // else its COG; velocity is the velocity COG (cloud-optimized, streamed).
+  // The renderable layer for a run: always the COG (cloud-optimized, streamed
+  // via range requests) for both displacement and velocity, so every run gets
+  // real per-pixel values. Falls back to the cheap preview PNG only for a run
+  // that has no COG asset published at all (no pixel sampling possible then).
   const renderRun = (it, kind) => {
     if (kind === 'displacement') {
+      const cog = itemLayers(it).find((l) => l.type === 'cog')
+      if (cog) {
+        return (
+          <StacCogLayer
+            key={it.id}
+            href={cog.href}
+            range={cog.range}
+            opacity={displacementOpacity}
+            fit={false}
+            onClick={(event, value) => selectRun(it, kind, event.latlng, value)}
+            onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
+            onReady={(info) => registerSampler(kind, it, info)}
+          />
+        )
+      }
       if (overlayHref(it) && hasBbox(it)) {
         return (
           <ImageOverlay
@@ -407,19 +435,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
           />
         )
       }
-      const cog = itemLayers(it).find((l) => l.type === 'cog')
-      return cog ? (
-        <StacCogLayer
-          key={it.id}
-          href={cog.href}
-          range={cog.range}
-          opacity={displacementOpacity}
-          fit={false}
-          onClick={(event, value) => selectRun(it, kind, event.latlng, value)}
-          onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
-          onReady={(info) => registerSampler(kind, it, info)}
-        />
-      ) : null
+      return null
     }
     const vel = itemLayers(it).find((l) => l.key === 'velocity') || itemLayers(it).find((l) => l.type === 'cog')
     if (!vel) return null
@@ -461,20 +477,27 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
     const shown = runs.slice(0, MAX_RUNS)
     return (
       <div className="slp-run-list">
-        {shown.map((it) => (
-          <label key={it.id} className="slp-row slp-run-row">
-            <input type="checkbox" checked={!hiddenIds.has(it.id)} onChange={() => toggleRun(it.id)} />
-            <span className="slp-name" title={runRowLabel(it, kind)}>{runRowLabel(it, kind)}</span>
-            <button
-              type="button"
-              className="slp-run-actions-btn"
-              aria-label="Run actions"
-              onClick={(event) => openActionsMenuFromClick(event, it, kind)}
-            >
-              ⋮
-            </button>
-          </label>
-        ))}
+        {shown.map((it) => {
+          const parts = runRowParts(it, kind)
+          return (
+            <label key={it.id} className="slp-row slp-run-row">
+              <input type="checkbox" checked={!hiddenIds.has(it.id)} onChange={() => toggleRun(it.id)} />
+              <span className="slp-name" title={runRowTooltip(it, kind)}>
+                <span className="slp-run-title">{parts.title}</span>
+                {parts.dates ? <span className="slp-run-dates">Dates: {parts.dates}</span> : null}
+                {parts.meta ? <span className="slp-run-meta">{parts.meta}</span> : null}
+              </span>
+              <button
+                type="button"
+                className="slp-run-actions-btn"
+                aria-label="Run actions"
+                onClick={(event) => openActionsMenuFromClick(event, it, kind)}
+              >
+                ⋮
+              </button>
+            </label>
+          )
+        })}
         {runs.length > MAX_RUNS ? (
           <div className="slp-run-more">+{runs.length - MAX_RUNS} more in view — zoom in to narrow</div>
         ) : null}
