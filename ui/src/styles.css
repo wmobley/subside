@@ -1890,20 +1890,6 @@ button {
   background: var(--tacc-gray-light);
 }
 
-/* Anonymous-user pixel-value help block (StacResults.jsx PixelInterpretation). */
-.stac-run-popup-interpret {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--tacc-gray-lighter);
-}
-
-.stac-run-popup-interpret .stac-run-popup-muted {
-  display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  line-height: 1.4;
-}
-
 /* Popup for reference (aquifer) features. */
 .ref-popup-title {
   font-weight: 700;

@@ -127,37 +127,41 @@ function observedRisk(range) {
   return { rate: subsiding, label: 'Severe', color: '#dc2626' }
 }
 
-// Anonymous-user help: interprets the sampled pixel value (or, for layers we
-// can't sample — the cheap ImageOverlay preview — just the layer itself) in
-// plain language, reusing the same quantity/units/sign-convention copy shown
-// in the full analysis panel (see lib/layerContext.js). Logged-in users get
-// the full SubsideAnalysis workflow instead, so this is scoped to !isAuthed.
-function PixelInterpretation({ layer, meta, value }) {
+// Anonymous users get just the sampled value and a plain-language explanation
+// of what that Displacement/Velocity rate means — not the full run metadata
+// below (that's reserved for logged-in users, who have the full SubsideAnalysis
+// workflow for deeper detail). Reuses the quantity/units/sign-convention copy
+// shared with the analysis panel (see lib/layerContext.js).
+function PixelValuePopup({ selection }) {
+  const { item, kind, value, latlng, onClose } = selection
+  const meta = itemMeta(item)
+  const layer = runLayer(item, kind)
   const ctx = layerContext(layer, meta)
-  if (!ctx) return null
+  const isVelocity = kind === 'velocity'
   return (
-    <div className="stac-run-popup-interpret">
-      <div className="stac-run-popup-label">What this means</div>
-      {value != null ? (
-        <div className="stac-run-popup-value">{legendValue(value)} {ctx.unit}</div>
-      ) : (
-        <div className="stac-run-popup-muted">Exact value unavailable for this preview layer.</div>
-      )}
-      <div className="stac-run-popup-muted">{ctx.what}</div>
-      {ctx.sign ? <div className="stac-run-popup-muted">{ctx.sign}</div> : null}
-      <div className="stac-run-popup-muted">
-        This is a single satellite-derived pixel, not a ground survey — treat it as a starting point and
-        cross-check with GNSS or a site survey before drawing conclusions.
+    <Popup position={latlng} eventHandlers={{ remove: () => onClose?.() }}>
+      <div className="stac-run-popup">
+        <div className="stac-run-popup-title">{isVelocity ? 'Subsidence Velocity' : 'Displacement'}</div>
+        {value != null ? (
+          <div className="stac-run-popup-value">{legendValue(value)} {ctx?.unit || layer?.unit || ''}</div>
+        ) : (
+          <div className="stac-run-popup-muted">Exact value unavailable for this preview layer.</div>
+        )}
+        {ctx ? (
+          <div className="stac-run-popup-muted">
+            {ctx.what} {ctx.sign}
+          </div>
+        ) : null}
       </div>
-      <div className="stac-run-popup-muted">Log in with your TACC account (top-right) for the full analysis tools.</div>
-    </div>
+    </Popup>
   )
 }
 
 function RunDetailsPopup({ selection, onUseBbox }) {
   const { isAuthed } = useAuth()
   if (!selection) return null
-  const { item, kind, value } = selection
+  if (!isAuthed) return <PixelValuePopup selection={selection} />
+  const { item, kind } = selection
   const meta = itemMeta(item)
   const layer = runLayer(item, kind)
   const risk = observedRisk(layer?.range)
@@ -248,7 +252,6 @@ function RunDetailsPopup({ selection, onUseBbox }) {
             Use bbox for velocity follow-up
           </button>
         ) : null}
-        {!isAuthed ? <PixelInterpretation layer={layer} meta={meta} value={value} /> : null}
       </div>
     </Popup>
   )
