@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "bugs": [
+    {
+      "id": "bug-001",
+      "timestamp": "2026-07-27",
+      "error_message": "Anonymous-user pixel popup showed the full run metadata dl (acquisition window, location, OPERA products, frame, run ID, layer range, bbox, use-bbox button) plus a disclaimer and login-hint sentence, appended after all of it. User wanted just the pixel value and a plain-language rate explanation, nothing else.",
+      "file": "ui/src/components/mapworkbench/StacResults.jsx",
+      "root_cause": "Initial implementation appended a new PixelInterpretation block onto the existing RunDetailsPopup content instead of replacing it for the !isAuthed case — so anonymous users saw the full authed-user metadata dump plus the new block, not a simplified view.",
+      "fix": "RunDetailsPopup now branches early on !isAuthed and renders a separate minimal PixelValuePopup (title + sampled value + layerContext what/sign explanation only); the full metadata/bbox/button view is now authed-only, unchanged from before this feature.",
+      "tags": ["ui", "popup", "auth-gating", "stac-results", "scope-creep"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-27"
+    }
+  ]
+}

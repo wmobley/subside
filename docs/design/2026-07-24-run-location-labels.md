@@ -592,5 +592,41 @@ a real write** — the two prior `--apply` attempts both got HTTP 400
 (rejected outright, nothing persisted), so the collection is unchanged;
 next step is the user re-running `--apply` with this version.
 
+**2026-07-24 (later): code shipped and pushed, but the live UI pod hasn't
+picked it up yet — separate deploy-tooling issue, not a code bug.** Both
+repos' real changes (excluding unrelated pre-existing noise: a repo-wide
+executable-bit flip on ~250-300 files in each repo restored to 644 before
+committing, and an unrelated in-progress `ReferenceLayers.jsx` opacity change
+left untouched) were committed and pushed to `origin/main`:
+- `stac-platform` commit `401b3fc` — this was urgent: the `stac-publish`
+  Tapis task's `packages` list installs `stacmap` directly from
+  `https://github.com/wmobley/stac-platform/archive/refs/heads/main.zip`
+  (fetched fresh on every execution), so until this pushed, the pipeline
+  wiring registered earlier referenced a `stacmap.geocode` module that didn't
+  exist remotely — the next real run would have crashed at import.
+- `subside` commit `b55dac5` — triggered `.github/workflows/build-services.yml`
+  automatically (push-triggered, not gated by the branch-protection PR
+  requirement your account has bypass rights for). CI ran lint + tests +
+  built/pushed both `subside-ui`/`subside-api` images + restarted the Tapis
+  pods, all green (verified via `gh run watch`).
+
+**However:** verified directly (fetched the deployed bundle from
+`https://subsideui.pods.portals.tapis.io/assets/index-*.js` and grepped for
+`subside:location`/`runIdSuffix` — zero matches) that the running `subsideui`
+pod is still serving the OLD bundle. The JS asset's `etag`/`last-modified`
+were byte-for-byte identical before and after the CI run's restart step,
+which itself reported success (`[subsideui] restart requested` /
+`status: AVAILABLE`, per the CI log). This means a Tapis Pods restart does
+NOT reliably force a fresh image pull for a `latest`-tagged image, contrary
+to `restart_pods.py`'s own docstring assumption ("A pod restart stops +
+starts the container, which re-pulls the `latest`-tagged image") — likely an
+`imagePullPolicy` that reuses the node's already-cached image rather than
+re-checking the registry. User is investigating via the Tapis Pods
+dashboard/CLI directly. Worth a follow-up fix to `restart_pods.py` (or a
+`register_pods.py` rebuild) once resolved, so this doesn't silently recur for
+every future deploy.
+
 **Still open:**
 - Nominatim attribution in the Risk Explorer UI (open question, unresolved).
+- Getting the live `subsideui` pod to actually serve the new bundle (see
+  above — in progress, user handling via Tapis tooling directly).

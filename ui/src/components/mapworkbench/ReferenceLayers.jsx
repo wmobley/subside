@@ -192,7 +192,7 @@ export function ReferenceFeatureServer({
   )
 }
 
-export function ReferenceGeoJSON({ url, kind, onError }) {
+export function ReferenceGeoJSON({ url, kind, opacity, onError }) {
   const [data, setData] = useState(null)
   useEffect(() => {
     let cancelled = false
@@ -211,7 +211,7 @@ export function ReferenceGeoJSON({ url, kind, onError }) {
       data={data}
       style={(feature) => {
         const c = colorFor(featureName(feature.properties))
-        return { color: c, weight: 1, fill: true, fillColor: c, fillOpacity: 0.35 }
+        return { color: c, weight: 1, fill: true, fillColor: c, fillOpacity: 0.35 * (opacity ?? 1) }
       }}
       onEachFeature={(feature, layer) => {
         const c = colorFor(featureName(feature.properties))
