@@ -8,6 +8,8 @@
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 
+import { sampleGeorasterValue } from '../../lib/pixelSample'
+
 const loadGeoraster = () => Promise.all([
   import('georaster').then((m) => m.default),
   import('georaster-layer-for-leaflet').then((m) => m.default),
@@ -31,15 +33,17 @@ function viridis(t) {
   return `rgb(${c[0]},${c[1]},${c[2]})`
 }
 
-export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, onContextMenu, onError }) {
+export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, onContextMenu, onError, onReady }) {
   const map = useMap()
   const onClickRef = useRef(onClick)
   const onContextMenuRef = useRef(onContextMenu)
   const onErrorRef = useRef(onError)
+  const onReadyRef = useRef(onReady)
   const layerRef = useRef(null)
   onClickRef.current = onClick
   onContextMenuRef.current = onContextMenu
   onErrorRef.current = onError
+  onReadyRef.current = onReady
 
   // The GeoRasterLayer is imperative and only built once per `href` (below); a
   // later opacity change (e.g. the transparency slider) needs to reach the
@@ -79,7 +83,11 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
           },
         })
         if (onClickRef.current) {
-          layer.on('click', (event) => onClickRef.current?.(event))
+          layer.on('click', (event) => {
+            sampleGeorasterValue(georaster, event.latlng.lat, event.latlng.lng)
+              .catch(() => null)
+              .then((value) => onClickRef.current?.(event, value))
+          })
         }
         if (onContextMenuRef.current) {
           layer.on('contextmenu', (event) => {
@@ -104,6 +112,12 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
         if (fit) {
           try { map.fitBounds(layer.getBounds()) } catch { /* ignore */ }
         }
+        // Lets a consumer probe an arbitrary lat/lon on demand (e.g. the
+        // address-search flow), not just react to a Leaflet click.
+        onReadyRef.current?.({
+          bounds: layer.getBounds(),
+          sampleAt: (lat, lon) => sampleGeorasterValue(georaster, lat, lon),
+        })
       })
       .catch((err) => { if (!cancelled) onErrorRef.current?.(err?.message || 'COG failed to load') })
 
@@ -112,6 +126,7 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, onClick, 
       if (retryTimeout) clearTimeout(retryTimeout)
       if (layer) map.removeLayer(layer)
       layerRef.current = null
+      onReadyRef.current?.(null)
     }
   }, [map, href]) // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -24,6 +24,7 @@ import {
 import { getWorkflowDocs } from '../../lib/content'
 import { estimateRuntime } from '../../lib/estimateRuntime'
 import { useAuth } from '../../lib/auth'
+import { layerContext } from '../../lib/layerContext'
 import { findRunItem, itemBoundaryGeoJSON, itemDownloads, itemLayers, itemMeta, stacEnabled } from '../../lib/stacApi'
 import { aoiStats, bboxToBounds, geometryBbox, toFeatureCollection } from './aoiGeometry'
 import { RUN_COPY, RunProgress } from './RunProgress'
@@ -54,44 +55,6 @@ function observedRisk(range) {
   if (subsiding < 15) return { rate: subsiding, label: 'Moderate', color: '#f59e0b' }
   if (subsiding < 30) return { rate: subsiding, label: 'High', color: '#ea580c' }
   return { rate: subsiding, label: 'Severe', color: '#dc2626' }
-}
-
-// Human context for the raster a user is viewing: what the quantity is, its
-// units, the time window it was derived over, and the sign convention. The
-// window comes from the Item's datetime range (itemMeta) — for velocity that's
-// the span the linear rate was fit over; for cumulative it's start→end.
-function layerContext(layer, meta) {
-  if (!layer) return null
-  const d = (s) => (s ? String(s).slice(0, 10) : null)
-  const start = d(meta?.start)
-  const end = d(meta?.end)
-  const window = start ? `${start} → ${end || '—'}` : null
-  const ref = meta?.reference
-  const reference = ref
-    ? `${ref.lat.toFixed(5)}, ${ref.lon.toFixed(5)}${ref.mode ? ` (${ref.mode})` : ''}`
-    : null
-  const key = layer.key || ''
-  if (key === 'velocity' || /velocit/i.test(layer.label || '')) {
-    return {
-      what: 'Average rate of line-of-sight (LOS) ground motion — the slope of a straight-line fit to each pixel’s displacement time series.',
-      unit: layer.unit || 'mm/yr',
-      windowLabel: 'Rate fit over',
-      window,
-      reference,
-      sign: 'Negative = moving away from the satellite (subsidence, i.e. sinking faster); positive = moving toward it (uplift, i.e. rising). Measured relative to the static reference point below.',
-    }
-  }
-  if (key === 'cumulative' || key === 'cog' || /cumulative|displacement/i.test(layer.label || '')) {
-    return {
-      what: 'Total line-of-sight (LOS) ground displacement accumulated across the window, relative to the static reference point.',
-      unit: layer.unit || (key === 'cog' ? 'm' : 'mm'),
-      windowLabel: 'Accumulated',
-      window,
-      reference,
-      sign: 'Negative = motion away from the satellite (subsidence, i.e. more sinking); positive = motion toward it (uplift, i.e. less sinking).',
-    }
-  }
-  return { what: layer.label, unit: layer.unit || '', windowLabel: 'Window', window, reference, sign: null }
 }
 
 export function SubsideAnalysis({

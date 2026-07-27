@@ -34,6 +34,10 @@ export function ModelMap({ mapData, zoom, setZoom }) {
   //    workflow stays independent of which dataset surfaced it.
   const [wantsReference, setWantsReference] = useState(false)
   const [referencePoint, setReferencePoint] = useState(null)
+  // An address-search selection is handed to StacResults so it can check
+  // whether a currently-rendered Displacement/Velocity pixel exists there and,
+  // if so, open the same pixel-value popup a click on it would.
+  const [probeLocation, setProbeLocation] = useState(null)
   return (
     <div className="map-canvas">
       <div className="map-stage">
@@ -45,7 +49,7 @@ export function ModelMap({ mapData, zoom, setZoom }) {
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <AddressSearch />
+            <AddressSearch onSelect={setProbeLocation} />
             <SubsideLayers
               prevRunsHostRef={setPrevRunsHost}
               autoShowReference={wantsReference}
@@ -60,7 +64,7 @@ export function ModelMap({ mapData, zoom, setZoom }) {
             />
             {/* Previous-runs layers on the map + list portalled into the Layers panel
                 (no-op unless VITE_STAC_API_BASE set) */}
-            <StacResults panelHost={prevRunsHost} onUseBboxForAnalysis={setAnalysisAoiRequest} />
+            <StacResults panelHost={prevRunsHost} onUseBboxForAnalysis={setAnalysisAoiRequest} probeLocation={probeLocation} />
           </MapContainer>
         </div>
       </div>

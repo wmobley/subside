@@ -4,10 +4,12 @@
 // The two toggles live in the Layers panel (StacResults portals them into the
 // mount point SubsideLayers provides) and render every public run of that type
 // in view. Renders nothing when VITE_STAC_API_BASE is unset.
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CircleMarker, ImageOverlay, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 
+import { useAuth } from '../../lib/auth'
+import { layerContext } from '../../lib/layerContext'
 import { itemLayers, itemMeta, overlayHref, searchItems, stacEnabled } from '../../lib/stacApi'
 import { RunActionsMenu } from './RunActionsMenu'
 import { StacCogLayer } from './StacCogLayer'
@@ -125,9 +127,37 @@ function observedRisk(range) {
   return { rate: subsiding, label: 'Severe', color: '#dc2626' }
 }
 
+// Anonymous-user help: interprets the sampled pixel value (or, for layers we
+// can't sample — the cheap ImageOverlay preview — just the layer itself) in
+// plain language, reusing the same quantity/units/sign-convention copy shown
+// in the full analysis panel (see lib/layerContext.js). Logged-in users get
+// the full SubsideAnalysis workflow instead, so this is scoped to !isAuthed.
+function PixelInterpretation({ layer, meta, value }) {
+  const ctx = layerContext(layer, meta)
+  if (!ctx) return null
+  return (
+    <div className="stac-run-popup-interpret">
+      <div className="stac-run-popup-label">What this means</div>
+      {value != null ? (
+        <div className="stac-run-popup-value">{legendValue(value)} {ctx.unit}</div>
+      ) : (
+        <div className="stac-run-popup-muted">Exact value unavailable for this preview layer.</div>
+      )}
+      <div className="stac-run-popup-muted">{ctx.what}</div>
+      {ctx.sign ? <div className="stac-run-popup-muted">{ctx.sign}</div> : null}
+      <div className="stac-run-popup-muted">
+        This is a single satellite-derived pixel, not a ground survey — treat it as a starting point and
+        cross-check with GNSS or a site survey before drawing conclusions.
+      </div>
+      <div className="stac-run-popup-muted">Log in with your TACC account (top-right) for the full analysis tools.</div>
+    </div>
+  )
+}
+
 function RunDetailsPopup({ selection, onUseBbox }) {
+  const { isAuthed } = useAuth()
   if (!selection) return null
-  const { item, kind } = selection
+  const { item, kind, value } = selection
   const meta = itemMeta(item)
   const layer = runLayer(item, kind)
   const risk = observedRisk(layer?.range)
@@ -218,16 +248,23 @@ function RunDetailsPopup({ selection, onUseBbox }) {
             Use bbox for velocity follow-up
           </button>
         ) : null}
+        {!isAuthed ? <PixelInterpretation layer={layer} meta={meta} value={value} /> : null}
       </div>
     </Popup>
   )
 }
 
-export function StacResults({ panelHost, onUseBboxForAnalysis }) {
+export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) {
   const map = useMap()
   const [items, setItems] = useState([])
   const [error, setError] = useState(null)
   const [selection, setSelection] = useState(null)
+  // Registered by each rendered StacCogLayer via its `onReady` callback (see
+  // renderRun below); lets an address-search selection probe the currently
+  // visible Displacement/Velocity layers for a pixel value, the same way a
+  // click on one would. Keyed by `${kind}:${item.id}`; a plain ref (not state)
+  // since it's only read inside the probe effect below, never rendered.
+  const samplersRef = useRef(new Map())
   // The open "..." actions menu (Download / Zoom In) for one run, if any --
   // shared between the Layers panel's kebab button and a right-click on the
   // rendered layer, so both trigger the identical menu/behavior.
@@ -273,6 +310,30 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
   useMapEvents({ moveend: refresh, zoomend: refresh })
   useEffect(refresh, [map])
 
+  // Address-search selected a point: check whether any currently-rendered
+  // Displacement/Velocity layer has a pixel there (topmost-first, same as a
+  // real click would resolve overlapping layers) and open the same popup a
+  // click would. No match (or the sampled pixel is nodata) -> no popup.
+  useEffect(() => {
+    if (!probeLocation) return undefined
+    const { lat, lon } = probeLocation
+    const point = { lat, lng: lon }
+    const candidates = [...samplersRef.current.values()].reverse()
+    let cancelled = false
+    ;(async () => {
+      for (const { bounds, sampleAt, item, kind } of candidates) {
+        if (cancelled) return
+        if (!bounds?.contains?.(point)) continue
+        const value = await sampleAt(lat, lon)
+        if (cancelled) return
+        if (value == null) continue
+        setSelection({ item, kind, latlng: point, value, onClose: () => setSelection(null) })
+        return
+      }
+    })()
+    return () => { cancelled = true }
+  }, [probeLocation])
+
   if (!stacEnabled()) return null
 
   const velocityRuns = items.filter(isVelocityRun)
@@ -280,8 +341,16 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
   const displacementLegend = combinedRange(dispRuns, 'displacement')
   const velocityLegend = combinedRange(velocityRuns, 'velocity')
 
-  const selectRun = (item, kind, latlng) => {
-    setSelection({ item, kind, latlng: latlng || map.getCenter(), onClose: () => setSelection(null) })
+  const selectRun = (item, kind, latlng, value) => {
+    setSelection({ item, kind, latlng: latlng || map.getCenter(), value, onClose: () => setSelection(null) })
+  }
+
+  // Registers/evicts a rendered layer's {bounds, sampleAt} for the probe
+  // effect above; StacCogLayer calls this with `null` on unmount/href-change.
+  const registerSampler = (kind, item, info) => {
+    const key = `${kind}:${item.id}`
+    if (info) samplersRef.current.set(key, { ...info, item, kind })
+    else samplersRef.current.delete(key)
   }
 
   // Opens the shared "..." actions menu at a screen point (viewport px), from
@@ -343,8 +412,9 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
           range={cog.range}
           opacity={displacementOpacity}
           fit={false}
-          onClick={(event) => selectRun(it, kind, event.latlng)}
+          onClick={(event, value) => selectRun(it, kind, event.latlng, value)}
           onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
+          onReady={(info) => registerSampler(kind, it, info)}
         />
       ) : null
     }
@@ -358,8 +428,9 @@ export function StacResults({ panelHost, onUseBboxForAnalysis }) {
           range={vel.range}
           opacity={velocityOpacity}
           fit={false}
-          onClick={(event) => selectRun(it, kind, event.latlng)}
+          onClick={(event, value) => selectRun(it, kind, event.latlng, value)}
           onContextMenu={(event) => openActionsMenuFromContextMenu(event, it, kind)}
+          onReady={(info) => registerSampler(kind, it, info)}
         />
         {ref ? (
           <CircleMarker

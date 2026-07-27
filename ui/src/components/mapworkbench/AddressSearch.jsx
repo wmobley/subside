@@ -39,7 +39,7 @@ function viewboxOf(map) {
   return [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map((n) => n.toFixed(5)).join(',')
 }
 
-export function AddressSearch() {
+export function AddressSearch({ onSelect }) {
   const map = useMap()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -126,7 +126,8 @@ export function AddressSearch() {
     setQuery(r.display_name)
     setResults([])
     setOpen(false)
-  }, [map])
+    onSelect?.({ lat, lon })
+  }, [map, onSelect])
 
   function onKeyDown(e) {
     if (!open || !results.length) {
