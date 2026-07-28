@@ -65,6 +65,7 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, palette =
         const span = max - min || 1
         const noData = georaster.noDataValue
         const ramp = paletteFor(palette)
+        console.log('[StacCogLayer] rendering', { href, palette, min, max, noData, projection: georaster.projection })
         layer = new GeoRasterLayer({
           georaster,
           opacity,
@@ -118,7 +119,10 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, palette =
     return () => {
       cancelled = true
       if (retryTimeout) clearTimeout(retryTimeout)
-      if (layer) map.removeLayer(layer)
+      if (layer) {
+        console.log('[StacCogLayer] removing', { href, palette })
+        map.removeLayer(layer)
+      }
       layerRef.current = null
       onReadyRef.current?.(null)
     }

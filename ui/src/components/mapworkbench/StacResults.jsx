@@ -642,7 +642,12 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
         </select>
       </div>
       <label className="slp-row">
-        <input type="checkbox" checked={showDisplacement} onChange={(e) => { setShowDisplacement(e.target.checked); if (!e.target.checked && selection?.kind === 'displacement') setSelection(null) }} />
+        <input type="checkbox" checked={showDisplacement} onChange={(e) => {
+          const checked = e.target.checked
+          console.log('[StacResults] Displacement toggle ->', checked, 'would show:', visibleDispRuns.map((it) => ({ id: it.id, href: runLayer(it, 'displacement')?.href })))
+          setShowDisplacement(checked)
+          if (!checked && selection?.kind === 'displacement') setSelection(null)
+        }} />
         <span className="slp-swatch" style={{ background: '#406d68' }} />
         <span className="slp-name">Displacement</span>
         <span className="slp-count">{dispRuns.length}</span>
@@ -658,7 +663,12 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
       {showDisplacement ? <RasterLegend range={displacementLegend} fallbackUnit="m" /> : null}
       {showDisplacement ? runRows(dispRuns, 'displacement') : null}
       <label className="slp-row">
-        <input type="checkbox" checked={showVelocity} onChange={(e) => { setShowVelocity(e.target.checked); if (!e.target.checked && selection?.kind === 'velocity') setSelection(null) }} />
+        <input type="checkbox" checked={showVelocity} onChange={(e) => {
+          const checked = e.target.checked
+          console.log('[StacResults] Velocity toggle ->', checked, 'would show:', visibleVelocityRuns.map((it) => ({ id: it.id, href: runLayer(it, 'velocity')?.href })))
+          setShowVelocity(checked)
+          if (!checked && selection?.kind === 'velocity') setSelection(null)
+        }} />
         <span className="slp-swatch" style={{ background: '#7c3aed' }} />
         <span className="slp-name">Subsidence Velocity</span>
         <span className="slp-count">{velocityRuns.length}</span>
