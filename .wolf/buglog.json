@@ -217,20 +217,20 @@
       "timestamp": "2026-07-29",
       "error_message": "User: turning Displacement off then Velocity on (or vice versa) leaves the PREVIOUS layer's colors visible on the map even though its checkbox is unchecked. Confirmed both directions (displacement->velocity and velocity->displacement). A full page reload fixes it; toggling within the running SPA does not.",
       "file": "ui/src/components/mapworkbench/StacCogLayer.jsx",
-      "root_cause": "Ruled out via console logging + direct verification first: StacResults.jsx's toggle handlers and StacCogLayer's own 'rendering'/'removing' logs showed the correct href/palette/range at every step (confirmed velocity really got palette=plasma, correct min/max, and the previous layer's removal DID fire). Independently re-rendered both this exact run's real displacement (viridis) and velocity (plasma) rasters offline and confirmed they look genuinely, clearly different (teal/green/yellow vs purple/orange/yellow) -- so this is not a data or palette mixup. Root cause is that georaster-layer-for-leaflet@4.1.2 has no onRemove override (only onAdd, confirmed via source inspection) -- it relies entirely on Leaflet's stock GridLayer cleanup, which this custom canvas/Worker-pool-based renderer may not fully honor, leaving stale tile DOM/canvas content visible after map.removeLayer().",
-      "fix": "Added a defensive backstop in StacCogLayer's cleanup: forcibly call layer.getContainer()?.remove() before map.removeLayer(layer), so the layer's own DOM container is detached immediately regardless of the library's internal cleanup timing. IMPORTANT CAVEAT: built an isolated Playwright reproduction (two StacCogLayer instances swapped via React key change, matching the real toggle scenario, including simulated realistic network latency via route interception) and could NOT reproduce the stale-tile symptom even WITHOUT this fix -- .leaflet-layer count stayed at 1 through repeated swaps both directions. So this fix is a reasonable, safe hardening of a confirmed real gap in the library (no onRemove), but is NOT a confirmed resolution of the exact production symptom -- the real bug may need conditions specific to the full StacResults component (overlapping runs, the sampler registry, real STAC/CDN timing) that the isolated test didn't replicate. Flagged to user as unconfirmed; if it persists after this ships, the next step is inspecting the DOM directly (Elements panel) at the moment the bug is visible in production, not another synthetic reproduction attempt.",
+      "root_cause": "CONFIRMED via source inspection, superseding the earlier onRemove/DOM-cleanup theory: georaster-layer-for-leaflet@4.1.2 defines `cache: {}` as a plain object-literal property on the class object passed to L.GridLayer.extend() (dist/georaster-layer-for-leaflet.js:54). Nothing in initialize() reassigns `this.cache` per instance -- only the library's own, never-auto-called clearCache() does -- so every GeoRasterLayer instance shares the SAME cache object by reference. createTile()'s cache key is `${tileCoordsKey}:${resolution}` only (no raster/href/palette identity, georaster-layer-for-leaflet.js:298-315). So toggling from displacement to velocity at the same viewport/zoom hits the same coordinate key in the shared cache and gets handed the PREVIOUS layer's already-rendered (wrong-palette) tile canvas verbatim, instead of drawing its own pixels. Confirmed live: added logDomState() console logging around the removal path (before removal / after container.remove() / after map.removeLayer()) and had the user reproduce in production -- DOM container counts were completely clean (old container correctly detached, new one correctly added) while the user still visually saw stale colors, proving the bug is NOT a DOM leak and ruling out the previous onRemove-gap theory as the actual cause (that gap is real but was a red herring for this symptom).",
+      "fix": "Removed the unconfirmed DOM-container backstop (layer.getContainer()?.remove()) and the diagnostic logDomState()/DOM-state console logging added to chase it, both now superseded. Added the real fix: call layer.clearCache() immediately after constructing each GeoRasterLayer and before layer.addTo(map), in StacCogLayer.jsx. This gives each layer instance its own private cache object (an own-property shadowing the shared prototype default), so it can never read another instance's cached tile canvases, while still preserving the legitimate within-instance caching benefit (fast redraw of previously-drawn tiles at a revisited zoom).",
       "tags": [
         "ui",
         "leaflet",
         "georaster-layer-for-leaflet",
-        "dom-cleanup",
+        "shared-cache",
         "stac-cog-layer",
-        "unconfirmed-fix"
+        "confirmed-fix"
       ],
       "related_bugs": [
         "bug-009"
       ],
-      "occurrences": 1,
+      "occurrences": 2,
       "last_seen": "2026-07-29"
     }
   ]
