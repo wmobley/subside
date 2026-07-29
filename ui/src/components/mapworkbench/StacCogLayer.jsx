@@ -17,6 +17,20 @@ const loadGeoraster = () => Promise.all([
   import('georaster-layer-for-leaflet').then((m) => m.default),
 ])
 
+// Direct DOM evidence for the bug-010 stale-tile investigation: rather than
+// asking someone to manually open the Elements panel, tag each layer's own
+// container with the href it's rendering and log every `.leaflet-layer`
+// container actually present in the page at the moments that matter. If a
+// removed layer's container is still counted here after its "removing" log,
+// that's the stale-tile bug caught in the act, not just theorized.
+function logDomState(label) {
+  const containers = [...document.querySelectorAll('.leaflet-layer')]
+  console.log(`[StacCogLayer] DOM state (${label})`, {
+    totalLeafletLayers: containers.length,
+    tagged: containers.map((el) => el.getAttribute('data-stac-href') || '(untagged)'),
+  })
+}
+
 export function StacCogLayer({ href, range, opacity = 0.8, fit = true, palette = 'viridis', onError, onReady }) {
   const map = useMap()
   const onErrorRef = useRef(onError)
@@ -103,6 +117,8 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, palette =
         })
         layer.addTo(map)
         layerRef.current = layer
+        try { layer.getContainer?.()?.setAttribute('data-stac-href', href) } catch { /* ignore */ }
+        logDomState(`after adding ${href}`)
         if (fit) {
           try { map.fitBounds(layer.getBounds()) } catch { /* ignore */ }
         }
@@ -121,7 +137,21 @@ export function StacCogLayer({ href, range, opacity = 0.8, fit = true, palette =
       if (retryTimeout) clearTimeout(retryTimeout)
       if (layer) {
         console.log('[StacCogLayer] removing', { href, palette })
+        logDomState(`before removing ${href}`)
+        // georaster-layer-for-leaflet@4.1.2 doesn't override onRemove (only
+        // onAdd), so it relies entirely on Leaflet's stock GridLayer cleanup.
+        // User-reported (confirmed by toggling between a displacement and a
+        // velocity run in production): the previous layer's tiles can remain
+        // visible after map.removeLayer(), until a full page reload. Could
+        // NOT reproduce this in an isolated local test (incl. simulated
+        // network latency) despite trying, so this hardening is defensive,
+        // not a confirmed fix -- forcibly detach the layer's own container
+        // first as a backstop that doesn't depend on understanding whatever
+        // the library's internal tile-cache/redraw race actually is.
+        try { layer.getContainer?.()?.remove() } catch { /* ignore */ }
+        logDomState(`after container.remove() for ${href}`)
         map.removeLayer(layer)
+        logDomState(`after map.removeLayer() for ${href}`)
       }
       layerRef.current = null
       onReadyRef.current?.(null)

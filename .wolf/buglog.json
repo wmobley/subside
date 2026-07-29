@@ -6,9 +6,15 @@
       "timestamp": "2026-07-27",
       "error_message": "Anonymous-user pixel popup showed the full run metadata dl (acquisition window, location, OPERA products, frame, run ID, layer range, bbox, use-bbox button) plus a disclaimer and login-hint sentence, appended after all of it. User wanted just the pixel value and a plain-language rate explanation, nothing else.",
       "file": "ui/src/components/mapworkbench/StacResults.jsx",
-      "root_cause": "Initial implementation appended a new PixelInterpretation block onto the existing RunDetailsPopup content instead of replacing it for the !isAuthed case — so anonymous users saw the full authed-user metadata dump plus the new block, not a simplified view.",
+      "root_cause": "Initial implementation appended a new PixelInterpretation block onto the existing RunDetailsPopup content instead of replacing it for the !isAuthed case \u2014 so anonymous users saw the full authed-user metadata dump plus the new block, not a simplified view.",
       "fix": "RunDetailsPopup now branches early on !isAuthed and renders a separate minimal PixelValuePopup (title + sampled value + layerContext what/sign explanation only); the full metadata/bbox/button view is now authed-only, unchanged from before this feature.",
-      "tags": ["ui", "popup", "auth-gating", "stac-results", "scope-creep"],
+      "tags": [
+        "ui",
+        "popup",
+        "auth-gating",
+        "stac-results",
+        "scope-creep"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-07-27"
@@ -16,12 +22,21 @@
     {
       "id": "bug-002",
       "timestamp": "2026-07-27",
-      "error_message": "User clicked a visibly-colored Displacement pixel and the popup said 'Exact value unavailable for this preview layer' — user reported 'there's clearly data there but we can't get the value, something is broken.'",
+      "error_message": "User clicked a visibly-colored Displacement pixel and the popup said 'Exact value unavailable for this preview layer' \u2014 user reported 'there's clearly data there but we can't get the value, something is broken.'",
       "file": "ui/src/components/mapworkbench/StacResults.jsx, ui/src/lib/pixelSample.js",
-      "root_cause": "Most displacement runs render via the cheap pre-rendered PNG overlay path (ImageOverlay), not StacCogLayer — a flat image with no per-pixel access from the browser, so the original click handler for that path never sampled anything. The real COG asset is still published alongside the overlay (itemLayers returns both a 'cog' and an 'overlay' entry), it just wasn't used for sampling.",
-      "fix": "Added sampleCogValueAt(href, lat, lon) to pixelSample.js — lazily parses just the underlying COG (cached per href) and samples it on demand. Wired into the ImageOverlay click handler (updates the open popup's value once resolved) and into the address-search probe effect (checks overlay-backed runs via bbox after the registered-sampler COG layers). Regression caught during this fix: a first pass statically imported `georaster` in pixelSample.js, which pulled the ~580KB georaster bundle out of its lazy chunk into the main bundle (caught via `npm run build` chunk output before shipping) — fixed by dynamic-importing it the same way StacCogLayer already does.",
-      "tags": ["ui", "pixel-sample", "image-overlay", "cog", "bundle-size", "stac-results"],
-      "related_bugs": ["bug-001"],
+      "root_cause": "Most displacement runs render via the cheap pre-rendered PNG overlay path (ImageOverlay), not StacCogLayer \u2014 a flat image with no per-pixel access from the browser, so the original click handler for that path never sampled anything. The real COG asset is still published alongside the overlay (itemLayers returns both a 'cog' and an 'overlay' entry), it just wasn't used for sampling.",
+      "fix": "Added sampleCogValueAt(href, lat, lon) to pixelSample.js \u2014 lazily parses just the underlying COG (cached per href) and samples it on demand. Wired into the ImageOverlay click handler (updates the open popup's value once resolved) and into the address-search probe effect (checks overlay-backed runs via bbox after the registered-sampler COG layers). Regression caught during this fix: a first pass statically imported `georaster` in pixelSample.js, which pulled the ~580KB georaster bundle out of its lazy chunk into the main bundle (caught via `npm run build` chunk output before shipping) \u2014 fixed by dynamic-importing it the same way StacCogLayer already does.",
+      "tags": [
+        "ui",
+        "pixel-sample",
+        "image-overlay",
+        "cog",
+        "bundle-size",
+        "stac-results"
+      ],
+      "related_bugs": [
+        "bug-001"
+      ],
       "occurrences": 1,
       "last_seen": "2026-07-27"
     },
@@ -30,21 +45,39 @@
       "timestamp": "2026-07-27",
       "error_message": "User: 'Clicking doesn't work to show up a popup at all.' Broke for every run after 'Render the Cogs' made StacCogLayer the only displacement rendering path (previously masked because most displacement runs used ImageOverlay instead).",
       "file": "ui/src/components/mapworkbench/StacCogLayer.jsx, ui/src/components/mapworkbench/StacResults.jsx",
-      "root_cause": "georaster-layer-for-leaflet@4.1.2 (checked both dist entry points actually resolved by package.json's main/module fields) is a plain L.GridLayer.extend({...}) with ZERO click/interactive-target support — it never calls Leaflet's addInteractiveTarget and never fires 'click'/'contextmenu' on the layer instance. StacCogLayer.jsx's `layer.on('click', ...)` therefore never fired from a real user click; it only appeared to work because velocity (which always used StacCogLayer) was rarely tested and displacement usually rendered via ImageOverlay instead (react-leaflet's own working event wiring).",
+      "root_cause": "georaster-layer-for-leaflet@4.1.2 (checked both dist entry points actually resolved by package.json's main/module fields) is a plain L.GridLayer.extend({...}) with ZERO click/interactive-target support \u2014 it never calls Leaflet's addInteractiveTarget and never fires 'click'/'contextmenu' on the layer instance. StacCogLayer.jsx's `layer.on('click', ...)` therefore never fired from a real user click; it only appeared to work because velocity (which always used StacCogLayer) was rarely tested and displacement usually rendered via ImageOverlay instead (react-leaflet's own working event wiring).",
       "fix": "Moved real interactivity from the (non-functional) layer-level Leaflet event to the map level: StacResults.jsx now attaches `click`/`contextmenu` via `useMapEvents`, reusing the existing `samplersRef` registry (bounds + sampleAt per rendered layer, same mechanism already built for the address-search probe) via a new shared `findSampledRunAt(lat, lon)` helper (topmost-registered-first). Removed the dead onClick/onContextMenu props + layer.on(...) wiring from StacCogLayer.jsx entirely rather than leave misleading code that looks functional but isn't. Verified with a real Playwright/Chromium click (not just a synthetic function call) against a minimal harness mounting the actual StacCogLayer + a local range-request-capable COG server: click reached useMapEvents({click}), bounds.contains() matched, and sampleAt() returned the exact GDAL ground-truth value.",
-      "tags": ["ui", "leaflet", "georaster-layer-for-leaflet", "interactivity", "click", "regression", "stac-results", "stac-cog-layer"],
-      "related_bugs": ["bug-002"],
+      "tags": [
+        "ui",
+        "leaflet",
+        "georaster-layer-for-leaflet",
+        "interactivity",
+        "click",
+        "regression",
+        "stac-results",
+        "stac-cog-layer"
+      ],
+      "related_bugs": [
+        "bug-002"
+      ],
       "occurrences": 1,
       "last_seen": "2026-07-27"
     },
     {
       "id": "bug-004",
       "timestamp": "2026-07-27",
-      "error_message": "User: 'Also are all images normalized across the maximum range of values across all images? They should be.' — implicitly reporting they weren't.",
+      "error_message": "User: 'Also are all images normalized across the maximum range of values across all images? They should be.' \u2014 implicitly reporting they weren't.",
       "file": "ui/src/components/mapworkbench/StacResults.jsx",
-      "root_cause": "combinedRange(dispRuns/velocityRuns, kind) computes the min/max across every currently-shown run of a kind, but that value was only ever passed to RasterLegend (the panel's legend labels) — each individual StacCogLayer was colored using its OWN per-run range (cog.range/vel.range) via pixelValuesToColorFn. So the legend showed one scale while the map rendered a different scale per run, and colors weren't comparable between simultaneously-displayed runs.",
+      "root_cause": "combinedRange(dispRuns/velocityRuns, kind) computes the min/max across every currently-shown run of a kind, but that value was only ever passed to RasterLegend (the panel's legend labels) \u2014 each individual StacCogLayer was colored using its OWN per-run range (cog.range/vel.range) via pixelValuesToColorFn. So the legend showed one scale while the map rendered a different scale per run, and colors weren't comparable between simultaneously-displayed runs.",
       "fix": "Added displacementColorRange/velocityColorRange ({vmin, vmax} built from the same combinedRange() legend value) and pass that into StacCogLayer's `range` prop for both displacement and velocity, falling back to the per-run range only if no combined range exists (e.g. no run in view carries range metadata at all).",
-      "tags": ["ui", "cog", "color-scale", "normalization", "stac-results", "legend"],
+      "tags": [
+        "ui",
+        "cog",
+        "color-scale",
+        "normalization",
+        "stac-results",
+        "legend"
+      ],
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-07-27"
@@ -52,24 +85,42 @@
     {
       "id": "bug-005",
       "timestamp": "2026-07-27",
-      "error_message": "Browser console (production): \"Access to fetch at 'https://subsideapi.pods.portals.tapis.io/api/subside/tiles/texas_counties/6/13/27.mvt' from origin 'https://subsideui.pods.portals.tapis.io' has been blocked by CORS policy\" — user thought it might be CKAN rate-limiting; it was not.",
+      "error_message": "Browser console (production): \"Access to fetch at 'https://subsideapi.pods.portals.tapis.io/api/subside/tiles/texas_counties/6/13/27.mvt' from origin 'https://subsideui.pods.portals.tapis.io' has been blocked by CORS policy\" \u2014 user thought it might be CKAN rate-limiting; it was not.",
       "file": "tapis/register_pods.py",
-      "root_cause": "TWO independent CORS layers exist for the API pod: (1) FastAPI's own CORSMiddleware, driven by SUBSIDE_CORS_ORIGINS (already correctly deployment-derived in register_pods.py's build_specs()); (2) Tapis Pods' own ingress-level cors_allow_origins field, which register_pods.py never set at all. The live pod's platform-level cors_allow_origins was stuck at [\"https://subside.pods.portals.tapis.io\"] (no \"ui\") — a stale value predating the split into separate subsideapi/subsideui pods. Layer (2) blocks the request before it ever reaches the FastAPI app, so layer (1) being correct didn't matter.",
-      "fix": "Added `\"cors_allow_origins\": [ui_url]` to the api pod spec in build_specs(), deployment-derived the same way SUBSIDE_CORS_ORIGINS already is. Verified via `--dry-run` that it computed correctly. UPDATE: user ran it live — see bug-006 for a regression this surfaced, and the confirmation that the origin fix itself did resolve the original CORS error.",
-      "tags": ["tapis-pods", "cors", "deployment", "production", "register-pods", "infra"],
-      "related_bugs": ["bug-006"],
+      "root_cause": "TWO independent CORS layers exist for the API pod: (1) FastAPI's own CORSMiddleware, driven by SUBSIDE_CORS_ORIGINS (already correctly deployment-derived in register_pods.py's build_specs()); (2) Tapis Pods' own ingress-level cors_allow_origins field, which register_pods.py never set at all. The live pod's platform-level cors_allow_origins was stuck at [\"https://subside.pods.portals.tapis.io\"] (no \"ui\") \u2014 a stale value predating the split into separate subsideapi/subsideui pods. Layer (2) blocks the request before it ever reaches the FastAPI app, so layer (1) being correct didn't matter.",
+      "fix": "Added `\"cors_allow_origins\": [ui_url]` to the api pod spec in build_specs(), deployment-derived the same way SUBSIDE_CORS_ORIGINS already is. Verified via `--dry-run` that it computed correctly. UPDATE: user ran it live \u2014 see bug-006 for a regression this surfaced, and the confirmation that the origin fix itself did resolve the original CORS error.",
+      "tags": [
+        "tapis-pods",
+        "cors",
+        "deployment",
+        "production",
+        "register-pods",
+        "infra"
+      ],
+      "related_bugs": [
+        "bug-006"
+      ],
       "occurrences": 1,
       "last_seen": "2026-07-27"
     },
     {
       "id": "bug-006",
       "timestamp": "2026-07-27",
-      "error_message": "User ran the register_pods.py update for bug-005's fix; live subsideapi pod's cors_allow_methods/cors_allow_headers came back as EMPTY ARRAYS (previously had sensible values: GET/POST/OPTIONS/DELETE/PUT/HEAD/PATCH and content-type/authorization/x-tapis-* headers) — a regression, not present before this fix.",
+      "error_message": "User ran the register_pods.py update for bug-005's fix; live subsideapi pod's cors_allow_methods/cors_allow_headers came back as EMPTY ARRAYS (previously had sensible values: GET/POST/OPTIONS/DELETE/PUT/HEAD/PATCH and content-type/authorization/x-tapis-* headers) \u2014 a regression, not present before this fix.",
       "file": "tapis/register_pods.py",
-      "root_cause": "Passing only `cors_allow_origins` in the pod spec to t.pods.update_pod() appears to make Tapis Pods treat the CORS config as a single unit that gets fully replaced, not deep-merged per-field — so omitting cors_allow_methods/cors_allow_headers/cors_allow_credentials wiped them to empty instead of leaving the previous values alone. cors_max_age (100) was NOT wiped, suggesting it's tracked independently of the other four.",
-      "fix": "Added cors_allow_methods/cors_allow_headers/cors_allow_credentials explicitly alongside cors_allow_origins in build_specs() (reconstructed known-good values from the pods original spec before it was wiped). Verified via --dry-run. NOT yet applied to the live pod — needs the same register_pods.py --pods api --restart run, with explicit user go-ahead.",
-      "tags": ["tapis-pods", "cors", "deployment", "production", "register-pods", "regression"],
-      "related_bugs": ["bug-005"],
+      "root_cause": "Passing only `cors_allow_origins` in the pod spec to t.pods.update_pod() appears to make Tapis Pods treat the CORS config as a single unit that gets fully replaced, not deep-merged per-field \u2014 so omitting cors_allow_methods/cors_allow_headers/cors_allow_credentials wiped them to empty instead of leaving the previous values alone. cors_max_age (100) was NOT wiped, suggesting it's tracked independently of the other four.",
+      "fix": "Added cors_allow_methods/cors_allow_headers/cors_allow_credentials explicitly alongside cors_allow_origins in build_specs() (reconstructed known-good values from the pods original spec before it was wiped). Verified via --dry-run. NOT yet applied to the live pod \u2014 needs the same register_pods.py --pods api --restart run, with explicit user go-ahead.",
+      "tags": [
+        "tapis-pods",
+        "cors",
+        "deployment",
+        "production",
+        "register-pods",
+        "regression"
+      ],
+      "related_bugs": [
+        "bug-005"
+      ],
       "occurrences": 1,
       "last_seen": "2026-07-27"
     },
@@ -80,8 +131,18 @@
       "file": "ui/src/components/mapworkbench/StacCogLayer.jsx",
       "root_cause": "Confirmed via the HAR: 32 distinct COG files loading simultaneously, all HTTP/1.1 to ckan.tacc.utexas.edu (browsers cap ~6 concurrent connections per origin on HTTP/1.1), individual range requests taking 200ms-1.5s each, bursts of many simultaneous requests to the same file. No actual HTTP errors in the HAR (no 4xx/5xx) -- tiles were being starved/abandoned by connection-limit queuing, not failing outright. StacCogLayer's existing tileerror retry was also too thin for this (3 retries, fixed 1s apart) to recover from congestion that can take several seconds to clear. User's framing: COGs stream fine individually (confirmed with their own 22GB COG example) -- the bug is opening ~24-32 of them in one simultaneous burst with no coordination, not the COG format/approach itself.",
       "fix": "Added ui/src/lib/loadQueue.js: a small shared concurrency gate (withLoadSlot, MAX_CONCURRENT_LOADS=4) that every StacCogLayer's expensive open+header-read phase now goes through, staggering ~24-32 simultaneous opens into waves of 4 instead of firing them all at once; verified with a standalone test that peak concurrency never exceeds the limit and a cancelled-before-its-turn layer skips its turn without consuming a slot. Also widened the tileerror retry backoff from a fixed 1s x3 to 1s/2s/3s/4s/5s x5, since congestion recovery can take longer than 3 seconds.",
-      "tags": ["ui", "cog", "concurrency", "performance", "stac-cog-layer", "connection-limit", "http1.1"],
-      "related_bugs": ["bug-008"],
+      "tags": [
+        "ui",
+        "cog",
+        "concurrency",
+        "performance",
+        "stac-cog-layer",
+        "connection-limit",
+        "http1.1"
+      ],
+      "related_bugs": [
+        "bug-008"
+      ],
       "occurrences": 1,
       "last_seen": "2026-07-27"
     },
@@ -92,8 +153,19 @@
       "file": "ui/src/components/mapworkbench/StacCogLayer.jsx",
       "root_cause": "Confirmed via node_modules source: georaster-stack (georaster-layer-for-leaflet's tile-read dependency) spawns `this.tileWorkers = range(3).map(() => create_worker())` -- a pool of 3 Web Workers PER LAYER -- and reads tile data from inside them (`chooseAtRandom(this.tileWorkers)`). Workers have an isolated global scope, so a main-thread `window.fetch` patch is invisible to fetches issued inside them. With ~20 mounted layers that's up to 60 independent worker threads capable of firing uncoordinated requests to the same origin on every zoom/pan, none of which the loadQueue (or any main-thread interception) can reach.",
       "fix": "ATTEMPTED AND REVERTED: built ui/src/lib/fetchGate.js to patch window.fetch globally (gating any request carrying a Range header) and installed it once from StacCogLayer.jsx, removing the narrower per-layer open-step queue since the fetch-level gate should have superseded it. Verified via the SAME Playwright test this had ZERO effect (peak concurrency measured 59 during initial load, worse than ungated) -- confirmed via debug logging that the patched fetch() *was* being called and correctly detecting Range headers for some requests, but overall concurrency was unaffected, consistent with a large share of the actual tile-read traffic bypassing it via the worker pool. Reverted fetchGate.js entirely and restored the original bug-007 per-layer withLoadSlot wrapping (verified-working for the open step) with a comment documenting why it can't cover ongoing tile reads. NOT YET FIXED: the zoom/pan-triggered per-tile burst across many already-mounted layers remains a real, confirmed, unmitigated risk. A real fix would need something that can intercept worker-issued fetches (e.g. a Service Worker, which CAN intercept fetch from same-origin Workers) or an architectural change (fewer simultaneously-mounted live COGs, e.g. reverting to the ImageOverlay-hybrid approach discussed earlier) -- not attempted, needs user direction given the cost/risk of either option.",
-      "tags": ["ui", "cog", "concurrency", "web-worker", "georaster-stack", "performance", "unresolved", "stac-cog-layer"],
-      "related_bugs": ["bug-007"],
+      "tags": [
+        "ui",
+        "cog",
+        "concurrency",
+        "web-worker",
+        "georaster-stack",
+        "performance",
+        "unresolved",
+        "stac-cog-layer"
+      ],
+      "related_bugs": [
+        "bug-007"
+      ],
       "occurrences": 1,
       "last_seen": "2026-07-27"
     },
@@ -104,8 +176,17 @@
       "file": "ui/src/components/mapworkbench/StacResults.jsx",
       "root_cause": "N/A - design choice, not a defect.",
       "fix": "Reduced how many live COG layers can be mounted at once instead of trying to throttle their network traffic (which bug-008 showed can't be done reliably from the main thread). Per-run visibility changed from opt-out (all in-view runs visible by default) to opt-in (only the single most-recently-acquired run per kind visible by default; runs.jsx's isRunVisible/toggleRun/shownIds/pickedKinds). Added a date-range preset filter narrowing the STAC search itself (bbox+datetime) and a client-side location text filter, both reducing how many runs even reach the point of being a rendering candidate.",
-      "tags": ["ui", "cog", "concurrency", "ux", "stac-results", "design-decision"],
-      "related_bugs": ["bug-008"],
+      "tags": [
+        "ui",
+        "cog",
+        "concurrency",
+        "ux",
+        "stac-results",
+        "design-decision"
+      ],
+      "related_bugs": [
+        "bug-008"
+      ],
       "occurrences": 1,
       "last_seen": "2026-07-27"
     },
@@ -116,10 +197,41 @@
       "file": "ui/src/components/mapworkbench/StacResults.jsx",
       "root_cause": "Interaction bug between bug-004's fix (color every shown run against a SHARED combined min/max, not each run's own range) and bug-008-resolution's opt-in-visibility feature. displacementLegend/velocityLegend (and the colorRange derived from them) were computed from combinedRange(dispRuns/velocityRuns, ...) -- ALL runs the current viewport's STAC search returned, not just the runs actually rendered. Since zoom/pan changes the search bbox, it changes which OTHER (unrendered, not even opted-into) runs are candidates, which shifts the combined min/max, which recolors the one run that IS visible -- same pixel value, different color, purely because the viewport moved. Verified the mechanism with a standalone simulation (old behavior: same shown run's color range changed from [-162.6,31.2] to [-300,300] purely by adding unrelated off-screen candidates to the pool).",
       "fix": "Added visibleDispRuns/visibleVelocityRuns = dispRuns/velocityRuns filtered by isRunVisible, and compute displacementLegend/velocityLegend (and thus displacementColorRange/velocityColorRange) from those instead of the full candidate list. A run's color scale is now stable for as long as it's the one being shown, regardless of what else the viewport search happens to also return. Re-ran the standalone simulation with the fix: same shown run's range now stays [-162.6,31.2] in both the 'many extra candidates' and 'no extra candidates' cases.",
-      "tags": ["ui", "cog", "color-scale", "zoom", "regression", "stac-results"],
-      "related_bugs": ["bug-004", "bug-008-resolution"],
+      "tags": [
+        "ui",
+        "cog",
+        "color-scale",
+        "zoom",
+        "regression",
+        "stac-results"
+      ],
+      "related_bugs": [
+        "bug-004",
+        "bug-008-resolution"
+      ],
       "occurrences": 1,
       "last_seen": "2026-07-27"
+    },
+    {
+      "id": "bug-010",
+      "timestamp": "2026-07-29",
+      "error_message": "User: turning Displacement off then Velocity on (or vice versa) leaves the PREVIOUS layer's colors visible on the map even though its checkbox is unchecked. Confirmed both directions (displacement->velocity and velocity->displacement). A full page reload fixes it; toggling within the running SPA does not.",
+      "file": "ui/src/components/mapworkbench/StacCogLayer.jsx",
+      "root_cause": "Ruled out via console logging + direct verification first: StacResults.jsx's toggle handlers and StacCogLayer's own 'rendering'/'removing' logs showed the correct href/palette/range at every step (confirmed velocity really got palette=plasma, correct min/max, and the previous layer's removal DID fire). Independently re-rendered both this exact run's real displacement (viridis) and velocity (plasma) rasters offline and confirmed they look genuinely, clearly different (teal/green/yellow vs purple/orange/yellow) -- so this is not a data or palette mixup. Root cause is that georaster-layer-for-leaflet@4.1.2 has no onRemove override (only onAdd, confirmed via source inspection) -- it relies entirely on Leaflet's stock GridLayer cleanup, which this custom canvas/Worker-pool-based renderer may not fully honor, leaving stale tile DOM/canvas content visible after map.removeLayer().",
+      "fix": "Added a defensive backstop in StacCogLayer's cleanup: forcibly call layer.getContainer()?.remove() before map.removeLayer(layer), so the layer's own DOM container is detached immediately regardless of the library's internal cleanup timing. IMPORTANT CAVEAT: built an isolated Playwright reproduction (two StacCogLayer instances swapped via React key change, matching the real toggle scenario, including simulated realistic network latency via route interception) and could NOT reproduce the stale-tile symptom even WITHOUT this fix -- .leaflet-layer count stayed at 1 through repeated swaps both directions. So this fix is a reasonable, safe hardening of a confirmed real gap in the library (no onRemove), but is NOT a confirmed resolution of the exact production symptom -- the real bug may need conditions specific to the full StacResults component (overlapping runs, the sampler registry, real STAC/CDN timing) that the isolated test didn't replicate. Flagged to user as unconfirmed; if it persists after this ships, the next step is inspecting the DOM directly (Elements panel) at the moment the bug is visible in production, not another synthetic reproduction attempt.",
+      "tags": [
+        "ui",
+        "leaflet",
+        "georaster-layer-for-leaflet",
+        "dom-cleanup",
+        "stac-cog-layer",
+        "unconfirmed-fix"
+      ],
+      "related_bugs": [
+        "bug-009"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-29"
     }
   ]
 }
