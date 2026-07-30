@@ -25,6 +25,20 @@ python subsidence_pandas_user_inputs.py --inputs pecos_417430_example.json \
   --out prediction.csv --diagnostics-out diagnostics.csv
 
 python subsidence_pandas_user_inputs.py --inputs scenarios.csv --out predictions.csv
+
+Units
+-----
+Elevations/water levels: feet MSL. Thicknesses: feet. Temperature: degrees
+Celsius. TDS: mg/L. Porosities: percent (0-100, e.g. 35 not 0.35). Water
+level trend: feet/year. Aquifer/clay compressibility (Minimum/Maximum
+Aquifer Compressibility, Minimum/Maximum Clay Compressibility): psi^-1
+(Terzaghi consolidation compressibility -- see specific_storage_ft_inv()
+and compression_indices() below). This is NOT the same quantity as a
+specific-storage "A-coefficient" in ft^-1 that some GAM reports use in a
+depth-decay specific-storage formula (e.g. Ss = (AS*fS + AC*fC)/(D+32.8));
+plugging a ft^-1-scale coefficient in here directly will be off by several
+orders of magnitude and silently produce inflated subsidence estimates,
+since this dict is not unit-checked.
 """
 from __future__ import annotations
 
@@ -195,6 +209,11 @@ class SubsidenceInputs:
     aquifer_porosity_pct: float = 35.0
     clay_type: str = "Plastic Clay"
     clay_porosity_pct: float = 50.0
+    # Terzaghi consolidation compressibility, units psi^-1 -- NOT a ft^-1
+    # specific-storage "A-coefficient" (see module docstring "Units" section).
+    # Defaults below are calibrated for the Pecos Valley example scenario;
+    # they are not a generic aquifer default and should not be reused
+    # as-is for a different aquifer.
     aq_comp_min_psi_inv: float = 5.2e-8
     aq_comp_max_psi_inv: float = 1.0e-7
     clay_comp_min_psi_inv: float = 2.6e-7
@@ -581,10 +600,14 @@ def write_template(path: Path) -> None:
         "Aquifer Porosity": 35,
         "Predominant Aquifer Clay Type": "Plastic Clay",
         "Aquifer Clay Porosity": 50,
-        "Minimum Aquifer Compressibility": 5.2e-08,
-        "Maximum Aquifer Compressibility": 1.0e-07,
-        "Minimum Clay Compressibility": 2.6e-07,
-        "Maximum Clay Compressibility": 2.0e-06,
+        # Units: psi^-1 (Terzaghi consolidation compressibility). See the
+        # module docstring "Units" section -- this is NOT the same quantity
+        # as a ft^-1 specific-storage coefficient. The "(psi^-1)" suffix is
+        # optional (both forms are accepted, see ALIASES) but recommended.
+        "Minimum Aquifer Compressibility (psi^-1)": 5.2e-08,
+        "Maximum Aquifer Compressibility (psi^-1)": 1.0e-07,
+        "Minimum Clay Compressibility (psi^-1)": 2.6e-07,
+        "Maximum Clay Compressibility (psi^-1)": 2.0e-06,
     }
     path.write_text(json.dumps(template, indent=2) + "\n")
 

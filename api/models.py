@@ -58,7 +58,16 @@ class ForecastRequest(BaseModel):
     scenario: dict[str, Any] = Field(
         default_factory=dict,
         description="Aquifer/water-level inputs (visible Excel labels or snake_case, "
-                    "or a {'inputs': {...}} object). Missing fields use model defaults.",
+                    "or a {'inputs': {...}} object). Missing fields use model defaults. "
+                    "Units (not otherwise enforced, since this is a free-form dict): "
+                    "elevations/water levels in feet MSL; thicknesses in feet; "
+                    "'Minimum/Maximum Aquifer Compressibility' and 'Minimum/Maximum Clay "
+                    "Compressibility' in psi^-1 (Terzaghi consolidation compressibility -- "
+                    "NOT the same as a specific-storage coefficient in ft^-1; see "
+                    "subsidence_pandas.py's specific_storage_ft_inv()/compression_indices() "
+                    "for how these feed the calculation); porosities in percent (0-100, "
+                    "e.g. 35 not 0.35); groundwater temperature in degrees Celsius; TDS in "
+                    "mg/L; water level trend in feet/year.",
     )
 
 
