@@ -43,6 +43,8 @@ const GEOMAN_CONTROL_LABELS = {
 
 function labelGeomanControls(map) {
   const container = map.getContainer()
+  container.setAttribute('role', 'region')
+  container.setAttribute('aria-label', 'Interactive risk map')
   for (const [selector, label] of Object.entries(GEOMAN_CONTROL_LABELS)) {
     const icon = container.querySelector(selector)
     if (!icon) continue

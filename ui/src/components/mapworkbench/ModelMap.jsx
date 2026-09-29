@@ -47,8 +47,6 @@ export function ModelMap({ mapData, zoom, setZoom }) {
             center={[mapData.center.lat, mapData.center.lon]}
             zoom={zoom}
             className="leaflet-map"
-            role="region"
-            aria-label="Interactive risk map"
             scrollWheelZoom
           >
             <MapEventsBridge onZoomChange={setZoom} />
