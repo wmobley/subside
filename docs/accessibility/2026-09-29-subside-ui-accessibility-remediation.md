@@ -1,7 +1,7 @@
 # SUBSIDE UI Accessibility Remediation
 
 **Date:** 2026-09-29
-**Status:** Source remediation deployed; keyboard/manual review completed; fresh Monsido crawl pending
+**Status:** Source remediation deployed; keyboard/manual review completed; fresh Monsido crawl passed
 **Scope:** `subside/ui`
 
 ## Source audit reviewed
@@ -154,11 +154,9 @@ interaction and a browser accessibility tree:
 
 ## Monsido follow-up
 
-The live deployed DOM was verified after workflow `36629034563` completed successfully. The
-Monsido page currently still displays the prior snippets and counts, including the old
-`<span>|</span>` markup and the old `aria-label` values, while its new crawl is not showing a
-completed result. The button-name finding is fixed in the deployed accessibility tree, but formal
-automated closure of the contrast and ARIA categories remains pending a fresh completed crawl.
+The fresh Monsido crawl was reported as passing after the remediation deployment. The earlier
+Monsido snippets and counts should now be treated as historical results; retain the completed
+export or crawl reference with this report when available.
 
 The next audit should capture the URL, selector, computed accessible name, and owning package for
 each remaining result. Leaflet/Geoman-generated controls should be classified separately from
@@ -169,8 +167,7 @@ application markup before changing vendor behavior.
 - Re-run the Forecast success-path status check after the Tapis API pod is fully available.
 - Open the authenticated workflow documentation dialog once a TACC session is available and
   record the live Escape and focus-restoration result.
-- Rerun Monsido and retain the before/after export; the current Monsido view still represents the
-  prior crawl.
+- Retain the completed Monsido export or crawl reference with this report when available.
 
 ## Acceptance next step
 
