@@ -34,6 +34,23 @@ import { StacCogLayer } from './StacCogLayer'
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
 
+const GEOMAN_CONTROL_LABELS = {
+  '.leaflet-pm-icon-polygon': 'Draw polygon',
+  '.leaflet-pm-icon-rectangle': 'Draw rectangle',
+  '.leaflet-pm-icon-edit': 'Edit area',
+  '.leaflet-pm-icon-delete': 'Delete area',
+}
+
+function labelGeomanControls(map) {
+  const container = map.getContainer()
+  for (const [selector, label] of Object.entries(GEOMAN_CONTROL_LABELS)) {
+    const control = container.querySelector(selector)
+    if (!control) continue
+    control.setAttribute('aria-label', label)
+    control.setAttribute('title', label)
+  }
+}
+
 // Per-workflow documentation, keyed by pipeline id (content/workflows/<id>.md).
 const WORKFLOW_DOCS = getWorkflowDocs()
 
@@ -280,6 +297,7 @@ export function SubsideAnalysis({
       rotateMode: false,
       cutPolygon: false,
     })
+    labelGeomanControls(map)
     // tooltips:false removes the floating "Click to finish" hints; continueDrawing
     // :false makes draw exit after one shape so panning works again immediately.
     map.pm.setGlobalOptions({ snappable: false, tooltips: false, continueDrawing: false })

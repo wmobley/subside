@@ -34,7 +34,7 @@ export function PortalHeader({ activePage, onPageChange }) {
           <div className="institutions" aria-label="Partner institutions">
             {partners.map((partner, i) => (
               <Fragment key={partner.abbr || partner.name}>
-                {i > 0 ? <span>|</span> : null}
+                {i > 0 ? <span className="institution-separator" aria-hidden="true" /> : null}
                 <a
                   href={partner.url || '#'}
                   target="_blank"

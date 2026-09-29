@@ -170,7 +170,10 @@ button {
   align-items: center;
 }
 
-.institutions span {
+.institution-separator {
+  width: 1px;
+  height: 1em;
+  background: currentColor;
   opacity: 0.4;
 }
 
