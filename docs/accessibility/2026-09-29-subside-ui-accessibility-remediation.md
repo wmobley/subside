@@ -1,7 +1,7 @@
 # SUBSIDE UI Accessibility Remediation
 
 **Date:** 2026-09-29
-**Status:** Source remediation complete; deployed-audit verification pending
+**Status:** Source remediation deployed; fresh Monsido crawl pending
 **Scope:** `subside/ui`
 
 ## Source audit reviewed
@@ -57,6 +57,18 @@ Files: `ui/src/components/datasets/DatasetFilters.jsx`,
 Files: `ui/src/components/mapworkbench/SubsideLayers.jsx`,
 `ui/src/components/mapworkbench/StacResults.jsx`, `ui/src/styles.css`
 
+### Automated-check findings from the deployed audit
+
+- Replaced the visible partner-institution `|` characters with a decorative CSS divider so
+  separator text is no longer evaluated as page content or low-contrast text.
+- Changed the partner-institution wrapper to a labeled `nav` and removed the invalid
+  `aria-label` from the plain account wrapper `div`.
+- Added accessible names and titles to the Geoman rectangle, polygon, edit, and delete map
+  controls. These were the four unnamed buttons reported on Risk Explorer.
+
+Files: `ui/src/components/PortalChrome.jsx`, `ui/src/components/mapworkbench/SubsideAnalysis.jsx`,
+`ui/src/styles.css`
+
 ### Upload, errors, and asynchronous status
 
 - Replaced the `hidden` GeoJSON input with a visually-hidden but keyboard-reachable native file
@@ -84,23 +96,25 @@ File: `ui/src/components/mapworkbench/SubsideAnalysis.jsx`
 - `npm run build` — passed; Vite transformed 951 modules and produced the production bundle.
 - `git diff --check` — passed with no whitespace errors.
 - Static source review confirmed that the changed layer rows no longer nest buttons inside labels.
+- The deployed Risk Explorer accessibility tree now exposes `Draw rectangle`, `Draw polygon`,
+  `Edit area`, and `Delete area` as named buttons; partner institutions are exposed as a named
+  navigation region.
 - No dedicated component or automated accessibility test suite is configured in `ui/package.json`;
   browser keyboard checks and the deployed audit remain required.
 - The local build required restoring the missing optional Rollup native package. No application
   dependency or lockfile change was retained.
 
-## Items requiring deployed-DOM verification
+## Monsido follow-up
 
-These items are not marked “fixed” yet because the audit export does not identify the offending
-element and the current source contains named application-owned controls in those areas:
-
-- Missing link accessible name.
-- Missing button accessible name.
-- Incorrect ARIA state or property.
+The live deployed DOM was verified after workflow `36629034563` completed successfully. The
+Monsido page currently still displays the prior snippets and counts, including the old
+`<span>|</span>` markup and the old `aria-label` values, while its new crawl is not showing a
+completed result. The button-name finding is fixed in the deployed accessibility tree, but formal
+automated closure of the contrast and ARIA categories remains pending a fresh completed crawl.
 
 The next audit should capture the URL, selector, computed accessible name, and owning package for
-each result. Leaflet/Geoman-generated controls should be classified separately from application
-markup before changing vendor behavior.
+each remaining result. Leaflet/Geoman-generated controls should be classified separately from
+application markup before changing vendor behavior.
 
 ## Remaining manual review
 
@@ -112,6 +126,6 @@ pass or a rerun of the deployed accessibility checker.
 
 ## Acceptance next step
 
-Build and deploy the updated UI, rerun the same accessibility check against the deployed version,
-and retain a before/after export with selectors or screenshots. Only then should the remaining
-automatic findings be classified as fixed, third-party-generated, not reproducible, or deferred.
+Rerun the same accessibility check against the deployed version and retain a before/after export
+with selectors or screenshots. Once that crawl completes, classify each remaining automatic result
+as fixed, third-party-generated, not reproducible, or deferred.
