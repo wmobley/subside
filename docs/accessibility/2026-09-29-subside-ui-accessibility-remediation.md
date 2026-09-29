@@ -1,7 +1,7 @@
 # SUBSIDE UI Accessibility Remediation
 
 **Date:** 2026-09-29
-**Status:** Source remediation deployed; fresh Monsido crawl pending
+**Status:** Source remediation deployed; keyboard/manual review completed; fresh Monsido crawl pending
 **Scope:** `subside/ui`
 
 ## Source audit reviewed
@@ -93,6 +93,19 @@ Files: `ui/src/components/mapworkbench/SubsideAnalysis.jsx`,
 
 File: `ui/src/components/mapworkbench/SubsideAnalysis.jsx`
 
+### Keyboard, status, and responsive fixes
+
+- Named the actual Geoman keyboard controls on their focusable parent buttons and labeled the
+  interactive map as an `Interactive risk map` region.
+- Added polite live status messaging for Forecast loading, running, and completed results, plus
+  `role="alert"` for Forecast errors.
+- Added `aria-busy` to the Forecast form while an estimate is running.
+- Constrained the Data header, filter panel, dataset cards, and Forecast form grid items so they
+  can shrink instead of forcing horizontal document overflow at narrow widths.
+
+Files: `ui/src/components/mapworkbench/SubsideAnalysis.jsx`, `ui/src/components/ForecastTool.jsx`,
+`ui/src/styles.css`
+
 ## Verification completed
 
 - `npm run lint` — passed with no warnings or errors after separating shared modules from React
@@ -108,6 +121,37 @@ File: `ui/src/components/mapworkbench/SubsideAnalysis.jsx`
 - The local build required restoring the missing optional Rollup native package. No application
   dependency or lockfile change was retained.
 
+## Keyboard and manual review completed
+
+The deployed build from workflow `36639374322` (commit `0222c22`) was checked with keyboard
+interaction and a browser accessibility tree:
+
+- **Tab order and visible focus:** Representative Home, Forecast, Data, and Risk Explorer
+  traversals reached the site navigation, page controls, map controls, layer actions, form
+  controls, and footer links in a usable order. Sampled focus targets showed a visible white
+  outline with a dark offset ring.
+- **Map controls and layer actions:** Risk Explorer exposes a named `Interactive risk map`
+  region. Zoom, Geoman draw/edit/delete controls, layer checkboxes, and contextual layer-action
+  buttons have usable names. Opening a layer-action menu with Space and closing it with Escape
+  returned focus to the invoking button.
+- **Dialog Escape and focus restoration:** The workflow documentation dialog source implements
+  initial focus, Tab containment, Escape-to-close, and restoration to its trigger. The workflow
+  dialog itself could not be opened live because the deployed session was unauthenticated; the
+  layer-action menu Escape/focus-restoration path was verified live.
+- **Form controls and errors:** Forecast numeric inputs, selects, disclosure, and action buttons
+  were exposed with names. A failed Forecast request was exposed as a `role="alert"` error. A
+  successful result announcement was not live-verified because the API returned the transient
+  Tapis `/pod-splash` startup error during the QA window.
+- **Live status updates:** Forecast loading/running/result status and map run-progress status are
+  implemented as polite live regions. The error announcement was verified live; successful
+  Forecast completion remains a follow-up once the API is available.
+- **Keyboard traps:** A 90-Tab Risk Explorer traversal did not repeat an active target, providing
+  evidence of no keyboard trap in the sampled route.
+- **Zoom/reflow:** At 640px and 320px viewport widths (equivalent to approximately 200% and 400%
+  desktop zoom for this review), Forecast, Risk Explorer, and Data all measured document and body
+  widths equal to the viewport with no off-screen visible controls. The Data and Forecast layout
+  constraints were fixed in commits `c7e0561`, `0d83b70`, and `0222c22`.
+
 ## Monsido follow-up
 
 The live deployed DOM was verified after workflow `36629034563` completed successfully. The
@@ -120,13 +164,13 @@ The next audit should capture the URL, selector, computed accessible name, and o
 each remaining result. Leaflet/Geoman-generated controls should be classified separately from
 application markup before changing vendor behavior.
 
-## Remaining manual review
+## Remaining review items
 
-The audit still requires keyboard and visual verification for keyboard operation, focus order and
-visibility, modal behavior, color-independent status meaning, zoom/reflow, hover/focus content,
-page titles, heading quality, instructions, and error-message quality. The source changes above
-address the identifiable application-owned cases, but they do not replace an end-to-end keyboard
-pass or a rerun of the deployed accessibility checker.
+- Re-run the Forecast success-path status check after the Tapis API pod is fully available.
+- Open the authenticated workflow documentation dialog once a TACC session is available and
+  record the live Escape and focus-restoration result.
+- Rerun Monsido and retain the before/after export; the current Monsido view still represents the
+  prior crawl.
 
 ## Acceptance next step
 
