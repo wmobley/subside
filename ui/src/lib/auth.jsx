@@ -3,15 +3,14 @@
 // Holds the access token + username + expiry, persisted to localStorage so the
 // session survives refreshes and is visible everywhere (header, Risk Explorer).
 // Auto-reverts to logged-out when the token's expiry passes.
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { AuthContext } from './authContext'
 
 const TOKEN_KEY = 'subside.tapisToken'
 const USER_KEY = 'subside.tapisUser'
 const EXP_KEY = 'subside.tapisExp' // ms epoch
 
 const MAX_TIMEOUT = 2_147_483_647 // setTimeout overflows past ~24.8 days
-
-const AuthContext = createContext(null)
 
 function clearStorage() {
   localStorage.removeItem(TOKEN_KEY)
@@ -81,10 +80,4 @@ export function AuthProvider({ children }) {
     logout,
   }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used within <AuthProvider>')
-  return ctx
 }

@@ -12,7 +12,7 @@
 // SUBSIDE API's own layer registry (GET /api/subside/layers) plus the built-in
 // ArcGIS aquifer overlays, so the map degrades to its pre-STAC behavior.
 import { getConfig } from './runtimeConfig'
-import { REFERENCE_LAYERS } from '../components/mapworkbench/ReferenceLayers'
+import { REFERENCE_LAYERS } from './referenceLayers'
 import { listLayers, tileUrlTemplate } from './subsideApi'
 
 const BASE = getConfig('VITE_STAC_API_BASE').replace(/\/$/, '')

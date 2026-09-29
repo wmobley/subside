@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMap } from 'react-leaflet'
 
-import { useAuth } from '../../lib/auth'
+import { useAuth } from '../../lib/authContext'
 import { listContextLayers } from '../../lib/stacContext'
 import { ContextLayer } from './ContextLayer'
 import { RunActionsMenu } from './RunActionsMenu'
@@ -163,11 +163,13 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
     <div key={`group-${g}`}>
       <div className="slp-section">{g}</div>
       {byGroup.get(g).map((layer) => (
-        <label key={layer.id} className="slp-row">
-          <input type="checkbox" checked={enabled.has(layer.id)} onChange={() => toggle(layer.id)} />
-          <span className="slp-swatch" style={{ background: layer.color }} />
-          <span className="slp-name">{layer.label}</span>
-          {layer.featureCount != null ? <span className="slp-count">{layer.featureCount}</span> : null}
+        <div key={layer.id} className="slp-row">
+          <label className="slp-row-toggle">
+            <input type="checkbox" checked={enabled.has(layer.id)} onChange={() => toggle(layer.id)} />
+            <span className="slp-swatch" style={{ background: layer.color }} />
+            <span className="slp-name">{layer.label}</span>
+            {layer.featureCount != null ? <span className="slp-count">{layer.featureCount}</span> : null}
+          </label>
           <button
             type="button"
             className="slp-row-actions-btn"
@@ -176,7 +178,7 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
           >
             ⋮
           </button>
-        </label>
+        </div>
       ))}
     </div>
   ))

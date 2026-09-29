@@ -1,6 +1,6 @@
 import { Fragment } from 'react'
 
-import { useAuth } from '../lib/auth'
+import { useAuth } from '../lib/authContext'
 import { startTapisLogin } from '../lib/subsideApi'
 import { HERO } from '../lib/config'
 import { hashForPage } from '../lib/routes'

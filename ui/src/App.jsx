@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
 
-import { useAuth } from './lib/auth'
+import { useAuth } from './lib/authContext'
 import { exchangeAuthCode, takeOAuthState } from './lib/subsideApi'
 import { pageFromHash, hashForPage } from './lib/routes'
 import { PortalPageContent } from './components/pages/PortalPageContent'

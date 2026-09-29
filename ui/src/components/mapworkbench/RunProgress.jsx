@@ -2,17 +2,9 @@
 // per-task status the API returns in run.tasks. Also mirrors a failure into the
 // browser console once per run. Pure presentational — takes a `run` object.
 import { useEffect, useRef } from 'react'
+import { RUN_COPY } from '../../lib/runCopy'
 
 // Plain-language status for the running pipeline (hide Tapis state-machine detail).
-// Exported because the analysis panel uses it for the no-tasks fallback line.
-export const RUN_COPY = {
-  completed: 'Done — your results are below.',
-  failed: 'The analysis failed. Try a smaller area or a different time range.',
-  cancelled: 'The analysis was cancelled.',
-  running: 'Analyzing your area — this usually takes a few minutes.',
-  queued: 'Queued on TACC — waiting for a compute slot.',
-}
-
 // The pipeline's Tapis tasks, in order, with plain-language labels. The heavy
 // `run` task does the whole analysis, so its hint spells out the sub-steps.
 const RUN_PHASES = [
@@ -66,7 +58,7 @@ export function RunProgress({ run }) {
   }, [failed, run.runId, errorText]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="sap-run sap-runprogress">
+    <div className="sap-run sap-runprogress" role="status" aria-live="polite">
       <ol className="sap-phases">
         {phases.map((p) => (
           <li key={p.id} className={`sap-phase is-${p.status}${active && active.id === p.id ? ' is-active' : ''}`}>

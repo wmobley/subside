@@ -24,11 +24,12 @@ import {
 import { getWorkflowDocs } from '../../lib/content'
 import { cssGradient } from '../../lib/colorRamps'
 import { estimateRuntime } from '../../lib/estimateRuntime'
-import { useAuth } from '../../lib/auth'
+import { useAuth } from '../../lib/authContext'
 import { layerContext } from '../../lib/layerContext'
 import { findRunItem, itemBoundaryGeoJSON, itemDownloads, itemLayers, itemMeta, stacEnabled } from '../../lib/stacApi'
 import { aoiStats, bboxToBounds, geometryBbox, toFeatureCollection } from './aoiGeometry'
-import { RUN_COPY, RunProgress } from './RunProgress'
+import { RUN_COPY } from '../../lib/runCopy'
+import { RunProgress } from './RunProgress'
 import { StacCogLayer } from './StacCogLayer'
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
@@ -100,6 +101,8 @@ export function SubsideAnalysis({
   const [submitErr, setSubmitErr] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [docOpen, setDocOpen] = useState(false) // workflow documentation modal
+  const docDialogRef = useRef(null)
+  const docTriggerRef = useRef(null)
 
   // Completed-run results: the STAC Item the pipeline published for this run.
   // All result rasters render from its public asset hrefs (no API proxy).
@@ -365,6 +368,47 @@ export function SubsideAnalysis({
     if (!token) { setHistory([]); setRun(null) }
   }, [token])
 
+  // Treat the workflow documentation as a real dialog: move focus into it,
+  // contain Tab navigation while it is open, close on Escape, and restore focus
+  // to the control that opened it.
+  useEffect(() => {
+    if (!docOpen) {
+      docTriggerRef.current?.focus()
+      return undefined
+    }
+    const dialog = docDialogRef.current
+    if (!dialog) return undefined
+    const selector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    const focusables = () => [...dialog.querySelectorAll(selector)]
+    const first = () => focusables()[0] || dialog
+    first().focus()
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setDocOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const items = focusables()
+      if (!items.length) {
+        event.preventDefault()
+        dialog.focus()
+        return
+      }
+      const current = document.activeElement
+      const index = items.indexOf(current)
+      const next = event.shiftKey
+        ? (index <= 0 ? items.length - 1 : index - 1)
+        : (index === items.length - 1 ? 0 : index + 1)
+      if (index === -1 || next !== index + (event.shiftKey ? -1 : 1)) {
+        event.preventDefault()
+        items[next].focus()
+      }
+    }
+    dialog.addEventListener('keydown', onKeyDown)
+    return () => dialog.removeEventListener('keydown', onKeyDown)
+  }, [docOpen])
+
   // Survive a page refresh: component state resets, but the session (localStorage
   // token) and the server-side run history persist. If a run is still in flight
   // and we aren't already tracking one, re-attach the poller to the most recent
@@ -517,14 +561,15 @@ export function SubsideAnalysis({
                 >
                   ✏ Draw area
                 </button>
-                <label className="sap-link sap-upload-aoi">
+                <input
+                  id="sap-upload-aoi"
+                  className="sap-file-input"
+                  type="file"
+                  accept=".geojson,.json,application/geo+json,application/json"
+                  onChange={handleUploadFile}
+                />
+                <label className="sap-link sap-upload-aoi" htmlFor="sap-upload-aoi">
                   ⤒ Upload GeoJSON
-                  <input
-                    type="file"
-                    accept=".geojson,.json,application/geo+json,application/json"
-                    onChange={handleUploadFile}
-                    hidden
-                  />
                 </label>
               </div>
             </div>
@@ -533,8 +578,8 @@ export function SubsideAnalysis({
           <div className="sap-step">
             <span className="sap-step-num">2</span>
             <div className="sap-step-body">
-              <div className="sap-step-label">What do you want to know?</div>
-              <select value={form.pipeline} onChange={setField('pipeline')}>
+              <label className="sap-control-label" htmlFor="sap-pipeline">What do you want to know?</label>
+              <select id="sap-pipeline" value={form.pipeline} onChange={setField('pipeline')}>
                 {OUTCOMES.map((o) => (
                   <option key={o.pipeline} value={o.pipeline}>{o.label}</option>
                 ))}
@@ -578,7 +623,7 @@ export function SubsideAnalysis({
                 </div>
               ) : null}
               {WORKFLOW_DOCS[form.pipeline] ? (
-                <button type="button" className="sap-link sap-doc-link" onClick={() => setDocOpen(true)}>
+                <button type="button" className="sap-link sap-doc-link" ref={docTriggerRef} onClick={() => setDocOpen(true)}>
                   Learn more about this analysis →
                 </button>
               ) : null}
@@ -590,21 +635,29 @@ export function SubsideAnalysis({
             <div className="sap-step-body">
               <div className="sap-step-label">Over what time range</div>
               <div className="sap-dates">
-                <input
-                  type="date"
-                  value={form.start_date}
-                  min={availReady ? avail.start : undefined}
-                  max={availReady ? avail.end : undefined}
-                  onChange={setField('start_date')}
-                />
+                <label className="sap-date-field" htmlFor="sap-start-date">
+                  <span className="sap-date-label">Start date</span>
+                  <input
+                    id="sap-start-date"
+                    type="date"
+                    value={form.start_date}
+                    min={availReady ? avail.start : undefined}
+                    max={availReady ? avail.end : undefined}
+                    onChange={setField('start_date')}
+                  />
+                </label>
                 <span className="sap-dates-sep">→</span>
-                <input
-                  type="date"
-                  value={form.end_date}
-                  min={availReady ? avail.start : undefined}
-                  max={availReady ? avail.end : undefined}
-                  onChange={setField('end_date')}
-                />
+                <label className="sap-date-field" htmlFor="sap-end-date">
+                  <span className="sap-date-label">End date</span>
+                  <input
+                    id="sap-end-date"
+                    type="date"
+                    value={form.end_date}
+                    min={availReady ? avail.start : undefined}
+                    max={availReady ? avail.end : undefined}
+                    onChange={setField('end_date')}
+                  />
+                </label>
               </div>
               {avail?.status === 'loading' ? <div className="sap-hint">Checking OPERA availability for this area…</div> : null}
               {availReady && !emptyWindow ? (
@@ -640,13 +693,13 @@ export function SubsideAnalysis({
           <button type="button" className="sap-submit" disabled={submitting || !aoi || noData || emptyWindow} onClick={handleSubmit}>
             {submitting ? 'Submitting…' : 'Run analysis'}
           </button>
-          {submitErr ? <div className="sap-error">{submitErr}</div> : null}
+          {submitErr ? <div className="sap-error" role="alert">{submitErr}</div> : null}
 
           {run ? (
             run.tasks?.length ? (
               <RunProgress run={run} />
             ) : (
-              <div className={`sap-run sap-${run.status}`}>
+              <div className={`sap-run sap-${run.status}`} role="status" aria-live="polite">
                 {!TERMINAL.has(run.status) ? <span className="sap-spinner" /> : null}
                 <span>{RUN_COPY[run.status] || run.status}</span>
               </div>
@@ -655,7 +708,7 @@ export function SubsideAnalysis({
 
           {run?.status === 'completed' ? (
             <div className="sap-results">
-              {resultsErr ? <div className="sap-error">{resultsErr}</div> : null}
+              {resultsErr ? <div className="sap-error" role="alert">{resultsErr}</div> : null}
 
               {selectedLayer ? (
                 <>
@@ -780,7 +833,7 @@ export function SubsideAnalysis({
               <span>Your past runs</span>
               <button type="button" className="sap-link" onClick={() => refreshHistory()}>refresh</button>
             </div>
-            {historyErr ? <div className="sap-error">{historyErr}</div> : null}
+            {historyErr ? <div className="sap-error" role="alert">{historyErr}</div> : null}
             {!history.length && !historyErr ? <div className="sap-hint">No runs yet.</div> : null}
             {history.map((h) => (
               <button
@@ -822,14 +875,16 @@ export function SubsideAnalysis({
           <div className="workflow-modal-backdrop" role="presentation" onClick={() => setDocOpen(false)}>
             <div
               className="workflow-modal sap-doc-modal"
+              ref={docDialogRef}
               role="dialog"
               aria-modal="true"
-              aria-label={WORKFLOW_DOCS[form.pipeline].title || 'About this analysis'}
+              aria-labelledby="workflow-dialog-title"
+              tabIndex="-1"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="workflow-modal-head">
-                <h2>{WORKFLOW_DOCS[form.pipeline].title || 'About this analysis'}</h2>
-                <button type="button" className="modal-close" aria-label="Close" onClick={() => setDocOpen(false)}>×</button>
+                <h2 id="workflow-dialog-title">{WORKFLOW_DOCS[form.pipeline].title || 'About this analysis'}</h2>
+                <button type="button" className="modal-close" aria-label="Close dialog" onClick={() => setDocOpen(false)}>×</button>
               </div>
               <div className="sap-doc-body">
                 <ReactMarkdown>{WORKFLOW_DOCS[form.pipeline].body}</ReactMarkdown>

@@ -13,20 +13,6 @@ const PALETTE = [
   '#7b4173', '#3182bd', '#e6550d', '#31a354', '#756bb1', '#636363',
 ]
 
-const ARCGIS = 'https://services1.arcgis.com/7DRakJXKPEhwv0fM/ArcGIS/rest/services/Z_Statewide_gdb/FeatureServer'
-// f=geojson + outSR=4326 gives Leaflet-ready lon/lat; both layers are well under
-// maxRecordCount (139 / 538), so a single query returns everything. The raw
-// statewide polygons are ~33 MB, so simplify server-side (maxAllowableOffset in
-// degrees ≈ 200 m, 5-decimal precision) → ~1.5 MB, plenty for a context overlay.
-const query = (layer) =>
-  `${ARCGIS}/${layer}/query?where=1%3D1&outFields=*&outSR=4326`
-  + `&maxAllowableOffset=0.002&geometryPrecision=5&f=geojson`
-
-export const REFERENCE_LAYERS = [
-  { id: 'major-aquifers', label: 'Major aquifers', kind: 'Major aquifer', url: query(1), color: '#1d4ed8' },
-  { id: 'minor-aquifers', label: 'Minor aquifers', kind: 'Minor aquifer', url: query(0), color: '#0d9488' },
-]
-
 // Best human name for a feature: AQ_NAME_UL is the title-cased name (e.g.
 // "Seymour"); AQ_NAME/AQU_NAME are the uppercase variants. (AQUIFER is a numeric
 // code and AREA is in degrees², so neither is shown.)

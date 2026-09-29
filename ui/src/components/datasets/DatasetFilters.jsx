@@ -65,12 +65,27 @@ export function DatasetFilters({
       </div>
 
       {filters.region === 'custom' ? (
-        <div className="bbox-grid" aria-label="Custom bounding box">
-          <input value={filters.minLon} onChange={(event) => onFilterChange('minLon', event.target.value)} placeholder="Min lon" inputMode="decimal" />
-          <input value={filters.minLat} onChange={(event) => onFilterChange('minLat', event.target.value)} placeholder="Min lat" inputMode="decimal" />
-          <input value={filters.maxLon} onChange={(event) => onFilterChange('maxLon', event.target.value)} placeholder="Max lon" inputMode="decimal" />
-          <input value={filters.maxLat} onChange={(event) => onFilterChange('maxLat', event.target.value)} placeholder="Max lat" inputMode="decimal" />
-        </div>
+        <fieldset className="bbox-fieldset">
+          <legend>Custom bounding box</legend>
+          <div className="bbox-grid">
+            <label htmlFor="ckan-min-lon">
+              Min longitude
+              <input id="ckan-min-lon" value={filters.minLon} onChange={(event) => onFilterChange('minLon', event.target.value)} placeholder="e.g. -98.5" inputMode="decimal" />
+            </label>
+            <label htmlFor="ckan-min-lat">
+              Min latitude
+              <input id="ckan-min-lat" value={filters.minLat} onChange={(event) => onFilterChange('minLat', event.target.value)} placeholder="e.g. 29.0" inputMode="decimal" />
+            </label>
+            <label htmlFor="ckan-max-lon">
+              Max longitude
+              <input id="ckan-max-lon" value={filters.maxLon} onChange={(event) => onFilterChange('maxLon', event.target.value)} placeholder="e.g. -96.0" inputMode="decimal" />
+            </label>
+            <label htmlFor="ckan-max-lat">
+              Max latitude
+              <input id="ckan-max-lat" value={filters.maxLat} onChange={(event) => onFilterChange('maxLat', event.target.value)} placeholder="e.g. 33.0" inputMode="decimal" />
+            </label>
+          </div>
+        </fieldset>
       ) : null}
 
       <SpatialFilterMap bbox={activeBbox} extentLabel={extentLabel} onBboxChange={onBboxApply} onBboxClear={onBboxClear} />

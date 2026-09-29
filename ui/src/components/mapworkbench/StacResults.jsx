@@ -8,7 +8,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CircleMarker, ImageOverlay, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 
-import { useAuth } from '../../lib/auth'
+import { useAuth } from '../../lib/authContext'
 import { cssGradient } from '../../lib/colorRamps'
 import { layerContext } from '../../lib/layerContext'
 import { itemLayers, itemMeta, overlayHref, searchItems, stacEnabled } from '../../lib/stacApi'
@@ -591,22 +591,24 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
         {shown.map((it) => {
           const parts = runRowParts(it, kind)
           return (
-            <label key={it.id} className="slp-row slp-run-row">
-              <input type="checkbox" checked={isRunVisible(it.id, kind, runs)} onChange={() => toggleRun(it.id, kind, runs)} />
-              <span className="slp-name" title={runRowTooltip(it, kind)}>
-                <span className="slp-run-title">{parts.title}</span>
-                {parts.dates ? <span className="slp-run-dates">Dates: {parts.dates}</span> : null}
-                {parts.meta ? <span className="slp-run-meta">{parts.meta}</span> : null}
-              </span>
+            <div key={it.id} className="slp-row slp-run-row">
+              <label className="slp-row-toggle">
+                <input type="checkbox" checked={isRunVisible(it.id, kind, runs)} onChange={() => toggleRun(it.id, kind, runs)} />
+                <span className="slp-name" title={runRowTooltip(it, kind)}>
+                  <span className="slp-run-title">{parts.title}</span>
+                  {parts.dates ? <span className="slp-run-dates">Dates: {parts.dates}</span> : null}
+                  {parts.meta ? <span className="slp-run-meta">{parts.meta}</span> : null}
+                </span>
+              </label>
               <button
                 type="button"
                 className="slp-run-actions-btn"
-                aria-label="Run actions"
+                aria-label={`${parts.title} run actions`}
                 onClick={(event) => openActionsMenuFromClick(event, it, kind)}
               >
                 ⋮
               </button>
-            </label>
+            </div>
           )
         })}
         {runs.length > MAX_RUNS ? (
@@ -641,16 +643,18 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
           ))}
         </select>
       </div>
-      <label className="slp-row">
-        <input type="checkbox" checked={showDisplacement} onChange={(e) => {
-          const checked = e.target.checked
-          console.log('[StacResults] Displacement toggle ->', checked, 'would show:', visibleDispRuns.map((it) => ({ id: it.id, href: runLayer(it, 'displacement')?.href })))
-          setShowDisplacement(checked)
-          if (!checked && selection?.kind === 'displacement') setSelection(null)
-        }} />
-        <span className="slp-swatch" style={{ background: '#406d68' }} />
-        <span className="slp-name">Displacement</span>
-        <span className="slp-count">{dispRuns.length}</span>
+      <div className="slp-row">
+        <label className="slp-row-toggle">
+          <input type="checkbox" checked={showDisplacement} onChange={(e) => {
+            const checked = e.target.checked
+            console.log('[StacResults] Displacement toggle ->', checked, 'would show:', visibleDispRuns.map((it) => ({ id: it.id, href: runLayer(it, 'displacement')?.href })))
+            setShowDisplacement(checked)
+            if (!checked && selection?.kind === 'displacement') setSelection(null)
+          }} />
+          <span className="slp-swatch" style={{ background: '#406d68' }} />
+          <span className="slp-name">Displacement</span>
+          <span className="slp-count">{dispRuns.length}</span>
+        </label>
         <button
           type="button"
           className="slp-row-actions-btn"
@@ -659,19 +663,21 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
         >
           ⋮
         </button>
-      </label>
+      </div>
       {showDisplacement ? <RasterLegend range={displacementLegend} fallbackUnit="m" /> : null}
       {showDisplacement ? runRows(dispRuns, 'displacement') : null}
-      <label className="slp-row">
-        <input type="checkbox" checked={showVelocity} onChange={(e) => {
-          const checked = e.target.checked
-          console.log('[StacResults] Velocity toggle ->', checked, 'would show:', visibleVelocityRuns.map((it) => ({ id: it.id, href: runLayer(it, 'velocity')?.href })))
-          setShowVelocity(checked)
-          if (!checked && selection?.kind === 'velocity') setSelection(null)
-        }} />
-        <span className="slp-swatch" style={{ background: '#7c3aed' }} />
-        <span className="slp-name">Subsidence Velocity</span>
-        <span className="slp-count">{velocityRuns.length}</span>
+      <div className="slp-row">
+        <label className="slp-row-toggle">
+          <input type="checkbox" checked={showVelocity} onChange={(e) => {
+            const checked = e.target.checked
+            console.log('[StacResults] Velocity toggle ->', checked, 'would show:', visibleVelocityRuns.map((it) => ({ id: it.id, href: runLayer(it, 'velocity')?.href })))
+            setShowVelocity(checked)
+            if (!checked && selection?.kind === 'velocity') setSelection(null)
+          }} />
+          <span className="slp-swatch" style={{ background: '#7c3aed' }} />
+          <span className="slp-name">Subsidence Velocity</span>
+          <span className="slp-count">{velocityRuns.length}</span>
+        </label>
         <button
           type="button"
           className="slp-row-actions-btn"
@@ -680,7 +686,7 @@ export function StacResults({ panelHost, onUseBboxForAnalysis, probeLocation }) 
         >
           ⋮
         </button>
-      </label>
+      </div>
       {showVelocity ? <RasterLegend range={velocityLegend} fallbackUnit="mm/yr" palette="plasma" /> : null}
       {showVelocity ? runRows(velocityRuns, 'velocity') : null}
       {error ? <div className="slp-error">{error}</div> : null}
