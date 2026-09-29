@@ -44,10 +44,16 @@ const GEOMAN_CONTROL_LABELS = {
 function labelGeomanControls(map) {
   const container = map.getContainer()
   for (const [selector, label] of Object.entries(GEOMAN_CONTROL_LABELS)) {
-    const control = container.querySelector(selector)
-    if (!control) continue
+    const icon = container.querySelector(selector)
+    if (!icon) continue
+    const control = icon.closest('a,button') || icon
     control.setAttribute('aria-label', label)
     control.setAttribute('title', label)
+    if (control !== icon) {
+      icon.removeAttribute('aria-label')
+      icon.removeAttribute('title')
+      icon.setAttribute('aria-hidden', 'true')
+    }
   }
 }
 

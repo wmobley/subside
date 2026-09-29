@@ -194,10 +194,10 @@ export function ForecastTool() {
         </div>
 
         {loadingTpl && !form ? (
-          <div className="fc-loading">Loading default scenario…</div>
+          <div className="fc-loading" role="status" aria-live="polite">Loading default scenario…</div>
         ) : (
           <div className="fc-layout">
-            <form className="fc-form" onSubmit={estimate}>
+            <form className="fc-form" onSubmit={estimate} aria-busy={running}>
               {GROUPS.map((group) => (
                 <fieldset className="fc-group" key={group.title}>
                   <legend>{group.title}</legend>
@@ -218,13 +218,16 @@ export function ForecastTool() {
                   reset to defaults
                 </button>
               </div>
-              {error ? <div className="sap-error">{error}</div> : null}
+              <div className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+                {running ? 'Estimating forecast.' : result ? `Forecast complete. Risk score ${result.risk_score} out of 10.` : ''}
+              </div>
+              {error ? <div className="sap-error" role="alert">{error}</div> : null}
             </form>
 
             <aside className="fc-result">
               {result ? (
                 <>
-                  <div className="fc-result-head">Potential subsidence risk</div>
+                  <div className="fc-result-head">Potential subsidence risk: {result.risk_score} out of 10</div>
                   <RiskGauge score={result.risk_score} />
                   {proj?.final_subsidence_max_ft != null ? (
                     <div className="fc-projection">

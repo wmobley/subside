@@ -43,7 +43,14 @@ export function ModelMap({ mapData, zoom, setZoom }) {
       <div className="map-stage">
         <div className="map-side-panel" ref={setPanelHost} />
         <div className="map-area">
-          <MapContainer center={[mapData.center.lat, mapData.center.lon]} zoom={zoom} className="leaflet-map" scrollWheelZoom>
+          <MapContainer
+            center={[mapData.center.lat, mapData.center.lon]}
+            zoom={zoom}
+            className="leaflet-map"
+            role="region"
+            aria-label="Interactive risk map"
+            scrollWheelZoom
+          >
             <MapEventsBridge onZoomChange={setZoom} />
             <TileLayer
               attribution='&copy; OpenStreetMap contributors'
