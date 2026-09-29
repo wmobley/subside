@@ -65,6 +65,10 @@ Files: `ui/src/components/mapworkbench/SubsideLayers.jsx`,
   `aria-label` from the plain account wrapper `div`.
 - Added accessible names and titles to the Geoman rectangle, polygon, edit, and delete map
   controls. These were the four unnamed buttons reported on Risk Explorer.
+- Updated the Data format chips and Risk Explorer map instructions to use the AA-readable
+  `--tacc-text-light` token on the light-gray surface. Monsido identified these as the remaining
+  contrast sources: 161 format-chip instances on Data and one map instruction paragraph on Risk
+  Explorer.
 
 Files: `ui/src/components/PortalChrome.jsx`, `ui/src/components/mapworkbench/SubsideAnalysis.jsx`,
 `ui/src/styles.css`

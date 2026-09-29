@@ -1045,7 +1045,7 @@ button {
   padding: 4px 9px;
   border-radius: 4px;
   background: var(--tacc-gray-lighter);
-  color: var(--tacc-text-medium);
+  color: var(--tacc-text-light);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1107,6 +1107,7 @@ button {
 
 .map-header p {
   margin: 4px 0 0;
+  color: var(--tacc-text-light);
   font-size: 14px;
 }
 
