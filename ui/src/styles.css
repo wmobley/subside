@@ -995,6 +995,10 @@ button {
   box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
 }
 
+.ckan-dataset-card__body {
+  min-width: 0;
+}
+
 .ckan-dataset-card h3 {
   margin: 0 0 8px;
   color: var(--tacc-primary-dark);
