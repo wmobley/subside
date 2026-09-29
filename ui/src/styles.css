@@ -1431,6 +1431,10 @@ button {
     align-items: stretch;
   }
 
+  .ckan-browser-head {
+    flex-direction: column;
+  }
+
   .dataset-query-panel .checkbox-row,
   .bbox-grid,
   .spatial-map-panel {
