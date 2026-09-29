@@ -2958,6 +2958,10 @@ button {
   align-items: start;
 }
 
+.fc-form {
+  min-width: 0;
+}
+
 @media (max-width: 860px) {
   .fc-layout {
     grid-template-columns: 1fr;
@@ -2969,6 +2973,7 @@ button {
   border-radius: 8px;
   padding: 10px 16px 16px;
   margin: 0 0 16px;
+  min-width: 0;
 }
 
 .fc-group legend {
@@ -2979,8 +2984,9 @@ button {
 
 .fc-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: 12px 16px;
+  min-width: 0;
 }
 
 .fc-field {
