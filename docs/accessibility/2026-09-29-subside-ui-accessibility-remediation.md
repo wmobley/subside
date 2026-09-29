@@ -97,8 +97,8 @@ File: `ui/src/components/mapworkbench/SubsideAnalysis.jsx`
 - `git diff --check` — passed with no whitespace errors.
 - Static source review confirmed that the changed layer rows no longer nest buttons inside labels.
 - The deployed Risk Explorer accessibility tree now exposes `Draw rectangle`, `Draw polygon`,
-  `Edit area`, and `Delete area` as named buttons; partner institutions are exposed as a named
-  navigation region.
+  `Edit area`, and `Delete area` as named buttons; the partner links are exposed in a named
+  region.
 - No dedicated component or automated accessibility test suite is configured in `ui/package.json`;
   browser keyboard checks and the deployed audit remain required.
 - The local build required restoring the missing optional Rollup native package. No application
