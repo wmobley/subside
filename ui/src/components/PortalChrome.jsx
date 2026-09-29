@@ -31,7 +31,7 @@ export function PortalHeader({ activePage, onPageChange }) {
     <header className="subside-header">
       <div className="subside-header-top">
         <div className="subside-container institution-bar">
-          <div className="institutions" aria-label="Partner institutions">
+          <nav className="institutions" aria-label="Partner institutions">
             {partners.map((partner, i) => (
               <Fragment key={partner.abbr || partner.name}>
                 {i > 0 ? <span className="institution-separator" aria-hidden="true" /> : null}
@@ -45,7 +45,7 @@ export function PortalHeader({ activePage, onPageChange }) {
                 </a>
               </Fragment>
             ))}
-          </div>
+          </nav>
           <div className="contract-label">Contract #2401792868</div>
         </div>
       </div>
@@ -77,7 +77,7 @@ export function PortalHeader({ activePage, onPageChange }) {
               ))}
             </ul>
 
-            <div className="subside-auth" aria-label="Account">
+            <div className="subside-auth">
               {isAuthed ? (
                 <>
                   <span className="subside-auth-user" title={`Signed in as ${username}`}>{username}</span>
