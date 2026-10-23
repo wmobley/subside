@@ -6,6 +6,7 @@ pydantic>=2
 tapipy
 pyyaml
 python-dotenv>=1.0
+cryptography>=42
 
 # PostGIS vector layers (/layers ingest + /tiles MVT) need a postgres driver.
 # Install these only if you want to serve GeoJSON layers + vector tiles; the

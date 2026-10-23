@@ -106,7 +106,9 @@ Reference: https://tapis.readthedocs.io/en/latest/technical/workflows.html
 ## API Facade
 
 > FastAPI facade landed 2026-05-29 under `subside/api/` (see `api/README.md`).
-> Auth is token pass-through (`X-Tapis-Token`), the API acts as the user.
+> Browser requests still authenticate with `X-Tapis-Token`, but enabled run
+> submissions mint a separate bounded per-run token for the asynchronous
+> workflow; see `api/README.md`.
 
 - [x] Add `POST /api/subside/aoi/frames`.
   - Explanation: Fast interactive endpoint for finding OPERA frames intersecting the selected AOI. This should not be a long-running workflow run.
@@ -166,8 +168,11 @@ Reference: https://tapis.readthedocs.io/en/latest/technical/workflows.html
   - Explanation: Do not send Earthdata passwords in browser-visible workflow args. Prefer Tapis secrets/identities or a backend-managed credential flow.
   - Resolved 2026-06-01: a dedicated **Earthdata service account** is the credential source (not personal logins). It lives server-side in `subside/.env` (`EARTHDATA_USERNAME`/`EARTHDATA_PASSWORD`, gitignored, documented in `.env.sample`); `api/manager._stage` builds a `.netrc` from it and stages it per-run via Tapis Files, so the secret never transits the API request body or browser-visible job args. Inline request creds remain accepted but discouraged. The previously leaked password (plaintext in the `walkthrough.py` scripts) has been **rotated**; follow-on hardening is to move those walkthrough scripts off any hardcoded value entirely.
 
-- [ ] Keep Tapis tokens server-side where possible.
-  - Explanation: The current frontend stores a token for workflow calls. For production, prefer backend session handling or short-lived token exchange to reduce exposure.
+- [x] Keep workflow Tapis tokens server-side where possible.
+  - Resolved 2026-10-23: enabled run submissions mint a bounded user-associated
+    token, persist it only in the encrypted lease store, pass it to the workflow,
+    and revoke it after terminal cleanup. OAuth refresh-token storage remains a
+    separate future phase; the browser token is still required for API calls.
 
 - [ ] Separate public discovery from authenticated execution.
   - Explanation: AOI frame discovery and product search may be available without Tapis login, but downloads, archives, and publication require authenticated execution.

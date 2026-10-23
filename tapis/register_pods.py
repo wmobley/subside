@@ -75,6 +75,14 @@ API_ENV_KEYS = [
     "SUBSIDE_CKAN_ADMIN_TOKEN",
     "SUBSIDE_PROVISION_CKAN_ROLE",
     "SUBSIDE_PROVISION_ON_LOGIN",
+    "SUBSIDE_RUN_TOKEN_ENABLED",
+    "SUBSIDE_RUN_TOKEN_STORE_PATH",
+    "SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY",
+    "SUBSIDE_RUN_TOKEN_TTL_BUFFER_SECONDS",
+    "SUBSIDE_RUN_TOKEN_TTL_MIN_SECONDS",
+    "SUBSIDE_RUN_TOKEN_TTL_MAX_SECONDS",
+    "SUBSIDE_RUN_TOKEN_TARGET_PREFIX",
+    "SUBSIDE_RUN_TOKEN_RECONCILE_ON_STARTUP",
 ]
 SECRET_KEYS = {
     "SUBSIDE_DATABASE_URL",
@@ -84,6 +92,7 @@ SECRET_KEYS = {
     "SUBSIDE_CKAN_TOKEN",
     "SUBSIDE_ADMIN_PASSWORD",
     "SUBSIDE_CKAN_ADMIN_TOKEN",
+    "SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY",
 }
 
 
@@ -139,12 +148,31 @@ def pod_urls(base_url: str) -> dict[str, str]:
     }
 
 
+def _run_tokens_enabled() -> bool:
+    return os.environ.get("SUBSIDE_RUN_TOKEN_ENABLED", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _run_token_volume_id() -> str:
+    return os.environ.get("SUBSIDE_RUN_TOKEN_VOLUME_ID", "subside-run-tokens")
+
+
 def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
     urls = pod_urls(base_url)
     api_url = urls["api"]
     ui_url = urls["ui"]
 
     api_env = {k: os.environ[k] for k in API_ENV_KEYS if os.environ.get(k)}
+    if _run_tokens_enabled():
+        if not os.environ.get("SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY"):
+            raise SystemExit(
+                "SUBSIDE_RUN_TOKEN_ENABLED=true requires "
+                "SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY for Pod deployment."
+            )
+        api_env.setdefault(
+            "SUBSIDE_RUN_TOKEN_STORE_PATH", "/var/lib/subside/run-tokens.sqlite3"
+        )
     # Deployment-derived (always the pod URLs, never the local dev values):
     api_env["TAPIS_OAUTH_CALLBACK_URL"] = f"{ui_url}/"
     api_env["SUBSIDE_CORS_ORIGINS"] = ui_url
@@ -175,6 +203,14 @@ def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
         "environment_variables": api_env,
         "time_to_stop_default": -1,  # long-running service
     }
+    if _run_tokens_enabled():
+        api["volume_mounts"] = {
+            "/var/lib/subside": {
+                "type": "tapisvolume",
+                "source_id": _run_token_volume_id(),
+                "sub_path": "",
+            }
+        }
     ui = {
         "pod_id": UI_POD_ID,
         "image": f"ghcr.io/{owner}/subside-ui:{tag}",
@@ -191,6 +227,26 @@ def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
         "time_to_stop_default": -1,
     }
     return {"api": api, "ui": ui, "_urls": {"api": api_url, "ui": ui_url}}
+
+
+def ensure_run_token_volume(t, *, dry_run: bool) -> None:
+    """Ensure the encrypted lease store has a dedicated persistent volume."""
+    if not _run_tokens_enabled():
+        return
+    volume_id = _run_token_volume_id()
+    if dry_run:
+        print(f"Would ensure Tapis volume {volume_id!r} exists (size_limit=10 MB).")
+        return
+    try:
+        t.pods.get_volume(volume_id=volume_id)
+        print(f"  [volume] {volume_id} already exists")
+    except Exception:
+        t.pods.create_volume(
+            volume_id=volume_id,
+            description="Encrypted SUBSIDE per-run token lease store",
+            size_limit=10,
+        )
+        print(f"  [volume] {volume_id} creation requested")
 
 
 def upsert_pod(t, spec: dict, *, recreate: bool, start: bool, restart: bool = False) -> None:
@@ -279,6 +335,8 @@ def main(argv=None) -> int:
             }
             print(f"--- {spec['pod_id']} ---")
             print(json.dumps(spec, indent=2))
+        if "api" in selected:
+            ensure_run_token_volume(None, dry_run=True)
         print(f"\nURLs once running:\n  API: {urls['api']}\n  UI:  {urls['ui']}")
         if not args.no_oauth and "api" in selected:
             print(f"\nWould register OAuth client {args.oauth_client_id!r} "
@@ -320,6 +378,9 @@ def main(argv=None) -> int:
 
     specs = build_specs(args.owner, args.image_tag, args.base_url)
     specs.pop("_urls")
+
+    if "api" in selected:
+        ensure_run_token_volume(t, dry_run=False)
 
     # Warn about secrets that will be stored in the pod spec.
     leaked = sorted(k for k in SECRET_KEYS if os.environ.get(k))

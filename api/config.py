@@ -107,3 +107,35 @@ CORS_ORIGINS = os.environ.get(
     "https://subside.local:5174,http://subside.local:5174,"
     "http://localhost:5174,https://localhost:5174",
 ).split(",")
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer.") from exc
+
+
+# The old pass-through workflow path is deliberately not an implicit fallback.
+# When this feature is enabled, the lease store validates the encryption key at
+# the first run request and rejects the request if it is missing or malformed.
+RUN_TOKEN_ENABLED = _env_bool("SUBSIDE_RUN_TOKEN_ENABLED", False)
+RUN_TOKEN_STORE_PATH = os.environ.get(
+    "SUBSIDE_RUN_TOKEN_STORE_PATH", str(SUBSIDE_ROOT / ".subside-run-tokens.sqlite3")
+)
+RUN_TOKEN_ENCRYPTION_KEY = os.environ.get("SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY")
+RUN_TOKEN_TTL_BUFFER_SECONDS = _env_int("SUBSIDE_RUN_TOKEN_TTL_BUFFER_SECONDS", 900)
+RUN_TOKEN_TTL_MIN_SECONDS = _env_int("SUBSIDE_RUN_TOKEN_TTL_MIN_SECONDS", 900)
+RUN_TOKEN_TTL_MAX_SECONDS = _env_int("SUBSIDE_RUN_TOKEN_TTL_MAX_SECONDS", 172800)
+RUN_TOKEN_TARGET_PREFIX = os.environ.get("SUBSIDE_RUN_TOKEN_TARGET_PREFIX", "subside-run")
+RUN_TOKEN_RECONCILE_ON_STARTUP = _env_bool("SUBSIDE_RUN_TOKEN_RECONCILE_ON_STARTUP", True)

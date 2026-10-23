@@ -51,6 +51,7 @@ dependencies:
       - "uvicorn[standard]"
       - pydantic
       - python-dotenv
+      - cryptography
       - tapipy
       - "psycopg[binary]"
       - psycopg-pool

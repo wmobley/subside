@@ -16,14 +16,28 @@ uvicorn api.main:app --reload --port 8000
 The Vite frontend (`:5173`) is allow-listed for CORS. Point the dev proxy or
 `fetch` at `http://localhost:8000`.
 
-## Auth (token pass-through)
+## Auth and run-token lifecycle
 
 1. `POST /api/subside/login` with `{username, password}` → `{token, username}`.
 2. Send that token on every other call as the `X-Tapis-Token` header.
 
-The API builds a per-request tapipy client from the token and acts as that user.
-No passwords are stored server-side. (Production hardening — server-side session
-/ short-lived token exchange — is a later TODO item.)
+The API builds a per-request tapipy client from the token and uses it only for
+the request and input staging. When `SUBSIDE_RUN_TOKEN_ENABLED=true`, a run
+submission mints a separate, bounded user token through the Portals Tokens API.
+Only that per-run token is passed to the workflow's `tapis_token` argument and
+used as the default CKAN/STAC credential. Explicit CKAN/STAC credentials still
+take precedence.
+
+The per-run token is encrypted in the SQLite lease store before workflow
+submission. Configure `SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY` with a Fernet key and
+`SUBSIDE_RUN_TOKEN_STORE_PATH` on protected persistent storage. Runs fail closed
+if the feature is enabled without a valid key; the browser token is never used
+as a fallback. Terminal runs trigger best-effort revocation, and startup
+reconciliation retries cleanup-pending leases when the configured service
+account is available. Phase 1 assumes one API instance sharing one persistent
+store; it is not a multi-replica coordination mechanism.
+
+No OAuth refresh token is returned to the browser or stored by this lifecycle.
 
 ## Endpoints
 
@@ -87,11 +101,25 @@ or `pip install` the geospatial extras listed in `requirements.txt`.
 
 | File | Responsibility |
 |---|---|
-| `main.py` | FastAPI app, routes, CORS, the `X-Tapis-Token` dependency |
-| `tapis.py` | build a client from a token; password-grant login; username-from-JWT |
-| `manager.py` | input staging, workflow submit/status/results, and archive lookup |
+| `main.py` | FastAPI app, routes, CORS, token dependency, startup lease reconciliation |
+| `tapis.py` | Tapis clients, password-grant login, username-from-JWT, token mint/revoke |
+| `manager.py` | input staging, run-token lifecycle, workflow submit/status/results, archive lookup |
+| `token_store.py` | encrypted SQLite lease records and cleanup state transitions |
 | `discovery.py` | in-process frames/products via `analysis` (lazy imports) |
 | `db.py` | lazy psycopg pool + PostGIS/schema/registry bootstrap (`DbUnavailable` → 503) |
 | `layers.py` | generic GeoJSON ingest, layer list/drop, GeoJSON read-back, MVT tiles |
 | `models.py` | pydantic request/response models |
-| `config.py` | base URL, staging system/path, CORS origins, DB/MVT settings (env-overridable) |
+| `config.py` | base URL, staging system/path, run-token lifecycle, CORS, DB/MVT settings |
+
+### Run-token environment variables
+
+| Variable | Purpose |
+|---|---|
+| `SUBSIDE_RUN_TOKEN_ENABLED` | Explicitly enables per-run token minting; default `false`. |
+| `SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY` | Fernet key used to encrypt stored run JWTs; required when enabled. |
+| `SUBSIDE_RUN_TOKEN_STORE_PATH` | Protected persistent SQLite path. |
+| `SUBSIDE_RUN_TOKEN_VOLUME_ID` | Deployment-side Tapis Pod volume used for the lease store. |
+| `SUBSIDE_RUN_TOKEN_TTL_BUFFER_SECONDS` | Cleanup/polling buffer added to requested walltime; default 900. |
+| `SUBSIDE_RUN_TOKEN_TTL_MIN_SECONDS` / `MAX_SECONDS` | Server-side TTL bounds; defaults 900 / 172800. |
+| `SUBSIDE_RUN_TOKEN_TARGET_PREFIX` | Prefix for the server-generated token target id. |
+| `SUBSIDE_RUN_TOKEN_RECONCILE_ON_STARTUP` | Retry cleanup-pending leases at API startup. |
