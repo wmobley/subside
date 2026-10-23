@@ -155,7 +155,8 @@ def _run_tokens_enabled() -> bool:
 
 
 def _run_token_volume_id() -> str:
-    return os.environ.get("SUBSIDE_RUN_TOKEN_VOLUME_ID", "subside-run-tokens")
+    # Tapis Pod volume IDs must be lowercase alphanumeric (no hyphens).
+    return os.environ.get("SUBSIDE_RUN_TOKEN_VOLUME_ID", "subsideruntokens")
 
 
 def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
