@@ -13,10 +13,13 @@ acts as that user for Tapis Workflows pipeline submission and archive reads.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from .services import availability, db, discovery, estimation, forecast, layers, manager, provisioning, tapis
+from . import config
 from .config import CORS_ORIGINS
 from .models import (
     AuthCodeRequest, AuthConfigResponse, AuthTokenResponse,
@@ -29,6 +32,7 @@ from .models import (
 )
 
 MVT_MEDIA_TYPE = "application/vnd.mapbox-vector-tile"
+log = logging.getLogger(__name__)
 
 # Tag groups organize the /docs (Swagger) and /redoc pages into sections.
 OPENAPI_TAGS = [
@@ -67,6 +71,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def reconcile_run_token_leases() -> None:
+    """Retry cleanup records without revoking active workflow leases."""
+    if not (config.RUN_TOKEN_ENABLED and config.RUN_TOKEN_RECONCILE_ON_STARTUP):
+        return
+    if not (config.SUBSIDE_ADMIN_USERNAME and config.SUBSIDE_ADMIN_PASSWORD):
+        log.warning(
+            "run-token reconciliation deferred: SUBSIDE_ADMIN_USERNAME/PASSWORD are not configured"
+        )
+        return
+    try:
+        admin_token = tapis.login(config.SUBSIDE_ADMIN_USERNAME, config.SUBSIDE_ADMIN_PASSWORD)
+        admin_client = tapis.client_from_token(admin_token)
+        count = manager.reconcile_run_tokens(admin_client)
+        log.info("run-token reconciliation completed: %d lease(s) cleaned", count)
+    except Exception as exc:
+        log.warning("run-token reconciliation failed: %s", str(exc)[:300])
 
 
 def require_client(x_tapis_token: str = Header(None, alias="X-Tapis-Token")):
@@ -235,6 +258,10 @@ def estimate_run(body: RunRequest):
 def submit_run(body: RunRequest, client=Depends(require_client)):
     try:
         info = manager.submit_run(client, body)
+    except manager.RunTokenConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except tapis.TokenMintError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Run submission failed: {exc}") from exc
     if not info.get("uuid"):

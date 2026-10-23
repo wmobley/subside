@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-from . import discovery
+from . import discovery, tapis as tapis_service, token_store
 from .. import config
 from ..config import PIPELINE_DIR, PIPELINES, STAGING_PREFIX, STAGING_SYSTEM, TAPIS_BASE_URL
 from ..models import Artifact, RunRequest
@@ -33,6 +33,10 @@ _BYTES_PER_ELEM = 20            # resident stack (~12) + lstsq float64 copy (~8)
 _VM_SMALL_BUDGET_GB = 26        # 32 GB node minus OS/python/libs headroom
 _SMALL_QUEUE = ("vm-small", 16, 32000)
 _BIG_QUEUE = ("normal", 128, 245000)
+
+
+class RunTokenConfigurationError(RuntimeError):
+    """Per-run token lifecycle is not safely configured."""
 
 
 def _aoi_pixels(bbox: dict, resolution_m: float = 30.0) -> float:
@@ -215,7 +219,70 @@ def _stage(client, username: str, run_id: str, req: RunRequest) -> dict:
         "run_config_uri": f"tapis://{STAGING_SYSTEM}/{base}/run-config.json",
         "aoi_geojson_uri": f"tapis://{STAGING_SYSTEM}/{base}/aoi.geojson",
         "earthdata_netrc_uri": netrc_uri,
+        "staging_path": base,
     }
+
+
+def _run_token_ttl(max_minutes: int) -> int:
+    requested = max(1, int(max_minutes)) * 60 + config.RUN_TOKEN_TTL_BUFFER_SECONDS
+    return max(
+        config.RUN_TOKEN_TTL_MIN_SECONDS,
+        min(config.RUN_TOKEN_TTL_MAX_SECONDS, requested),
+    )
+
+
+def _delete_staging(client, path: str | None) -> None:
+    if not path:
+        return
+    try:
+        client.files.delete(systemId=STAGING_SYSTEM, path=path)
+    except Exception:
+        pass
+
+
+def _is_ambiguous_submission(exc: Exception) -> bool:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if status_code is not None:
+        try:
+            if int(status_code) >= 500:
+                return True
+        except (TypeError, ValueError):
+            pass
+    text = str(exc).lower()
+    return any(marker in text for marker in (
+        "timeout", "timed out", "gateway", "connection", "temporarily unavailable", "504",
+    ))
+
+
+def _cleanup_lease(client, lease_id: str) -> bool:
+    lease = token_store.claim_cleanup(lease_id)
+    if lease is None:
+        return False
+    try:
+        auth_token = _client_token(client)
+        if not auth_token or not lease.token:
+            raise tapis_service.TokenRevokeError("No credential available for token cleanup.")
+        tapis_service.revoke_token(auth_token, lease.token)
+    except Exception as exc:
+        token_store.mark_cleanup_failed(lease_id, str(exc))
+        return False
+    token_store.mark_revoked(lease_id)
+    _delete_staging(client, lease.staging_path)
+    return True
+
+
+def reconcile_run_tokens(client) -> int:
+    """Retry only cleanup-pending leases; never revoke an active workflow lease."""
+    cleaned = 0
+    for lease in token_store.cleanup_candidates():
+        if _cleanup_lease(client, lease.lease_id):
+            cleaned += 1
+    for lease in token_store.expired_candidates():
+        token_store.mark_expired(lease.lease_id)
+        _delete_staging(client, lease.staging_path)
+        cleaned += 1
+    return cleaned
 
 
 def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str,
@@ -303,6 +370,15 @@ def _trigger_pipeline(client, pipeline_key: str, run_name: str, run_args: dict[s
 
 def submit_run(client, req: RunRequest) -> dict:
     """Stage inputs and submit a Tapis Workflows pipeline run. Does not poll."""
+    if not config.RUN_TOKEN_ENABLED:
+        raise RunTokenConfigurationError(
+            "Per-run Tapis tokens are disabled; set SUBSIDE_RUN_TOKEN_ENABLED=true "
+            "and configure the encrypted lease store."
+        )
+    try:
+        token_store.validate_configuration()
+    except token_store.TokenStoreConfigurationError as exc:
+        raise RunTokenConfigurationError(str(exc)) from exc
     allocation = req.allocation or config.DEFAULT_ALLOCATION
     if not allocation:
         raise ValueError("No allocation: set one in the request or SUBSIDE_DEFAULT_ALLOCATION in .env.")
@@ -314,16 +390,64 @@ def submit_run(client, req: RunRequest) -> dict:
     # be empty); the CKAN author arg gets the real claim or "" so
     # _dataset_payload's own fallback (not the literal word "user") applies.
     real_username = getattr(client, "username", None) or ""
+    if not real_username:
+        raise ValueError("Could not derive the authenticated Tapis username for the workflow run.")
     username = real_username or "user"
     short_id = uuid.uuid4().hex[:12]
-    staged = _stage(client, username, short_id, req)
+    staged = None
+    try:
+        staged = _stage(client, username, short_id, req)
+    except Exception:
+        _delete_staging(client, STAGING_PREFIX.format(username=username) + f"/{short_id}")
+        raise
     pipeline_id = _pipeline_id(req.pipeline)
     run_name = f"subside-api-{pipeline_id}-{req.start_date}-{req.end_date}-{short_id}"
     max_minutes = _resolve_walltime(req)
     run_queue = _pick_run_queue(req)
-    run_args = _workflow_args(req, staged, allocation, token, username=real_username,
+    target_site_id = f"{config.RUN_TOKEN_TARGET_PREFIX}-{short_id}"
+    try:
+        minted = tapis_service.mint_run_token(
+            token, real_username, target_site_id, _run_token_ttl(max_minutes)
+        )
+        run_token = minted["token"]
+    except Exception:
+        _delete_staging(client, staged.get("staging_path"))
+        raise
+
+    try:
+        token_store.create(
+            short_id,
+            token=run_token,
+            username=real_username,
+            target_site_id=target_site_id,
+            staging_path=staged.get("staging_path"),
+            expires_at=minted.get("expires_at"),
+        )
+    except Exception as exc:
+        # The token exists but was not persisted, so compensate immediately.
+        try:
+            tapis_service.revoke_token(token, run_token)
+        except Exception:
+            pass
+        _delete_staging(client, staged.get("staging_path"))
+        raise RunTokenConfigurationError("Could not persist the run-token lease.") from exc
+
+    run_args = _workflow_args(req, staged, allocation, run_token, username=real_username,
                               max_minutes=max_minutes, run_queue=run_queue)
-    run_uuid = _trigger_pipeline(client, req.pipeline, run_name, run_args)
+    try:
+        run_uuid = _trigger_pipeline(client, req.pipeline, run_name, run_args)
+    except Exception as exc:
+        if _is_ambiguous_submission(exc):
+            token_store.mark_submission_unknown(short_id)
+        else:
+            _cleanup_lease(client, short_id)
+        raise
+    if not run_uuid:
+        # The remote response may have been accepted even though no UUID was
+        # returned. Never blindly retry or revoke a possibly-running workflow.
+        token_store.mark_submission_unknown(short_id)
+    else:
+        token_store.bind_workflow(short_id, run_uuid)
     return {
         "uuid": run_uuid,
         "name": run_name,
@@ -493,7 +617,7 @@ def get_status(client, run_uuid: str) -> dict:
     run = details["run"]
     tasks = details["tasks"]
     raw_status, status = _effective_status(run, tasks)
-    return {
+    result = {
         "pipeline": details["pipeline"],
         "pipelineId": details["pipelineId"],
         "tapisStatus": raw_status,
@@ -502,6 +626,11 @@ def get_status(client, run_uuid: str) -> dict:
         "archive": _workflow_archive(client, run, tasks),
         "tasks": _tasks_summary(tasks),
     }
+    if status in SUCCESS_STATES | FAILURE_STATES:
+        lease = token_store.find_by_workflow(run_uuid)
+        if lease:
+            _cleanup_lease(client, lease.lease_id)
+    return result
 
 
 _MANIFEST_NAMES = ("werc-run-manifest.json", "run-manifest.json", "subside-run-manifest.json")

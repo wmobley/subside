@@ -30,7 +30,7 @@ pure pandas calculation so it runs synchronously in the API.
     ▼
   SUBSIDE API  (FastAPI, api/, :8000)
     ├── login                     → Tapis password grant → token (X-Tapis-Token on every other call)
-    ├── runs (submit/status/...)  → Tapis Jobs API, AS THE USER ──► OPERA batch apps on TACC (ls6)
+    ├── runs (submit/status/...)  → bounded per-run Tapis token ──► OPERA batch apps on TACC (ls6)
     │                                                                 │ archive
     │                                                                 ▼
     │                                            results/manifest read back from the job archive
@@ -46,9 +46,13 @@ flow** — "Log in with TACC". The browser redirects to the tenant's hosted
 (which never leaves the server). The frontend then sends the resulting **Tapis
 token** as the `X-Tapis-Token` header on every other call, and the API acts *as
 that user* for job submission — so jobs run under the user's identity and
-allocation (and sidestep the restricted Tapis Workflows service; see §9). A
-password-grant `/login` endpoint is retained for scripts/dev. Registering the
-OAuth client is a one-time step (`tapis/workflows/register_oauth_client.py`).
+allocation (and sidestep the restricted Tapis Workflows service; see §9). At
+run submission the API mints a bounded user-associated token through the
+Portals Tokens API, stores its encrypted lease, and passes that token to the
+asynchronous workflow. Terminal status or startup reconciliation revokes it;
+the browser token is never the workflow credential. A password-grant `/login`
+endpoint is retained for scripts/dev. Registering the OAuth client is a
+one-time step (`tapis/workflows/register_oauth_client.py`).
 
 ## 3. Frontend — `ui/src/`
 
@@ -110,8 +114,12 @@ Modules:
 - **`main.py`** — the FastAPI app + routes + the `require_client` token dependency.
 - **`models.py`** — Pydantic request/response models (`RunRequest`, `ForecastRequest`/`ForecastResponse`, `LayerInfo`, …).
 - **`config.py`** — env-driven config: `TAPIS_BASE_URL`, `EARTHDATA_*`, `DEFAULT_ALLOCATION`, staging system/prefix, `DATABASE_URL`, MVT params, CORS, and the `PIPELINES` map (`h2i`→`h2i-opera`, `werc`→`werc-opera`). Loads `.env` via python-dotenv.
-- **`tapis.py`** — `login`, `client_from_token`, username-from-JWT.
-- **`manager.py`** — the Tapis Jobs lifecycle: stage inputs, build the run-config, submit as the user, normalize status (Tapis's many states → queued/running/completed/failed/cancelled), discover results, and proxy archive files. Manifest preference order: `werc-run-manifest.json` → `run-manifest.json` → `subside-run-manifest.json`.
+- **`tapis.py`** — `login`, `client_from_token`, username-from-JWT, and the
+  verified run-token mint/revoke contract.
+- **`manager.py`** — stages inputs, mints and cleans up bounded run credentials,
+  submits the workflow, normalizes status (Tapis's many states → queued/running/completed/failed/cancelled), discovers results, and proxies archive files. Manifest preference order: `werc-run-manifest.json` → `run-manifest.json` → `subside-run-manifest.json`.
+- **`token_store.py`** — encrypted SQLite lease records for restart-safe cleanup
+  in the supported single-instance deployment model.
 - **`discovery.py`** — fast in-process frame/product discovery via `analysis.h2i_lab.aoi` (no Tapis job); raises `DiscoveryUnavailable` if the geo stack is missing.
 - **`availability.py`** — caches per-frame DISP-S1 availability in PostGIS; serves the viewport from cache and refreshes stale frames from ASF in the background (`refresh_frames`, `refresh_all` cron entrypoint).
 - **`layers.py`** — ingests GeoJSON into PostGIS (typed columns + a `props` jsonb fallback, identifier sanitizing) and serves MVT tiles via `ST_AsMVT`.

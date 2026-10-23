@@ -417,3 +417,6 @@ yarn-error.log*
 
 # Local HTTPS dev certs (mkcert)
 .certs/
+
+# Encrypted per-run token lease database and SQLite sidecars
+.subside-run-tokens.sqlite3*

@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import json
 
+from .. import config
+
 from ..config import (
     TAPIS_BASE_URL, TAPIS_CLIENT_ID, TAPIS_CLIENT_KEY, TAPIS_OAUTH_CALLBACK_URL,
 )
@@ -12,6 +14,14 @@ from ..config import (
 
 class OAuthNotConfigured(RuntimeError):
     """No Tapis OAuth client configured (TAPIS_CLIENT_ID/KEY unset)."""
+
+
+class TokenMintError(RuntimeError):
+    """The Tapis Tokens API could not mint a run token."""
+
+
+class TokenRevokeError(RuntimeError):
+    """The Tapis Tokens API could not revoke a run token."""
 
 
 def _need_tapipy():
@@ -131,3 +141,68 @@ def login(username: str, password: str) -> str:
     if not token:
         raise RuntimeError("Login succeeded but no access token was returned.")
     return token
+
+
+def mint_run_token(caller_token: str, username: str, target_site_id: str, ttl_seconds: int) -> dict:
+    """Mint a bounded user token through the verified Tokens API contract.
+
+    The raw token is returned to the caller for immediate encrypted persistence;
+    this function never logs it or includes response bodies in exceptions.
+    """
+    try:
+        ttl = int(ttl_seconds)
+    except (TypeError, ValueError) as exc:
+        raise TokenMintError("Tapis run-token TTL must be a positive integer.") from exc
+    if ttl <= 0:
+        raise TokenMintError("Tapis run-token TTL must be a positive integer.")
+
+    import requests
+
+    body = {
+        "token_tenant_id": "portals",
+        "account_type": "user",
+        "token_username": username,
+        "target_site_id": target_site_id,
+        "access_token_ttl": ttl,
+    }
+    try:
+        resp = requests.post(
+            f"{config.TAPIS_BASE_URL}/v3/tokens",
+            headers={"X-Tapis-Token": caller_token, "Content-Type": "application/json"},
+            json=body,
+            timeout=30,
+        )
+    except Exception as exc:
+        raise TokenMintError("Tapis run-token mint request failed.") from exc
+    if resp.status_code >= 400:
+        raise TokenMintError(f"Tapis run-token mint failed (HTTP {resp.status_code}).")
+    try:
+        result = (resp.json() or {}).get("result") or {}
+        access = result.get("access_token") or {}
+        token = access.get("access_token")
+    except Exception as exc:
+        raise TokenMintError("Tapis run-token mint returned an invalid response.") from exc
+    if not token:
+        raise TokenMintError("Tapis run-token mint returned no access token.")
+    return {
+        "token": token,
+        "expires_at": access.get("expires_at"),
+        "expires_in": access.get("expires_in"),
+    }
+
+
+def revoke_token(auth_token: str, token: str) -> None:
+    """Revoke a JWT through POST /v3/tokens/revoke without exposing it."""
+    import requests
+
+    try:
+        resp = requests.post(
+            f"{config.TAPIS_BASE_URL}/v3/tokens/revoke",
+            headers={"X-Tapis-Token": auth_token, "Content-Type": "application/json"},
+            json={"token": token},
+            timeout=30,
+        )
+    except Exception as exc:
+        raise TokenRevokeError("Tapis run-token revoke request failed.") from exc
+    if resp.status_code >= 400:
+        raise TokenRevokeError(f"Tapis run-token revoke failed (HTTP {resp.status_code}).")
