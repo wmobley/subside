@@ -31,6 +31,10 @@ TAPIS_CLIENT_KEY = os.environ.get("TAPIS_CLIENT_KEY")
 TAPIS_OAUTH_CALLBACK_URL = os.environ.get(
     "TAPIS_OAUTH_CALLBACK_URL", "http://127.0.0.1:5174/"
 )
+# Public API URL used by hosted workflow tasks to request a rotated per-run
+# access token. Refresh tokens stay in the API; this URL is only a broker
+# endpoint authenticated by an opaque lease credential.
+SUBSIDE_TOKEN_BROKER_URL = os.environ.get("SUBSIDE_TOKEN_BROKER_URL", "").rstrip("/")
 
 # NASA Earthdata service account used to build the .netrc for download jobs,
 # so credentials never transit the API request body. Set in .env.
@@ -139,3 +143,9 @@ RUN_TOKEN_TTL_MIN_SECONDS = _env_int("SUBSIDE_RUN_TOKEN_TTL_MIN_SECONDS", 900)
 RUN_TOKEN_TTL_MAX_SECONDS = _env_int("SUBSIDE_RUN_TOKEN_TTL_MAX_SECONDS", 172800)
 RUN_TOKEN_TARGET_PREFIX = os.environ.get("SUBSIDE_RUN_TOKEN_TARGET_PREFIX", "subside-run")
 RUN_TOKEN_RECONCILE_ON_STARTUP = _env_bool("SUBSIDE_RUN_TOKEN_RECONCILE_ON_STARTUP", True)
+RUN_RECOVERY_ENABLED = _env_bool("SUBSIDE_RUN_RECOVERY_ENABLED", True)
+RUN_RECOVERY_PUBLISH = _env_bool("SUBSIDE_RUN_RECOVERY_PUBLISH", True)
+RUN_RECOVERY_GRACE_SECONDS = _env_int("SUBSIDE_RUN_RECOVERY_GRACE_SECONDS", 1200)
+RUN_RECOVERY_CLEANUP_STALE_SECONDS = _env_int(
+    "SUBSIDE_RUN_RECOVERY_CLEANUP_STALE_SECONDS", 300
+)

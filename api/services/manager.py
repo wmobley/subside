@@ -11,8 +11,10 @@ from __future__ import annotations
 import io
 import json
 import re
+import secrets
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import yaml
@@ -110,6 +112,11 @@ SUCCESS_STATES = {"completed", "success", "succeeded", "finished"}
 FAILURE_STATES = {"failed", "error", "terminated", "stopped", "suspended", "cancelled", "canceled"}
 _JOB_UUID_RE = re.compile(r"submitted Tapis job\s+([A-Za-z0-9._-]+)")
 _TAPIS_ARCHIVE_RE = re.compile(r"tapis://[^\s;,'\")]+")
+_PUBLISH_PIPELINE_ID = "subside-publish"
+_JOB_APP_IDS = {
+    "h2i": "subside-h2i-opera-analysis",
+    "werc": "subside-werc-opera-analysis",
+}
 
 
 def normalize_status(tapis_status: str) -> str:
@@ -158,6 +165,24 @@ def _pipeline_id(pipeline_key: str) -> str:
 
 def _pipeline_ids() -> dict[str, str]:
     return {key: _pipeline_id(key) for key in PIPELINES}
+
+
+def _job_name_prefix(pipeline_key: str, lease_id: str) -> str:
+    return f"subside-{pipeline_key}-opera-{lease_id}"
+
+
+def _hard_deadline(max_minutes: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(
+        minutes=max_minutes, seconds=config.RUN_RECOVERY_GRACE_SECONDS
+    )).isoformat()
+
+
+def _redact(text: str | None) -> str | None:
+    value = str(text or "")
+    if not value:
+        return None
+    value = re.sub(r"(?i)(x-tapis-token|authorization|tapis_token|token)\s*[:=]\s*[^\s,;]+", r"\1=[REDACTED]", value)
+    return value[-2000:]
 
 
 def _build_run_config(req: RunRequest) -> dict:
@@ -224,7 +249,10 @@ def _stage(client, username: str, run_id: str, req: RunRequest) -> dict:
 
 
 def _run_token_ttl(max_minutes: int) -> int:
-    requested = max(1, int(max_minutes)) * 60 + config.RUN_TOKEN_TTL_BUFFER_SECONDS
+    requested = max(1, int(max_minutes)) * 60 + max(
+        config.RUN_TOKEN_TTL_BUFFER_SECONDS,
+        config.RUN_RECOVERY_GRACE_SECONDS,
+    )
     return max(
         config.RUN_TOKEN_TTL_MIN_SECONDS,
         min(config.RUN_TOKEN_TTL_MAX_SECONDS, requested),
@@ -273,22 +301,49 @@ def _cleanup_lease(client, lease_id: str) -> bool:
 
 
 def reconcile_run_tokens(client) -> int:
-    """Retry only cleanup-pending leases; never revoke an active workflow lease."""
+    """Recover active leases, then retry only safe cleanup records."""
+    recovered = 0
+    for lease in token_store.active_recovery_candidates():
+        if not lease.workflow_uuid or not lease.token:
+            continue
+        try:
+            run_client = tapis_service.client_from_token(lease.token)
+            get_status(run_client, lease.workflow_uuid)
+            recovered += 1
+        except Exception:
+            # Startup reconciliation is best-effort; the lease remains active
+            # and the next status request or startup pass can retry it.
+            continue
     cleaned = 0
     for lease in token_store.cleanup_candidates():
-        if _cleanup_lease(client, lease.lease_id):
+        cleanup_client = client
+        if cleanup_client is None and lease.token:
+            try:
+                cleanup_client = tapis_service.client_from_token(lease.token)
+            except Exception:
+                cleanup_client = None
+        if cleanup_client is not None and _cleanup_lease(cleanup_client, lease.lease_id):
             cleaned += 1
     for lease in token_store.expired_candidates():
         token_store.mark_expired(lease.lease_id)
-        _delete_staging(client, lease.staging_path)
+        cleanup_client = client
+        if cleanup_client is None and lease.token:
+            try:
+                cleanup_client = tapis_service.client_from_token(lease.token)
+            except Exception:
+                cleanup_client = None
+        _delete_staging(cleanup_client, lease.staging_path)
         cleaned += 1
-    return cleaned
+    return recovered + cleaned
 
 
 def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str,
                    username: str = "",
                    max_minutes: int | None = None,
-                   run_queue: tuple[str, int, int] | None = None) -> dict[str, dict]:
+                   run_queue: tuple[str, int, int] | None = None,
+                   job_name_prefix: str | None = None,
+                   run_token_lease_id: str | None = None,
+                   run_token_credential: str | None = None) -> dict[str, dict]:
     args: dict[str, dict] = {
         "start_date": {"value": req.start_date},
         "end_date": {"value": req.end_date},
@@ -301,6 +356,14 @@ def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str,
         "tapis_base_url": {"value": TAPIS_BASE_URL},
         "tapis_token": {"value": token},
     }
+    if job_name_prefix:
+        args["job_name_prefix"] = {"value": job_name_prefix}
+    if config.SUBSIDE_TOKEN_BROKER_URL and run_token_lease_id and run_token_credential:
+        args.update({
+            "token_broker_url": {"value": config.SUBSIDE_TOKEN_BROKER_URL},
+            "run_token_lease_id": {"value": run_token_lease_id},
+            "run_token_credential": {"value": run_token_credential},
+        })
     if max_minutes:
         args["max_minutes"] = {"value": max_minutes}
     if req.pipeline == "werc":
@@ -334,13 +397,16 @@ def _workflow_args(req: RunRequest, staged: dict, allocation: str, token: str,
     return args
 
 
-def _trigger_pipeline(client, pipeline_key: str, run_name: str, run_args: dict[str, dict]) -> str | None:
+def _trigger_pipeline_id(client, pipeline_id: str, run_name: str,
+                         run_args: dict[str, dict], description: str) -> str | None:
     group_id = config.SUBSIDE_WORKFLOW_GROUP
-    pipeline_id = _pipeline_id(pipeline_key)
+    existing = _workflow_by_name(client, pipeline_id, run_name)
+    if existing:
+        return existing
     before = set()
     try:
         prior = client.workflows.listPipelineRuns(group_id=group_id, pipeline_id=pipeline_id)
-        before = {getattr(r, "uuid", None) for r in (prior or [])}
+        before = {_field(r, "uuid") for r in (prior or [])}
     except Exception:
         pass
 
@@ -348,10 +414,10 @@ def _trigger_pipeline(client, pipeline_key: str, run_name: str, run_args: dict[s
         group_id=group_id,
         pipeline_id=pipeline_id,
         name=run_name,
-        description="SUBSIDE API pipeline run",
+        description=description,
         args=run_args,
     )
-    run_uuid = getattr(result, "uuid", None)
+    run_uuid = _field(result, "uuid")
     if run_uuid:
         return run_uuid
 
@@ -361,11 +427,18 @@ def _trigger_pipeline(client, pipeline_key: str, run_name: str, run_args: dict[s
             now = client.workflows.listPipelineRuns(group_id=group_id, pipeline_id=pipeline_id)
         except Exception:
             continue
-        new = {getattr(r, "uuid", None) for r in (now or [])} - before
+        new = {_field(r, "uuid") for r in (now or [])} - before
         new.discard(None)
         if new:
             return sorted(new)[0]
     return None
+
+
+def _trigger_pipeline(client, pipeline_key: str, run_name: str, run_args: dict[str, dict]) -> str | None:
+    return _trigger_pipeline_id(
+        client, _pipeline_id(pipeline_key), run_name, run_args,
+        "SUBSIDE API pipeline run",
+    )
 
 
 def submit_run(client, req: RunRequest) -> dict:
@@ -395,16 +468,18 @@ def submit_run(client, req: RunRequest) -> dict:
     username = real_username or "user"
     short_id = uuid.uuid4().hex[:12]
     staged = None
+    pipeline_id = _pipeline_id(req.pipeline)
+    job_name_prefix = _job_name_prefix(req.pipeline, short_id)
     try:
         staged = _stage(client, username, short_id, req)
     except Exception:
         _delete_staging(client, STAGING_PREFIX.format(username=username) + f"/{short_id}")
         raise
-    pipeline_id = _pipeline_id(req.pipeline)
     run_name = f"subside-api-{pipeline_id}-{req.start_date}-{req.end_date}-{short_id}"
     max_minutes = _resolve_walltime(req)
     run_queue = _pick_run_queue(req)
     target_site_id = f"{config.RUN_TOKEN_TARGET_PREFIX}-{short_id}"
+    broker_credential = secrets.token_urlsafe(32)
     try:
         minted = tapis_service.mint_run_token(
             token, real_username, target_site_id, _run_token_ttl(max_minutes)
@@ -422,6 +497,10 @@ def submit_run(client, req: RunRequest) -> dict:
             target_site_id=target_site_id,
             staging_path=staged.get("staging_path"),
             expires_at=minted.get("expires_at"),
+            pipeline_id=pipeline_id,
+            job_name_prefix=job_name_prefix,
+            hard_deadline_at=_hard_deadline(max_minutes),
+            broker_secret=broker_credential,
         )
     except Exception as exc:
         # The token exists but was not persisted, so compensate immediately.
@@ -432,8 +511,13 @@ def submit_run(client, req: RunRequest) -> dict:
         _delete_staging(client, staged.get("staging_path"))
         raise RunTokenConfigurationError("Could not persist the run-token lease.") from exc
 
-    run_args = _workflow_args(req, staged, allocation, run_token, username=real_username,
-                              max_minutes=max_minutes, run_queue=run_queue)
+    run_args = _workflow_args(
+        req, staged, allocation, run_token, username=real_username,
+        max_minutes=max_minutes, run_queue=run_queue,
+        job_name_prefix=job_name_prefix,
+        run_token_lease_id=short_id,
+        run_token_credential=broker_credential,
+    )
     try:
         run_uuid = _trigger_pipeline(client, req.pipeline, run_name, run_args)
     except Exception as exc:
@@ -455,6 +539,54 @@ def submit_run(client, req: RunRequest) -> dict:
         "groupId": config.SUBSIDE_WORKFLOW_GROUP,
         "tapisStatus": "submitted",
     }
+
+
+def refresh_run_token(lease_id: str, credential: str) -> dict:
+    """Refresh the user's OAuth session, then rotate this run's bounded token."""
+    lease = token_store.find_by_lease_credential(lease_id, credential)
+    if not lease or lease.lease_state != "active":
+        raise RunTokenConfigurationError("Run credential is invalid or inactive.")
+    now = datetime.now(timezone.utc)
+    if lease.hard_deadline_at:
+        try:
+            hard_deadline = datetime.fromisoformat(
+                lease.hard_deadline_at.replace("Z", "+00:00")
+            )
+            if hard_deadline.tzinfo is None:
+                hard_deadline = hard_deadline.replace(tzinfo=timezone.utc)
+            if hard_deadline <= now:
+                raise RunTokenConfigurationError("Run credential is past its hard deadline.")
+        except ValueError as exc:
+            raise RunTokenConfigurationError("Run credential has an invalid hard deadline.") from exc
+    if lease.token and lease.expires_at:
+        try:
+            expires_at = datetime.fromisoformat(lease.expires_at.replace("Z", "+00:00"))
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            # This also makes a retry after a lost broker response idempotent:
+            # return the token already persisted by the first request.
+            if expires_at > now + timedelta(seconds=60):
+                return {"token": lease.token, "expires_at": lease.expires_at}
+        except ValueError:
+            pass
+    refresh = token_store.get_user_refresh_token(lease.username)
+    if not refresh:
+        raise RunTokenConfigurationError("No server-side OAuth refresh token is stored for this user.")
+    refreshed = tapis_service.refresh_user_token(refresh)
+    token_store.upsert_user_refresh_token(lease.username, refreshed.get("refresh_token"))
+    rotated = tapis_service.mint_run_token(
+        refreshed["token"], lease.username, lease.target_site_id, 3600
+    )
+    if lease.token and lease.token != rotated["token"]:
+        try:
+            tapis_service.revoke_token(refreshed["token"], lease.token)
+        except Exception:
+            # An expired predecessor is already unusable; the new token is
+            # still persisted so the workflow can continue and cleanup can
+            # revoke the current token later.
+            pass
+    token_store.replace_token(lease.lease_id, rotated["token"], rotated.get("expires_at"))
+    return {"token": rotated["token"], "expires_at": rotated.get("expires_at")}
 
 
 def _workflow_details(client, run_uuid: str, pipeline_key: str | None = None) -> dict:
@@ -518,11 +650,11 @@ def _last_message(run: Any, execs: list[Any]) -> str | None:
             for key in ("last_message", "stderr", "stdout"):
                 text = str(_field(task, key) or "").strip()
                 if text:
-                    return text[-2000:]
+                    return _redact(text)
     for key in ("last_message", "logs"):
         text = str(_field(run, key) or "").strip()
         if text:
-            return text[-2000:]
+            return _redact(text)
     return None
 
 
@@ -542,6 +674,14 @@ def _archive_from_task_output(task: Any) -> str | None:
 def _job_uuid_from_tasks(execs: list[Any]) -> str | None:
     ordered = sorted(execs, key=lambda e: 0 if _field(e, "task_id") == "run" else 1)
     for task in ordered:
+        for key in ("outputs", "output"):
+            output = _field(task, key)
+            if isinstance(output, dict):
+                value = output.get("job_uuid") or output.get("JOB_UUID")
+                if isinstance(value, dict):
+                    value = value.get("value")
+                if value:
+                    return str(value)
         text = "\n".join(str(_field(task, key) or "") for key in ("stdout", "stderr", "last_message"))
         match = _JOB_UUID_RE.search(text)
         if match:
@@ -584,6 +724,297 @@ def _workflow_archive(client, run: Any, execs: list[Any]) -> str | None:
     return _archive_from_job(client, _job_uuid_from_tasks(execs)) or _archive_from_text(run, execs)
 
 
+def _job_summary(job: Any) -> dict[str, Any]:
+    fields = (
+        "uuid", "name", "owner", "tenant", "appId", "status", "condition",
+        "created", "ended", "archiveSystemId", "archiveSystemDir",
+        "remoteOutcome", "remoteResultInfo",
+    )
+    return {field: _field(job, field) for field in fields if _field(job, field) is not None}
+
+
+def _job_owner_matches(job: dict[str, Any], lease: token_store.Lease) -> bool:
+    owner = str(job.get("owner") or "").strip()
+    if not owner:
+        return False
+    return owner == lease.username or owner.split("@", 1)[0] == lease.username
+
+
+def _job_is_success(job: dict[str, Any]) -> bool:
+    return (
+        str(job.get("status") or "").upper() == "FINISHED"
+        and str(job.get("condition") or "").upper() == "NORMAL_COMPLETION"
+    )
+
+
+def _job_is_active(job: dict[str, Any]) -> bool:
+    return str(job.get("status") or "").upper() in {
+        "SUBMITTED", "STAGING", "INITIALIZING", "PENDING", "QUEUED", "ACTIVE", "RUNNING"
+    }
+
+
+def _job_is_failed(job: dict[str, Any]) -> bool:
+    return str(job.get("status") or "").upper() in {"FAILED", "CANCELLED", "CANCELED", "STOPPED", "TERMINATED"}
+
+
+def _job_is_oom(job: dict[str, Any]) -> bool:
+    blob = " ".join(
+        str(job.get(key) or "")
+        for key in ("remoteOutcome", "remoteResultInfo", "condition", "status")
+    ).lower()
+    return any(marker in blob for marker in (
+        "out_of_memory", "oom", "out of memory", "memoryerror", "exit code 137",
+        "exitcode 137", "code 137", "signal 9", "memory limit",
+    ))
+
+
+def _archive_from_job_summary(job: dict[str, Any]) -> str | None:
+    system = job.get("archiveSystemId")
+    archive_dir = job.get("archiveSystemDir")
+    if system and archive_dir:
+        return f"tapis://{system}/{str(archive_dir).lstrip('/')}".rstrip("/")
+    return None
+
+
+def _archive_ready(client, archive: str | None) -> bool:
+    if not archive:
+        return False
+    try:
+        system, base = _parse_tapis_uri(archive)
+        listing = client.files.listFiles(systemId=system, path=base, recurse=True, limit=1000) or []
+    except Exception:
+        return False
+    names = {str(_field(item, "path") or "").rsplit("/", 1)[-1] for item in listing}
+    return bool(names & set(_MANIFEST_NAMES))
+
+
+def _candidate_job_names(lease: token_store.Lease, pipeline_key: str) -> list[str]:
+    if not lease.job_name_prefix:
+        return []
+    if pipeline_key == "werc":
+        return [f"{lease.job_name_prefix}-attempt-1", f"{lease.job_name_prefix}-attempt-2"]
+    return [lease.job_name_prefix]
+
+
+def _find_recovery_job(client, lease: token_store.Lease, pipeline_key: str) -> dict[str, Any] | None:
+    app_id = _JOB_APP_IDS.get(pipeline_key)
+    if lease.compute_job_uuid:
+        try:
+            direct = _job_summary(client.jobs.getJob(jobUuid=lease.compute_job_uuid))
+            if (direct.get("uuid") and (not app_id or direct.get("appId") == app_id)
+                    and _job_owner_matches(direct, lease)):
+                return direct
+        except Exception:
+            pass
+
+    exact: list[dict[str, Any]] = []
+    names = _candidate_job_names(lease, pipeline_key)
+    if pipeline_key == "werc" and len(names) == 2:
+        attempts = []
+        for name in names:
+            matches = [job for job in tapis_service.search_jobs(client, name=name, app_id=app_id)
+                       if _job_owner_matches(job, lease)]
+            if len(matches) > 1:
+                raise ValueError("Multiple exact-name WERC attempt jobs matched this run.")
+            attempts.append(matches[0] if matches else None)
+        first, second = attempts
+        if second:
+            if not first or not (_job_is_failed(first) and _job_is_oom(first)):
+                raise ValueError("WERC attempt 2 exists without confirmed OOM completion of attempt 1.")
+            return second
+        if first:
+            return first
+    else:
+        for name in names:
+            exact.extend(tapis_service.search_jobs(client, name=name, app_id=app_id))
+        exact = [job for job in exact if _job_owner_matches(job, lease)]
+        if len(exact) > 1:
+            raise ValueError("Multiple exact-name compute jobs matched this run.")
+        if exact:
+            return exact[0]
+
+    # Legacy runs have no durable prefix. Search is intentionally strict: a
+    # time window with multiple candidates is not safe enough to adopt.
+    if not app_id:
+        return None
+    legacy = tapis_service.search_jobs(client, app_id=app_id, created_after=lease.created_at)
+    legacy = [job for job in legacy if _job_owner_matches(job, lease)]
+    if len(legacy) > 1:
+        raise ValueError("Multiple legacy compute jobs matched this run.")
+    return legacy[0] if legacy else None
+
+
+def _publish_args(lease: token_store.Lease, job_uuid: str) -> dict[str, dict]:
+    token = lease.token or ""
+    return {
+        "job_uuid": {"value": job_uuid},
+        "tapis_base_url": {"value": TAPIS_BASE_URL},
+        "tapis_token": {"value": token},
+        "submitter_username": {"value": lease.username},
+        "manifest_name": {"value": ""},
+        "stac_collection": {"value": config.SUBSIDE_STAC_COLLECTION},
+        "stac_item_id": {"value": ""},
+        "ckan_url": {"value": config.SUBSIDE_CKAN_URL},
+        "ckan_org": {"value": config.SUBSIDE_CKAN_ORG},
+        "ckan_token": {"value": _ckan_auth_token(config.SUBSIDE_CKAN_TOKEN or token)},
+        "stac_url": {"value": config.SUBSIDE_STAC_URL},
+        "stac_token": {"value": config.SUBSIDE_STAC_TOKEN or token},
+    }
+
+
+def _workflow_by_name(client, pipeline_id: str, name: str) -> str | None:
+    runs = client.workflows.listPipelineRuns(
+        group_id=config.SUBSIDE_WORKFLOW_GROUP, pipeline_id=pipeline_id,
+    ) or []
+    matches = [r for r in runs if _field(r, "name") == name]
+    if len(matches) > 1:
+        raise ValueError("Multiple publish workflow runs matched the recovery name.")
+    return _field(matches[0], "uuid") if matches else None
+
+
+def _publish_status(lease: token_store.Lease) -> str:
+    if not lease.publish_workflow_uuid or not lease.token:
+        return "pending"
+    try:
+        client = tapis_service.client_from_token(lease.token)
+        run = client.workflows.getPipelineRun(
+            group_id=config.SUBSIDE_WORKFLOW_GROUP,
+            pipeline_id=_PUBLISH_PIPELINE_ID,
+            pipeline_run_uuid=lease.publish_workflow_uuid,
+        )
+        raw = _status_of(run)
+        try:
+            tasks = client.workflows.listTaskExecutions(
+                group_id=config.SUBSIDE_WORKFLOW_GROUP,
+                pipeline_id=_PUBLISH_PIPELINE_ID,
+                pipeline_run_uuid=lease.publish_workflow_uuid,
+            ) or []
+        except Exception:
+            tasks = []
+        if any(_status_of(task) in FAILURE_STATES for task in tasks):
+            return "failed"
+        if raw in SUCCESS_STATES:
+            return "completed"
+        if raw in FAILURE_STATES:
+            return "failed"
+        return "active"
+    except Exception:
+        return "active"
+
+
+def _reconcile_lease(client, details: dict, run: Any, tasks: list[Any]) -> dict[str, Any] | None:
+    if not config.RUN_RECOVERY_ENABLED:
+        return None
+    lease = token_store.find_by_workflow(str(_field(run, "uuid") or ""))
+    pipeline_key = details.get("pipeline")
+    if (not lease or lease.lease_state != "active" or not lease.token
+            or pipeline_key not in _JOB_APP_IDS):
+        return None
+    token_store.set_recovery_state(lease.lease_id, "reconciling")
+    try:
+        job = _find_recovery_job(client, lease, pipeline_key)
+    except tapis_service.JobsSearchError as exc:
+        token_store.set_recovery_state(lease.lease_id, "reconciling", error=str(exc))
+        return {"status": "recovering", "reconciliationStatus": "reconciling",
+                "computeStatus": "unknown", "publicationStatus": "pending",
+                "recovered": False, "innerJobUuid": lease.compute_job_uuid}
+    except ValueError as exc:
+        token_store.set_recovery_state(lease.lease_id, "ambiguous", error=str(exc))
+        return {"status": "recovering", "reconciliationStatus": "ambiguous",
+                "computeStatus": "ambiguous", "publicationStatus": "pending",
+                "recovered": False, "innerJobUuid": lease.compute_job_uuid,
+                "lastMessage": str(exc)}
+
+    if not job:
+        token_store.set_recovery_state(lease.lease_id, "reconciling", error="Compute job not found yet.")
+        return {"status": "recovering", "reconciliationStatus": "reconciling",
+                "computeStatus": "unknown", "publicationStatus": "pending",
+                "recovered": False, "innerJobUuid": lease.compute_job_uuid}
+
+    job_uuid = str(job.get("uuid") or "")
+    if job_uuid:
+        token_store.record_compute_job(lease.lease_id, job_uuid)
+    if _job_is_active(job):
+        token_store.set_recovery_state(lease.lease_id, "compute_active")
+        return {"status": "recovering", "reconciliationStatus": "compute_active",
+                "computeStatus": str(job.get("status") or "unknown").lower(),
+                "publicationStatus": "pending", "recovered": True, "innerJobUuid": job_uuid}
+    if _job_is_failed(job):
+        token_store.set_recovery_state(lease.lease_id, "failed", error="Inner compute job failed.")
+        return {"status": "failed", "reconciliationStatus": "failed",
+                "computeStatus": str(job.get("status") or "failed").lower(),
+                "publicationStatus": "not_started", "recovered": True, "innerJobUuid": job_uuid}
+    if not _job_is_success(job):
+        token_store.set_recovery_state(lease.lease_id, "ambiguous", error="Inner job lacked normal completion.")
+        return {"status": "recovering", "reconciliationStatus": "ambiguous",
+                "computeStatus": "ambiguous", "publicationStatus": "pending",
+                "recovered": True, "innerJobUuid": job_uuid}
+
+    archive = _archive_from_job_summary(job) or _workflow_archive(client, run, tasks)
+    if not _archive_ready(client, archive):
+        token_store.set_recovery_state(lease.lease_id, "compute_succeeded", error="Archive manifest is not ready.")
+        return {"status": "recovering", "reconciliationStatus": "compute_succeeded",
+                "computeStatus": "completed", "publicationStatus": "pending",
+                "recovered": True, "innerJobUuid": job_uuid, "archive": archive}
+
+    if not config.SUBSIDE_STAC_URL or not config.RUN_RECOVERY_PUBLISH:
+        token_store.set_recovery_state(lease.lease_id, "completed")
+        return {"status": "completed", "reconciliationStatus": "completed",
+                "computeStatus": "completed", "publicationStatus": "not_configured",
+                "recovered": True, "innerJobUuid": job_uuid, "archive": archive}
+
+    if lease.publish_workflow_uuid:
+        pub_status = _publish_status(lease)
+        if pub_status == "completed":
+            token_store.set_recovery_state(lease.lease_id, "completed")
+            return {"status": "completed", "reconciliationStatus": "completed",
+                    "computeStatus": "completed", "publicationStatus": "completed",
+                    "recovered": True, "innerJobUuid": job_uuid, "archive": archive}
+        if pub_status == "failed":
+            token_store.set_recovery_state(lease.lease_id, "failed", error="Recovery publication failed.")
+            return {"status": "failed", "reconciliationStatus": "failed",
+                    "computeStatus": "completed", "publicationStatus": "failed",
+                    "recovered": True, "innerJobUuid": job_uuid, "archive": archive}
+        token_store.set_recovery_state(lease.lease_id, "publish_active")
+        return {"status": "recovering", "reconciliationStatus": "publish_active",
+                "computeStatus": "completed", "publicationStatus": "active",
+                "recovered": True, "innerJobUuid": job_uuid, "archive": archive}
+
+    try:
+        if not lease.token:
+            raise RuntimeError("Stored run token is unavailable for recovery publication.")
+        publish_client = tapis_service.client_from_token(lease.token)
+        name = f"subside-publish-recovery-{lease.lease_id}"
+        token_store.set_recovery_state(lease.lease_id, "publish_submitting")
+        existing = _workflow_by_name(publish_client, _PUBLISH_PIPELINE_ID, name)
+        publish_uuid = existing or _trigger_pipeline_id(
+            publish_client, _PUBLISH_PIPELINE_ID, name, _publish_args(lease, job_uuid),
+            "SUBSIDE automatic recovery publication",
+        )
+        if not publish_uuid:
+            token_store.set_recovery_state(lease.lease_id, "ambiguous", error="Publish submission returned no UUID.")
+            return {"status": "recovering", "reconciliationStatus": "ambiguous",
+                    "computeStatus": "completed", "publicationStatus": "unknown",
+                    "recovered": True, "innerJobUuid": job_uuid, "archive": archive}
+        token_store.set_recovery_state(
+            lease.lease_id, "publish_active", publish_workflow_uuid=publish_uuid,
+        )
+    except Exception as exc:
+        if _is_ambiguous_submission(exc):
+            token_store.set_recovery_state(lease.lease_id, "publish_submitting", error=str(exc))
+            return {"status": "recovering", "reconciliationStatus": "publish_submitting",
+                    "computeStatus": "completed", "publicationStatus": "unknown",
+                    "recovered": True, "innerJobUuid": job_uuid, "archive": archive}
+        token_store.set_recovery_state(lease.lease_id, "failed", error=str(exc))
+        return {"status": "failed", "reconciliationStatus": "failed",
+                "computeStatus": "completed", "publicationStatus": "failed",
+                "recovered": True, "innerJobUuid": job_uuid, "archive": archive,
+                "lastMessage": _redact(str(exc))}
+    return {"status": "recovering", "reconciliationStatus": "publish_active",
+            "computeStatus": "completed", "publicationStatus": "active",
+            "recovered": True, "innerJobUuid": job_uuid, "archive": archive}
+
+
 def list_runs(client, limit: int = 100, include_all: bool = False) -> list[dict]:
     """List recent Tapis Workflows runs for the registered SUBSIDE pipelines."""
     del include_all  # The API owns only the configured SUBSIDE pipelines.
@@ -598,7 +1029,7 @@ def list_runs(client, limit: int = 100, include_all: bool = False) -> list[dict]
             continue
         for run in runs:
             raw_status = _status_of(run)
-            out.append({
+            row = {
                 "runId": _field(run, "uuid"),
                 "name": _field(run, "name"),
                 "pipeline": key,
@@ -607,7 +1038,18 @@ def list_runs(client, limit: int = 100, include_all: bool = False) -> list[dict]
                 "status": normalize_status(raw_status),
                 "tapisStatus": raw_status,
                 "created": str(_field(run, "started_at") or _field(run, "created_at") or "") or None,
-            })
+            }
+            run_uuid = row["runId"]
+            if run_uuid:
+                try:
+                    detail = get_status(client, str(run_uuid))
+                    row.update({key: detail[key] for key in (
+                        "status", "reconciliationStatus", "computeStatus",
+                        "publicationStatus", "recovered", "innerJobUuid",
+                    ) if key in detail})
+                except Exception:
+                    pass
+            out.append(row)
     out.sort(key=lambda row: row.get("created") or "", reverse=True)
     return out[:limit]
 
@@ -625,11 +1067,40 @@ def get_status(client, run_uuid: str) -> dict:
         "lastMessage": _last_message(run, tasks),
         "archive": _workflow_archive(client, run, tasks),
         "tasks": _tasks_summary(tasks),
+        "reconciliationStatus": "none",
+        "computeStatus": "unknown",
+        "publicationStatus": (
+            "completed" if status == "completed" and config.SUBSIDE_STAC_URL
+            else "not_configured" if status == "completed" else "pending"
+        ),
+        "innerJobUuid": _job_uuid_from_tasks(tasks),
+        "recovered": False,
     }
-    if status in SUCCESS_STATES | FAILURE_STATES:
-        lease = token_store.find_by_workflow(run_uuid)
-        if lease:
-            _cleanup_lease(client, lease.lease_id)
+    lease = token_store.find_by_workflow(run_uuid)
+    recovery = None
+    if lease and status not in SUCCESS_STATES and lease.recovery_state == "completed":
+        result.update({
+            "status": "completed",
+            "reconciliationStatus": "completed",
+            "computeStatus": "completed",
+            "publicationStatus": "completed" if config.SUBSIDE_STAC_URL else "not_configured",
+            "innerJobUuid": lease.compute_job_uuid,
+            "recovered": True,
+        })
+        result["archive"] = _archive_from_job(client, lease.compute_job_uuid) or result["archive"]
+    if lease and lease.lease_state == "active" and status not in SUCCESS_STATES:
+        recovery = _reconcile_lease(client, details, run, tasks)
+        if recovery:
+            result.update(recovery)
+            if recovery.get("archive"):
+                result["archive"] = recovery["archive"]
+            if recovery.get("lastMessage"):
+                result["lastMessage"] = recovery["lastMessage"]
+    if lease and (
+        status in SUCCESS_STATES
+        or result.get("reconciliationStatus") in {"completed", "failed"}
+    ):
+        _cleanup_lease(client, lease.lease_id)
     return result
 
 

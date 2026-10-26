@@ -32,12 +32,19 @@ The per-run token is encrypted in the SQLite lease store before workflow
 submission. Configure `SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY` with a Fernet key and
 `SUBSIDE_RUN_TOKEN_STORE_PATH` on protected persistent storage. Runs fail closed
 if the feature is enabled without a valid key; the browser token is never used
-as a fallback. Terminal runs trigger best-effort revocation, and startup
-reconciliation retries cleanup-pending leases when the configured service
-account is available. Phase 1 assumes one API instance sharing one persistent
-store; it is not a multi-replica coordination mechanism.
+as a fallback. API-created compute jobs use a lease-derived durable name, so a
+failed workflow task can be reconciled through the Jobs API. The API reports
+`recovering` while the compute job or automatic `subside-publish` recovery is
+active, and only revokes the token after publication is terminal. Startup
+reconciliation uses the stored per-run token to resume active leases and also
+retries cleanup-pending leases. Phase 1 assumes one API instance sharing one
+persistent store; it is not a multi-replica coordination mechanism.
 
-No OAuth refresh token is returned to the browser or stored by this lifecycle.
+OAuth login stores the user's refresh token encrypted in the protected backend
+store. Hosted tasks receive only an opaque lease credential for the API refresh
+broker; the OAuth refresh token is never passed into workflow arguments or task
+environments. Set `SUBSIDE_TOKEN_BROKER_URL` to the API base URL reachable by
+hosted workflows. The broker rotates the bounded per-run token after expiry.
 
 ## Endpoints
 
@@ -48,7 +55,7 @@ No OAuth refresh token is returned to the browser or stored by this lifecycle.
 | `POST /api/subside/aoi/frames` | no | frames intersecting an AOI (in-process, fast) |
 | `POST /api/subside/products/search` | no | OPERA products for frames + dates (in-process) |
 | `POST /api/subside/runs` | yes | stage inputs + submit a Tapis Workflows pipeline run; returns `runId` |
-| `GET  /api/subside/runs/{runId}` | yes | normalized status: queued/running/completed/failed/cancelled |
+| `GET  /api/subside/runs/{runId}` | yes | normalized status: queued/running/recovering/completed/failed/cancelled; includes recovery fields |
 | `GET  /api/subside/runs/{runId}/results` | yes | manifest + artifact download URLs once completed |
 | `GET  /api/subside/layers` | no | list ingested PostGIS layers (count + bbox) |
 | `POST /api/subside/layers/{layer}` | no | create/replace (or append) a layer from GeoJSON |
@@ -122,4 +129,9 @@ or `pip install` the geospatial extras listed in `requirements.txt`.
 | `SUBSIDE_RUN_TOKEN_TTL_BUFFER_SECONDS` | Cleanup/polling buffer added to requested walltime; default 900. |
 | `SUBSIDE_RUN_TOKEN_TTL_MIN_SECONDS` / `MAX_SECONDS` | Server-side TTL bounds; defaults 900 / 172800. |
 | `SUBSIDE_RUN_TOKEN_TARGET_PREFIX` | Prefix for the server-generated token target id. |
+| `SUBSIDE_TOKEN_BROKER_URL` | Public API base URL used by hosted tasks for server-side run-token rotation. |
 | `SUBSIDE_RUN_TOKEN_RECONCILE_ON_STARTUP` | Retry cleanup-pending leases at API startup. |
+| `SUBSIDE_RUN_RECOVERY_ENABLED` | Enable durable inner-job reconciliation; default `true`. |
+| `SUBSIDE_RUN_RECOVERY_PUBLISH` | Automatically invoke `subside-publish` after confirmed compute/archive success; default `true`. |
+| `SUBSIDE_RUN_RECOVERY_GRACE_SECONDS` | Jobs API outage grace after requested walltime; default 1200. |
+| `SUBSIDE_RUN_RECOVERY_CLEANUP_STALE_SECONDS` | Time before a crashed revoke claim can be reclaimed; default 300. |

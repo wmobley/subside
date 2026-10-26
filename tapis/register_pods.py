@@ -83,6 +83,10 @@ API_ENV_KEYS = [
     "SUBSIDE_RUN_TOKEN_TTL_MAX_SECONDS",
     "SUBSIDE_RUN_TOKEN_TARGET_PREFIX",
     "SUBSIDE_RUN_TOKEN_RECONCILE_ON_STARTUP",
+    "SUBSIDE_RUN_RECOVERY_ENABLED",
+    "SUBSIDE_RUN_RECOVERY_PUBLISH",
+    "SUBSIDE_RUN_RECOVERY_GRACE_SECONDS",
+    "SUBSIDE_RUN_RECOVERY_CLEANUP_STALE_SECONDS",
 ]
 SECRET_KEYS = {
     "SUBSIDE_DATABASE_URL",
@@ -177,6 +181,10 @@ def build_specs(owner: str, tag: str, base_url: str) -> dict[str, dict]:
     # Deployment-derived (always the pod URLs, never the local dev values):
     api_env["TAPIS_OAUTH_CALLBACK_URL"] = f"{ui_url}/"
     api_env["SUBSIDE_CORS_ORIGINS"] = ui_url
+    # Hosted workflow tasks must be able to reach the API that owns the
+    # encrypted refresh-token store. Derive this from the pod URL so the
+    # broker cannot accidentally point at a developer workstation.
+    api_env["SUBSIDE_TOKEN_BROKER_URL"] = api_url
     api_env.setdefault("TAPIS_BASE_URL", base_url.rstrip("/"))
 
     api = {

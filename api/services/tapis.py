@@ -24,6 +24,14 @@ class TokenRevokeError(RuntimeError):
     """The Tapis Tokens API could not revoke a run token."""
 
 
+class OAuthRefreshError(RuntimeError):
+    """The Tapis OAuth refresh grant could not issue a new access token."""
+
+
+class JobsSearchError(RuntimeError):
+    """The authenticated Jobs API search could not be completed."""
+
+
 def _need_tapipy():
     try:
         from tapipy.tapis import Tapis
@@ -143,6 +151,38 @@ def login(username: str, password: str) -> str:
     return token
 
 
+def refresh_user_token(refresh_token: str) -> dict:
+    """Exchange a server-stored OAuth refresh token for a rotated token pair."""
+    if not config.TAPIS_CLIENT_ID or not config.TAPIS_CLIENT_KEY:
+        raise OAuthRefreshError("OAuth client credentials are not configured.")
+    import requests
+    try:
+        resp = requests.post(
+            f"{config.TAPIS_BASE_URL}/v3/oauth2/tokens",
+            auth=(config.TAPIS_CLIENT_ID, config.TAPIS_CLIENT_KEY),
+            json={"grant_type": "refresh_token", "refresh_token": refresh_token},
+            timeout=30,
+        )
+    except Exception as exc:
+        raise OAuthRefreshError("Tapis OAuth refresh request failed.") from exc
+    if resp.status_code >= 400:
+        raise OAuthRefreshError(f"Tapis OAuth refresh failed (HTTP {resp.status_code}).")
+    try:
+        result = (resp.json() or {}).get("result") or {}
+        access = result.get("access_token") or {}
+        token = access.get("access_token")
+        rotated = (result.get("refresh_token") or {}).get("refresh_token")
+    except Exception as exc:
+        raise OAuthRefreshError("Tapis OAuth refresh returned an invalid response.") from exc
+    if not token:
+        raise OAuthRefreshError("Tapis OAuth refresh returned no access token.")
+    return {
+        "token": token,
+        "expires_at": access.get("expires_at"),
+        "refresh_token": rotated or refresh_token,
+    }
+
+
 def mint_run_token(caller_token: str, username: str, target_site_id: str, ttl_seconds: int) -> dict:
     """Mint a bounded user token through the verified Tokens API contract.
 
@@ -206,3 +246,58 @@ def revoke_token(auth_token: str, token: str) -> None:
         raise TokenRevokeError("Tapis run-token revoke request failed.") from exc
     if resp.status_code >= 400:
         raise TokenRevokeError(f"Tapis run-token revoke failed (HTTP {resp.status_code}).")
+
+
+_JOB_SEARCH_FIELDS = (
+    "uuid", "name", "owner", "tenant", "appId", "appVersion", "status",
+    "condition", "created", "ended", "lastUpdated", "execSystemId",
+    "archiveSystemId", "archiveSystemDir", "maxMinutes", "remoteOutcome",
+    "remoteResultInfo",
+)
+
+
+def search_jobs(client, *, name: str | None = None, app_id: str | None = None,
+                created_after: str | None = None, limit: int = 100) -> list[dict]:
+    """Search Jobs using only allowlisted fields and the caller's token.
+
+    The search endpoint is intentionally kept here instead of depending on a
+    tapipy version-specific ``jobs.search`` shape. Results are sanitized before
+    they reach reconciliation code, and response bodies are never included in
+    exception text.
+    """
+    token = getattr(client, "subside_access_token", None) or ""
+    if not token:
+        raise JobsSearchError("Jobs search requires an authenticated Tapis token.")
+    base_url = getattr(client, "base_url", None) or config.TAPIS_BASE_URL
+    params = {"limit": max(1, min(int(limit), 1000)), "skip": 0}
+    if name:
+        params["name.eq"] = name
+    if app_id:
+        params["appId.eq"] = app_id
+    if created_after:
+        params["created.gt"] = created_after
+    import requests
+
+    try:
+        resp = requests.get(
+            f"{str(base_url).rstrip('/')}/v3/jobs/search",
+            headers={"X-Tapis-Token": str(token)},
+            params=params,
+            timeout=30,
+        )
+    except Exception as exc:
+        raise JobsSearchError("Tapis Jobs search request failed.") from exc
+    if resp.status_code >= 400:
+        raise JobsSearchError(f"Tapis Jobs search failed (HTTP {resp.status_code}).")
+    try:
+        result = (resp.json() or {}).get("result") or []
+        if isinstance(result, dict):
+            result = result.get("jobs") or result.get("items") or result.get("results") or []
+        if not isinstance(result, list):
+            raise ValueError("result is not a list")
+    except Exception as exc:
+        raise JobsSearchError("Tapis Jobs search returned an invalid response.") from exc
+    return [
+        {field: item.get(field) for field in _JOB_SEARCH_FIELDS if field in item}
+        for item in result if isinstance(item, dict)
+    ]

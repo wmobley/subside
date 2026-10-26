@@ -32,7 +32,11 @@ params:
   allocation:          {type: string, required: true, description: "TACC allocation to charge"}
   update_conda_env:    {type: string, default: "false"}
   tapis_base_url:      {type: string, default: "https://portals.tapis.io"}
-  tapis_token:         {type: string, required: true, description: "User Tapis bearer token used by hosted function tasks"}
+  tapis_token:         {type: string, required: true, description: "Per-run user-associated Tapis bearer token used by hosted function tasks"}
+  token_broker_url:    {type: string, default: "", required: false, description: "API URL used to rotate the per-run token after OAuth expiry"}
+  run_token_lease_id:  {type: string, default: "", required: false}
+  run_token_credential: {type: string, default: "", required: false, description: "Opaque lease-bound broker credential"}
+  job_name_prefix:     {type: string, default: "", required: false, description: "Secret-free durable inner-job name supplied by the API"}
   submitter_username:  {type: string, default: "", required: false, description: "SUBSIDE username who submitted this run (used as the CKAN dataset author)"}
   # --- STAC/CKAN publishing (stac-platform). Leave ckan_token/stac_url blank to
   #     disable: the stac-publish task no-ops when either is unset. ---
@@ -52,6 +56,7 @@ tasks:
     installer: pip
     packages:
       - tapipy==25.4.0
+      - "requests>=2.31.0"
     depends_on: []
     execution_profile:
       max_exec_time: 90000   # 25h — must outlast the job it polls (maxMinutes up to 24h)
@@ -68,11 +73,16 @@ tasks:
       MAX_MINUTES:          {type: number, value_from: {args: max_minutes}}
       ALLOCATION:           {type: string, value_from: {args: allocation}}
       UPDATE_CONDA_ENV:     {type: string, value_from: {args: update_conda_env}}
+      JOB_NAME_PREFIX:      {type: string, value_from: {args: job_name_prefix}}
+      TOKEN_BROKER_URL:     {type: string, value_from: {args: token_broker_url}}
+      RUN_TOKEN_LEASE_ID:   {type: string, value_from: {args: run_token_lease_id}}
+      RUN_TOKEN_CREDENTIAL: {type: string, value_from: {args: run_token_credential}}
     output:
       job_uuid: {type: string}
       archive:  {type: string}
     code: |
       import time
+      import requests
       from tapipy.tapis import Tapis
       from owe_python_sdk.runtime import execution_context as ctx
 
@@ -99,14 +109,40 @@ tasks:
           fail("Missing TAPIS_TOKEN workflow input.")
       t = Tapis(base_url=base_url, jwt=token)
 
+      broker_url = str(val("TOKEN_BROKER_URL", "")).rstrip("/")
+      lease_id = str(val("RUN_TOKEN_LEASE_ID", "")).strip()
+      credential = str(val("RUN_TOKEN_CREDENTIAL", "")).strip()
+
+      def _renew_token():
+          if not (broker_url and lease_id and credential):
+              fail("Tapis token expired and no refresh broker is configured.")
+          response = requests.post(
+              f"{broker_url}/api/subside/internal/run-token/{lease_id}",
+              headers={"X-Subside-Run-Credential": credential}, timeout=30,
+          )
+          if response.status_code >= 400:
+              fail(f"Tapis token refresh broker failed (HTTP {response.status_code}).")
+          refreshed = (response.json() or {}).get("token")
+          if not refreshed:
+              fail("Tapis token refresh broker returned no token.")
+          return refreshed
+
+      def _replace_client():
+          nonlocal_token = _renew_token()
+          global token, t
+          token = nonlocal_token
+          t = Tapis(base_url=base_url, jwt=token)
+
       start = str(val("START_DATE"))
       end = str(val("END_DATE"))
       allocation = str(val("ALLOCATION"))
+      job_name_prefix = str(val("JOB_NAME_PREFIX", "")).strip()
       env = [
           {"key": "STAGE", "value": "run"},
           {"key": "UPDATE_CONDA_ENV", "value": str(val("UPDATE_CONDA_ENV", "false"))},
           {"key": "START_DATE", "value": start},
           {"key": "END_DATE", "value": end},
+          {"key": "AOI_GEOJSON_PATH", "value": "config/aoi.geojson"},
           {"key": "NUM_WORKERS", "value": str(val("NUM_WORKERS", 8))},
           {"key": "MIN_OVERLAP_PERCENT", "value": str(val("MIN_OVERLAP_PERCENT", 50.0))},
       ]
@@ -120,7 +156,7 @@ tasks:
           file_inputs.append({"name": "earthdata-netrc", "sourceUrl": netrc_uri, "targetPath": ".netrc"})
 
       body = {
-          "name": f"subside-h2i-opera-{start}-{end}",
+          "name": job_name_prefix or f"subside-h2i-opera-{start}-{end}",
           "appId": "subside-h2i-opera-analysis",
           "appVersion": "0.1.1",
           "nodeCount": 1,
@@ -142,10 +178,39 @@ tasks:
           },
       }
 
-      result = t.jobs.submitJob(**body)
-      job_uuid = getattr(result, "uuid", None)
+      def _find_existing(name):
+          response = requests.get(f"{base_url}/v3/jobs/search",
+              headers={"X-Tapis-Token": token},
+              params={"name.eq": name, "appId.eq": "subside-h2i-opera-analysis", "limit": 10}, timeout=30)
+          if response.status_code in (401, 403) and broker_url:
+              _replace_client()
+              response = requests.get(f"{base_url}/v3/jobs/search",
+                  headers={"X-Tapis-Token": token},
+                  params={"name.eq": name, "appId.eq": "subside-h2i-opera-analysis", "limit": 10}, timeout=30)
+          if response.status_code >= 400:
+              fail(f"Unable to verify durable job name before submission (HTTP {response.status_code}).")
+          result = (response.json() or {}).get("result") or []
+          if isinstance(result, dict):
+              result = result.get("jobs") or result.get("items") or []
+          matches = [item for item in result if isinstance(item, dict)]
+          if len(matches) > 1:
+              fail(f"Multiple jobs matched durable name {name}; refusing duplicate submission.")
+          return matches[0].get("uuid") if matches else None
+
+      job_name = body["name"]
+      job_uuid = _find_existing(job_name)
       if not job_uuid:
-          fail(f"submitJob did not return a uuid: {result}")
+          try:
+              result = t.jobs.submitJob(**body)
+              job_uuid = getattr(result, "uuid", None)
+          except Exception:
+              # The server may have accepted the job before the response was
+              # lost. Adopt by exact name before surfacing the uncertainty.
+              job_uuid = _find_existing(job_name)
+              if not job_uuid:
+                  raise
+      if not job_uuid:
+          fail("submitJob did not return a uuid and no exact-name job was found.")
       ctx.set_output("job_uuid", job_uuid)
       print(f"submitted Tapis job {job_uuid}")
 
@@ -154,7 +219,7 @@ tasks:
       # HPC job. Each poll gets its own retry budget that RESETS on every
       # successful call, so only a *sustained* outage (budget exhausted) fails
       # the task. Genuine terminal errors (job-not-found / auth) still fail fast.
-      POLL_RETRY_DELAYS = (15, 30, 60, 120, 120, 120, 120)  # ~9.5 min tolerance
+      POLL_RETRY_DELAYS = (15, 30, 60, 120, 120, 120, 120, 120, 120, 120, 120, 120)  # ~20 min tolerance
 
       def _is_terminal_api_error(exc):
           name = type(exc).__name__.lower()
@@ -171,6 +236,10 @@ tasks:
               try:
                   return t.jobs.getJob(jobUuid=job_uuid)
               except Exception as exc:
+                  if ("expired" in str(exc).lower() or "unauthorized" in type(exc).__name__.lower()) and broker_url:
+                      _replace_client()
+                      last_exc = exc
+                      continue
                   if _is_terminal_api_error(exc):
                       raise
                   last_exc = exc
@@ -203,6 +272,7 @@ tasks:
     installer: pip          # required by the Tapis Workflows FunctionTask schema
     packages:
       - tapipy==25.4.0
+      - "requests>=2.31.0"
     depends_on:
       - id: run
     description: |
@@ -212,13 +282,29 @@ tasks:
     input:
       TAPIS_BASE_URL: {type: string, value_from: {args: tapis_base_url}}
       TAPIS_TOKEN:    {type: string, value_from: {args: tapis_token}}
+      TOKEN_BROKER_URL:     {type: string, value_from: {args: token_broker_url}}
+      RUN_TOKEN_LEASE_ID:   {type: string, value_from: {args: run_token_lease_id}}
+      RUN_TOKEN_CREDENTIAL: {type: string, value_from: {args: run_token_credential}}
       ARCHIVE_URI:    {type: string, value_from: {task_output: {task_id: run, output_id: archive}}}
     output:
       manifest_json: {type: string}
     code: |
-      import json, os, time
+      import json, os, time, requests
       from tapipy.tapis import Tapis
       from owe_python_sdk.runtime import execution_context as ctx
+
+      broker_url = str(ctx.get_input("TOKEN_BROKER_URL") or "").rstrip("/")
+      lease_id = str(ctx.get_input("RUN_TOKEN_LEASE_ID") or "").strip()
+      credential = str(ctx.get_input("RUN_TOKEN_CREDENTIAL") or "").strip()
+      tapis_token = str(ctx.get_input("TAPIS_TOKEN") or "")
+      if broker_url and lease_id and credential:
+          response = requests.post(
+              f"{broker_url}/api/subside/internal/run-token/{lease_id}",
+              headers={"X-Subside-Run-Credential": credential}, timeout=30,
+          )
+          if response.status_code >= 400:
+              raise RuntimeError(f"Tapis token refresh broker failed (HTTP {response.status_code}).")
+          tapis_token = (response.json() or {}).get("token") or tapis_token
 
       RETRY_DELAYS = (10, 20, 40, 60, 90)
 
@@ -289,7 +375,7 @@ tasks:
           raise SystemExit("run task did not provide an archive URI")
       tapis = Tapis(
           base_url=str(ctx.get_input("TAPIS_BASE_URL") or "https://portals.tapis.io").rstrip("/"),
-          jwt=str(ctx.get_input("TAPIS_TOKEN") or ""),
+          jwt=tapis_token,
       )
 
       preflight = _find_manifest(tapis, archive, "preflight-manifest.json")
@@ -332,6 +418,9 @@ tasks:
     input:
       TAPIS_BASE_URL: {type: string, value_from: {args: tapis_base_url}}
       TAPIS_TOKEN:    {type: string, value_from: {args: tapis_token}}
+      TOKEN_BROKER_URL:     {type: string, value_from: {args: token_broker_url}}
+      RUN_TOKEN_LEASE_ID:   {type: string, value_from: {args: run_token_lease_id}}
+      RUN_TOKEN_CREDENTIAL: {type: string, value_from: {args: run_token_credential}}
       SUBMITTER_USERNAME: {type: string, value_from: {args: submitter_username}}
       ARCHIVE_URI: {type: string, value_from: {task_output: {task_id: run, output_id: archive}}}
       COLLECTION:  {type: string, value_from: {args: stac_collection}}
@@ -345,6 +434,7 @@ tasks:
       import json
       import time
       import tempfile
+      import requests
       from pathlib import Path
 
       import httpx
@@ -356,6 +446,19 @@ tasks:
       from stacmap.manifest import parse_manifest
       from stacmap.publish import publish_from_dir
       from stacmap.stac_client import StacClient
+
+      _broker_url = str(ctx.get_input("TOKEN_BROKER_URL") or "").rstrip("/")
+      _lease_id = str(ctx.get_input("RUN_TOKEN_LEASE_ID") or "").strip()
+      _credential = str(ctx.get_input("RUN_TOKEN_CREDENTIAL") or "").strip()
+      _tapis_token = str(ctx.get_input("TAPIS_TOKEN") or "")
+      if _broker_url and _lease_id and _credential:
+          _response = requests.post(
+              f"{_broker_url}/api/subside/internal/run-token/{_lease_id}",
+              headers={"X-Subside-Run-Credential": _credential}, timeout=30,
+          )
+          if _response.status_code >= 400:
+              raise RuntimeError(f"Tapis token refresh broker failed (HTTP {_response.status_code}).")
+          _tapis_token = (_response.json() or {}).get("token") or _tapis_token
 
       MANIFEST_NAME = "run-manifest.json"
       ITEM_PREFIX = "subside-h2i"
@@ -905,7 +1008,7 @@ tasks:
       if not (ckan_token and stac_url):
           ctx.stdout("stac-publish: disabled (CKAN_TOKEN/STAC_URL unset) - skipping.")
           raise SystemExit(0)
-      tapis_token = str(val("TAPIS_TOKEN", "")).strip()
+      tapis_token = _tapis_token.strip()
       if not tapis_token:
           fail("Missing TAPIS_TOKEN workflow input; cannot read the Tapis job archive.")
 

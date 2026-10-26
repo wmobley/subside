@@ -161,7 +161,7 @@ class RunStatusResponse(BaseModel):
     pipeline: Optional[str] = Field(None, description="Pipeline key (h2i | werc).", examples=["werc"])
     pipelineId: Optional[str] = Field(None, description="Tapis Workflows pipeline id.",
                                       examples=["subside-werc-opera"])
-    status: str = Field(..., description="Normalized run status: queued | running | completed | failed | "
+    status: str = Field(..., description="Normalized run status: queued | running | recovering | completed | failed | "
                                          "cancelled | unknown.", examples=["running"])
     tapisStatus: str = Field(..., description="Raw Tapis Workflows status string.", examples=["ACTIVE"])
     lastMessage: Optional[str] = Field(None, description="Most recent run/task message; the failure reason "
@@ -172,6 +172,11 @@ class RunStatusResponse(BaseModel):
                                    examples=["tapis://ls6/.../subside-werc-opera-...-<uuid>"])
     tasks: list[RunTaskStatus] = Field(default_factory=list,
                                        description="Per-task status, in pipeline order.")
+    reconciliationStatus: Optional[str] = Field(None, description="Durable recovery state.")
+    computeStatus: Optional[str] = Field(None, description="Recovered inner Tapis Jobs status.")
+    publicationStatus: Optional[str] = Field(None, description="Recovery publication state.")
+    innerJobUuid: Optional[str] = Field(None, description="Recovered inner Tapis Jobs UUID.")
+    recovered: bool = Field(False, description="Whether status was recovered from inner-job state.")
 
 
 class RunListItem(BaseModel):
@@ -188,6 +193,11 @@ class RunListItem(BaseModel):
     tapisStatus: str = Field(..., description="Raw Tapis status.", examples=["COMPLETED"])
     created: Optional[str] = Field(None, description="ISO-8601 creation timestamp.",
                                    examples=["2026-06-14T19:32:00Z"])
+    reconciliationStatus: Optional[str] = None
+    computeStatus: Optional[str] = None
+    publicationStatus: Optional[str] = None
+    innerJobUuid: Optional[str] = None
+    recovered: bool = False
 
 
 class RunListResponse(BaseModel):

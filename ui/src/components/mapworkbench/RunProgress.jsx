@@ -30,6 +30,7 @@ export function RunProgress({ run }) {
   for (const t of run.tasks || []) byId[t.taskId] = t
   const phases = RUN_PHASES.map((p) => ({ ...p, task: byId[p.id], status: byId[p.id]?.status || 'pending' }))
   const failed = run.status === 'failed'
+  const recovering = run.status === 'recovering'
   // The phase to narrate: the running one, else the failed one, else the first
   // not-yet-done one. Undefined once every phase is complete.
   const active = phases.find((p) => p.status === 'running')
@@ -65,7 +66,7 @@ export function RunProgress({ run }) {
             <span className="sap-phase-mark" aria-hidden="true">
               {p.status === 'completed' ? '✓'
                 : p.status === 'failed' ? '✕'
-                  : p.status === 'running' ? <span className="sap-spinner" />
+                : p.status === 'running' || (recovering && p.status !== 'completed') ? <span className="sap-spinner" />
                     : '○'}
             </span>
             <span className="sap-phase-label">{p.label}</span>
@@ -92,7 +93,10 @@ export function RunProgress({ run }) {
             </div>
           ) : (
             <>
-              <div>{active.status === 'queued' ? RUN_COPY.queued : active.hint}</div>
+              <div>{recovering ? RUN_COPY.recovering : active.status === 'queued' ? RUN_COPY.queued : active.hint}</div>
+              {recovering && run.reconciliationStatus ? (
+                <div className="sap-phase-msg">Recovery state: {run.reconciliationStatus.replaceAll('_', ' ')}</div>
+              ) : null}
               {detail ? <div className="sap-phase-msg">{detail}</div> : null}
             </>
           )}

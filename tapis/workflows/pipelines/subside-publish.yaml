@@ -100,7 +100,7 @@ tasks:
 
     # Mirrors the run task's resilient poll: a transient Tapis blip must not fail
     # the lookup. Terminal errors (auth / job-not-found) still fail fast.
-    POLL_RETRY_DELAYS = (15, 30, 60, 120, 120, 120, 120)
+    POLL_RETRY_DELAYS = (15, 30, 60, 120, 120, 120, 120, 120, 120, 120, 120, 120)
 
     def val(name, default=""):
         got = ctx.get_input(name)

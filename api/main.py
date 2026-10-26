@@ -18,7 +18,7 @@ import logging
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from .services import availability, db, discovery, estimation, forecast, layers, manager, provisioning, tapis
+from .services import availability, db, discovery, estimation, forecast, layers, manager, provisioning, tapis, token_store
 from . import config
 from .config import CORS_ORIGINS
 from .models import (
@@ -75,19 +75,18 @@ app.add_middleware(
 
 @app.on_event("startup")
 def reconcile_run_token_leases() -> None:
-    """Retry cleanup records without revoking active workflow leases."""
+    """Recover active workflows and retry safe token cleanup records."""
     if not (config.RUN_TOKEN_ENABLED and config.RUN_TOKEN_RECONCILE_ON_STARTUP):
         return
-    if not (config.SUBSIDE_ADMIN_USERNAME and config.SUBSIDE_ADMIN_PASSWORD):
-        log.warning(
-            "run-token reconciliation deferred: SUBSIDE_ADMIN_USERNAME/PASSWORD are not configured"
-        )
-        return
     try:
-        admin_token = tapis.login(config.SUBSIDE_ADMIN_USERNAME, config.SUBSIDE_ADMIN_PASSWORD)
-        admin_client = tapis.client_from_token(admin_token)
+        admin_client = None
+        if config.SUBSIDE_ADMIN_USERNAME and config.SUBSIDE_ADMIN_PASSWORD:
+            admin_token = tapis.login(config.SUBSIDE_ADMIN_USERNAME, config.SUBSIDE_ADMIN_PASSWORD)
+            admin_client = tapis.client_from_token(admin_token)
+        else:
+            log.info("run-token reconciliation using stored per-run credentials; admin credentials are not configured")
         count = manager.reconcile_run_tokens(admin_client)
-        log.info("run-token reconciliation completed: %d lease(s) cleaned", count)
+        log.info("run-token reconciliation completed: %d lease(s) recovered or cleaned", count)
     except Exception as exc:
         log.warning("run-token reconciliation failed: %s", str(exc)[:300])
 
@@ -141,11 +140,29 @@ def auth_token(body: AuthCodeRequest, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=401, detail=f"Token exchange failed: {exc}") from exc
+    if config.RUN_TOKEN_ENABLED and res.get("username") and res.get("refresh_token"):
+        try:
+            token_store.upsert_user_refresh_token(res["username"], res["refresh_token"])
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Could not persist OAuth session.") from exc
     # Add the user to the Workflows group + CKAN org so they can run/publish.
     # Runs after the response is sent (best-effort; never blocks or fails login).
     if res.get("username"):
         background_tasks.add_task(provisioning.provision_user, res["username"], res.get("token"))
     return AuthTokenResponse(token=res["token"], username=res["username"], expires_at=res.get("expires_at"))
+
+
+@app.post("/api/subside/internal/run-token/{lease_id}", tags=["Runs"])
+def refresh_run_token(lease_id: str, x_subside_run_credential: str = Header(None, alias="X-Subside-Run-Credential")):
+    """Internal workflow broker: rotate a run token without exposing OAuth refresh tokens."""
+    if not x_subside_run_credential:
+        raise HTTPException(status_code=401, detail="Missing run credential.")
+    try:
+        return manager.refresh_run_token(lease_id, x_subside_run_credential)
+    except manager.RunTokenConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Run credential refresh failed.") from exc
 
 
 # --- discovery (fast, in-process; no Tapis job) ----------------------------
