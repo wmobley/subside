@@ -41,7 +41,9 @@ retries cleanup-pending leases. Phase 1 assumes one API instance sharing one
 persistent store; it is not a multi-replica coordination mechanism.
 
 OAuth login stores the user's refresh token encrypted in the protected backend
-store. Hosted tasks receive only an opaque lease credential for the API refresh
+store. The retained password-grant `/login` endpoint also stores the refresh
+token when Tapis returns one, which supports scripts and sandbox validation.
+Hosted tasks receive only an opaque lease credential for the API refresh
 broker; the OAuth refresh token is never passed into workflow arguments or task
 environments. Set `SUBSIDE_TOKEN_BROKER_URL` to the API base URL reachable by
 hosted workflows. The broker rotates the bounded per-run token after expiry.

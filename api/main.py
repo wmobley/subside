@@ -111,10 +111,15 @@ def login(body: LoginRequest):
     """Password-grant login. Retained for scripts/dev; the web app uses the
     OAuth2 redirect flow (/auth/config + /auth/token) instead."""
     try:
-        token = tapis.login(body.username, body.password)
+        res = tapis.login_with_tokens(body.username, body.password)
     except Exception as exc:
         raise HTTPException(status_code=401, detail=f"Login failed: {exc}") from exc
-    return LoginResponse(token=token, username=body.username)
+    if config.RUN_TOKEN_ENABLED and res.get("username") and res.get("refresh_token"):
+        try:
+            token_store.upsert_user_refresh_token(res["username"], res["refresh_token"])
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Could not persist OAuth session.") from exc
+    return LoginResponse(token=res["token"], username=res.get("username") or body.username)
 
 
 # --- OAuth2 authorization-code login (Log in with TACC) --------------------

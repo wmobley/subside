@@ -104,6 +104,25 @@ def test_refresh_user_token_uses_oauth_refresh_grant(monkeypatch):
     assert calls[0][1]["json"] == {"grant_type": "refresh_token", "refresh_token": "old-refresh"}
 
 
+def test_password_login_returns_refresh_token(monkeypatch):
+    def post(url, **kwargs):
+        assert url.endswith("/v3/oauth2/tokens")
+        assert kwargs["json"] == {
+            "username": "burner", "password": "password", "grant_type": "password",
+        }
+        return Response(200, {"result": {
+            "access_token": {"access_token": "access.jwt", "expires_at": "2099-01-01T00:00:00Z"},
+            "refresh_token": {"refresh_token": "refresh.jwt"},
+        }})
+
+    monkeypatch.setattr("requests.post", post)
+    result = tapis.login_with_tokens("burner", "password")
+
+    assert result["token"] == "access.jwt"
+    assert result["username"] == "burner"
+    assert result["refresh_token"] == "refresh.jwt"
+
+
 def test_revoke_uses_verified_contract_and_redacts_token(monkeypatch):
     calls = []
     token = "header.payload.secret-canary"

@@ -139,16 +139,40 @@ def exchange_code(code: str) -> dict:
     }
 
 
-def login(username: str, password: str) -> str:
-    """Exchange username/password for a Tapis access token (password grant)."""
-    Tapis = _need_tapipy()
-    client = Tapis(base_url=TAPIS_BASE_URL, username=username, password=password)
-    client.get_tokens()
-    access = getattr(client, "access_token", None)
-    token = getattr(access, "access_token", None) or str(access) if access else None
+def login_with_tokens(username: str, password: str) -> dict:
+    """Exchange username/password for the access and refresh token pair."""
+    import requests
+
+    try:
+        resp = requests.post(
+            f"{TAPIS_BASE_URL}/v3/oauth2/tokens",
+            json={"username": username, "password": password, "grant_type": "password"},
+            timeout=30,
+        )
+    except Exception as exc:
+        raise RuntimeError("Tapis password-grant request failed.") from exc
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Tapis password-grant failed (HTTP {resp.status_code}).")
+    try:
+        result = (resp.json() or {}).get("result") or {}
+        access = result.get("access_token") or {}
+        token = access.get("access_token")
+        refresh = (result.get("refresh_token") or {}).get("refresh_token")
+    except Exception as exc:
+        raise RuntimeError("Tapis password-grant returned an invalid response.") from exc
     if not token:
         raise RuntimeError("Login succeeded but no access token was returned.")
-    return token
+    return {
+        "token": token,
+        "username": username_from_token(token) or username,
+        "expires_at": access.get("expires_at"),
+        "refresh_token": refresh,
+    }
+
+
+def login(username: str, password: str) -> str:
+    """Exchange username/password for a Tapis access token (password grant)."""
+    return login_with_tokens(username, password)["token"]
 
 
 def refresh_user_token(refresh_token: str) -> dict:
