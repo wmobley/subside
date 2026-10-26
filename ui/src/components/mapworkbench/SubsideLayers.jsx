@@ -10,7 +10,7 @@
 // analysis panel (see SubsideAnalysis) once the user draws/uploads their own AOI.
 //
 // Mounted *inside* a react-leaflet <MapContainer>. The toggle panel is rendered
-// into a Leaflet control via a React portal so it lives in the map corner.
+// outside the map via a portal: a desktop sidebar or a full-screen mobile dialog.
 import L from 'leaflet'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -44,7 +44,7 @@ function isDefaultOn(layer, isAuthed) {
 // behaves the same — see context_layers.json `role: "reference-candidate"`.
 const REFERENCE_ROLE = 'reference-candidate'
 
-export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPickReference }) {
+export function SubsideLayers({ panelHost, prevRunsHostRef, autoShowReference = false, onPickReference }) {
   const map = useMap()
   const { isAuthed } = useAuth()
   // Latest auth, read when the catalog resolves so the default-on set reflects
@@ -60,21 +60,35 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
   // kebab on each row (actionsMenu holds which layer's popover is open).
   const [opacityById, setOpacityById] = useState(() => new Map())
   const [actionsMenu, setActionsMenu] = useState(null)
-
-  // Leaflet control container the panel is portalled into.
-  const [controlEl] = useState(() => {
-    const el = L.DomUtil.create('div', 'subside-layer-control')
-    L.DomEvent.disableClickPropagation(el)
-    L.DomEvent.disableScrollPropagation(el)
-    return el
-  })
+  const dialogRef = useRef(null)
+  const launcherRef = useRef(null)
+  const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 1100px)').matches)
 
   useEffect(() => {
-    const ctrl = L.control({ position: 'topright' })
-    ctrl.onAdd = () => controlEl
-    ctrl.addTo(map)
-    return () => ctrl.remove()
-  }, [map, controlEl])
+    const dialog = dialogRef.current
+    if (!dialog) return
+    const media = window.matchMedia('(max-width: 1100px)')
+    const updateLayout = () => {
+      const hadFocus = dialog.contains(document.activeElement)
+      dialog.close()
+      setCompact(media.matches)
+      if (!media.matches) {
+        // A desktop sidebar is nonmodal and should not steal focus on mount.
+        dialog.open = true
+        if (hadFocus) dialog.querySelector('[tabindex="0"]')?.focus({ preventScroll: true })
+      } else if (hadFocus) {
+        // React has not yet removed the launcher's desktop hidden attribute.
+        launcherRef.current.hidden = false
+        launcherRef.current.focus({ preventScroll: true })
+      }
+    }
+    updateLayout()
+    media.addEventListener('change', updateLayout)
+    return () => {
+      media.removeEventListener('change', updateLayout)
+      dialog.close()
+    }
+  }, [panelHost])
 
   // Load the catalog once from STAC; default-visible layers start toggled on.
   useEffect(() => {
@@ -184,15 +198,46 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
   ))
 
   const panel = (
-    <div className="subside-layer-panel">
-      <div className="slp-title">Layers</div>
-      {error ? <div className="slp-error">{error}</div> : null}
-      {!catalog.length && !error ? <div className="slp-empty">Loading layers…</div> : null}
-      {rows}
+    <>
+      <button
+        ref={launcherRef}
+        type="button"
+        className="slp-mobile-launcher"
+        hidden={!compact}
+        aria-haspopup="dialog"
+        aria-controls="subside-layers-dialog"
+        onClick={() => dialogRef.current?.showModal()}
+      >
+        <span aria-hidden="true">☰</span> Layers and legends
+      </button>
+      <dialog
+        ref={dialogRef}
+        id="subside-layers-dialog"
+        className="subside-layers-dialog"
+        aria-labelledby="subside-layers-title"
+        onClose={() => setActionsMenu(null)}
+      >
+        <div className="slp-dialog-header">
+          <h3 id="subside-layers-title" className="slp-title">Layers and legends</h3>
+          <button type="button" className="slp-dialog-close" hidden={!compact}
+            onClick={() => dialogRef.current?.close()}>Close</button>
+        </div>
+        <div
+          id="subside-layer-list"
+          className="slp-scroll-region"
+          role="region"
+          aria-label="Map layers and legends"
+          tabIndex={0}
+        >
+          {error ? <div className="slp-error">{error}</div> : null}
+          {!catalog.length && !error ? <div className="slp-empty">Loading layers…</div> : null}
+          {rows}
 
-      {/* Previous runs (STAC) — StacResults portals its list/toggle in here. */}
-      <div ref={prevRunsHostRef} className="slp-prevruns" />
-    </div>
+          {/* Keep this host mounted when the dialog closes to preserve runs. */}
+          <div ref={prevRunsHostRef} className="slp-prevruns" />
+        </div>
+      </dialog>
+    </>
   )
 
   const activeMenuLayer = actionsMenu ? catalog.find((l) => l.id === actionsMenu.id) : null
@@ -212,7 +257,7 @@ export function SubsideLayers({ prevRunsHostRef, autoShowReference = false, onPi
           }
         />
       ))}
-      {createPortal(panel, controlEl)}
+      {panelHost ? createPortal(panel, panelHost) : null}
       {actionsMenu ? (
         <RunActionsMenu
           top={actionsMenu.top}

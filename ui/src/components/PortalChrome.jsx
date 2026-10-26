@@ -69,6 +69,7 @@ export function PortalHeader({ activePage, onPageChange }) {
                   <button
                     className={`nav-link ${activePage === item.id ? 'active' : ''}`}
                     type="button"
+                    aria-current={activePage === item.id ? 'page' : undefined}
                     onClick={() => onPageChange(item.id)}
                   >
                     {item.label}

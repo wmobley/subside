@@ -2,7 +2,7 @@ import { ModelMap } from './mapworkbench/ModelMap'
 
 // SUBSIDE Risk Explorer: a full-width Leaflet map with the registered vector
 // layers, OPERA availability shading, and the click-a-frame -> run-on-TACC
-// panel (all rendered as on-map controls inside ModelMap).
+// panel. ModelMap keeps analysis and layer controls outside the map itself.
 export function MapWorkbench({ mapData, zoom, setZoom }) {
   return (
     <section className="map-section" id="map">

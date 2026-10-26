@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { MapContainer, TileLayer, useMapEvents } from 'react-leaflet'
+import { useEffect, useState } from 'react'
+import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import { AddressSearch } from './AddressSearch'
 import { SubsideAnalysis } from './SubsideAnalysis'
 import { SubsideLayers } from './SubsideLayers'
@@ -14,11 +14,22 @@ function MapEventsBridge({ onZoomChange }) {
   return null
 }
 
+function MapSizeSync() {
+  const map = useMap()
+  useEffect(() => {
+    const observer = new ResizeObserver(() => map.invalidateSize({ pan: false, debounceMoveend: true }))
+    observer.observe(map.getContainer())
+    return () => observer.disconnect()
+  }, [map])
+  return null
+}
+
 export function ModelMap({ mapData, zoom, setZoom }) {
   // The analysis panel lives OUTSIDE the map (a scrollable column to its left);
   // SubsideAnalysis portals its UI into this host while keeping its map layers
   // inside the MapContainer. Callback ref so the portal target is available.
   const [panelHost, setPanelHost] = useState(null)
+  const [layersHost, setLayersHost] = useState(null)
   // Previous-runs list lives inside the Layers panel: SubsideLayers renders a
   // mount point, StacResults portals its list/toggle into it.
   const [prevRunsHost, setPrevRunsHost] = useState(null)
@@ -50,12 +61,14 @@ export function ModelMap({ mapData, zoom, setZoom }) {
             scrollWheelZoom
           >
             <MapEventsBridge onZoomChange={setZoom} />
+            <MapSizeSync />
             <TileLayer
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <AddressSearch onSelect={setProbeLocation} />
             <SubsideLayers
+              panelHost={layersHost}
               prevRunsHostRef={setPrevRunsHost}
               autoShowReference={wantsReference}
               onPickReference={setReferencePoint}
@@ -72,6 +85,7 @@ export function ModelMap({ mapData, zoom, setZoom }) {
             <StacResults panelHost={prevRunsHost} onUseBboxForAnalysis={setAnalysisAoiRequest} probeLocation={probeLocation} />
           </MapContainer>
         </div>
+        <aside className="map-layers-panel" ref={setLayersHost} aria-label="Layers and legends" />
       </div>
     </div>
   )

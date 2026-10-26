@@ -10,33 +10,51 @@
 // slider applies -- Download/Zoom In are omitted there via showDownload/
 // showZoomIn rather than rendered disabled, since neither action makes sense
 // for a whole layer group.
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 export function RunActionsMenu({
   top, left, downloadHref, downloadName, onZoomIn, opacity, onOpacityChange,
   showDownload = true, showZoomIn = true, onClose,
 }) {
+  const menuRef = useRef(null)
+
+  useLayoutEffect(() => {
+    const placeMenu = () => {
+      const menu = menuRef.current
+      if (!menu) return
+      const { width, height } = menu.getBoundingClientRect()
+      menu.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`
+      menu.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`
+    }
+    placeMenu()
+    window.addEventListener('resize', placeMenu)
+    return () => window.removeEventListener('resize', placeMenu)
+  }, [top, left])
+
   useEffect(() => {
     const handlePointerDown = (event) => {
       if (!event.target.closest?.('.slp-run-actions-menu')) onClose()
     }
     const handleKey = (event) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      }
     }
     // Capture phase: a right-click that opens this menu also fires its own
-    // 'contextmenu' on document; listening on mousedown (not click) closes on
+    // 'contextmenu' on document; listening on pointerdown closes on
     // the same gesture that opens a *different* run's menu.
-    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('pointerdown', handlePointerDown)
     document.addEventListener('keydown', handleKey)
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('pointerdown', handlePointerDown)
       document.removeEventListener('keydown', handleKey)
     }
   }, [onClose])
 
   return createPortal(
-    <div className="slp-run-actions-menu" style={{ top, left }}>
+    <div ref={menuRef} className="slp-run-actions-menu" style={{ top, left }}>
       {showDownload ? (
         downloadHref ? (
           <a
@@ -58,7 +76,11 @@ export function RunActionsMenu({
           type="button"
           className="slp-run-actions-item"
           disabled={!onZoomIn}
-          onClick={() => { onZoomIn?.(); onClose() }}
+          onClick={() => {
+            onZoomIn?.()
+            onClose()
+            document.querySelector('#subside-layers-dialog:modal')?.close()
+          }}
         >
           Zoom In
         </button>
@@ -78,6 +100,6 @@ export function RunActionsMenu({
         </div>
       ) : null}
     </div>,
-    document.body,
+    document.querySelector('#subside-layers-dialog:modal') || document.body,
   )
 }
