@@ -136,7 +136,6 @@ def test_store_encrypts_raw_token_and_tracks_cleanup(configured_store):
 
 def test_ttl_is_walltime_plus_buffer_and_clamped(monkeypatch):
     monkeypatch.setattr(config, "RUN_TOKEN_TTL_BUFFER_SECONDS", 60)
-    monkeypatch.setattr(config, "RUN_RECOVERY_GRACE_SECONDS", 60)
     monkeypatch.setattr(config, "RUN_TOKEN_TTL_MIN_SECONDS", 300)
     monkeypatch.setattr(config, "RUN_TOKEN_TTL_MAX_SECONDS", 1000)
     assert manager._run_token_ttl(1) == 300

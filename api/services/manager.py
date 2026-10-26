@@ -249,10 +249,10 @@ def _stage(client, username: str, run_id: str, req: RunRequest) -> dict:
 
 
 def _run_token_ttl(max_minutes: int) -> int:
-    requested = max(1, int(max_minutes)) * 60 + max(
-        config.RUN_TOKEN_TTL_BUFFER_SECONDS,
-        config.RUN_RECOVERY_GRACE_SECONDS,
-    )
+    # Keep access-token lifetime independent from recovery grace. Long-running
+    # workflows renew through the OAuth broker; the hard deadline remains the
+    # separate upper bound for recovery.
+    requested = max(1, int(max_minutes)) * 60 + config.RUN_TOKEN_TTL_BUFFER_SECONDS
     return max(
         config.RUN_TOKEN_TTL_MIN_SECONDS,
         min(config.RUN_TOKEN_TTL_MAX_SECONDS, requested),
