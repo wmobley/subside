@@ -143,11 +143,24 @@ def login_with_tokens(username: str, password: str) -> dict:
     """Exchange username/password for the access and refresh token pair."""
     import requests
 
+    client_id = config.TAPIS_CLIENT_ID
+    client_key = config.TAPIS_CLIENT_KEY
+    if bool(client_id) != bool(client_key):
+        raise OAuthNotConfigured(
+            "Tapis OAuth client configuration is incomplete; set both "
+            "TAPIS_CLIENT_ID and TAPIS_CLIENT_KEY."
+        )
+    request_kwargs = {
+        "json": {"username": username, "password": password, "grant_type": "password"},
+        "timeout": 30,
+    }
+    if client_id and client_key:
+        request_kwargs["auth"] = (client_id, client_key)
+
     try:
         resp = requests.post(
             f"{TAPIS_BASE_URL}/v3/oauth2/tokens",
-            json={"username": username, "password": password, "grant_type": "password"},
-            timeout=30,
+            **request_kwargs,
         )
     except Exception as exc:
         raise RuntimeError("Tapis password-grant request failed.") from exc

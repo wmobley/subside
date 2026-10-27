@@ -105,11 +105,15 @@ def test_refresh_user_token_uses_oauth_refresh_grant(monkeypatch):
 
 
 def test_password_login_returns_refresh_token(monkeypatch):
+    monkeypatch.setattr(tapis.config, "TAPIS_CLIENT_ID", "client-id")
+    monkeypatch.setattr(tapis.config, "TAPIS_CLIENT_KEY", "client-key")
+
     def post(url, **kwargs):
         assert url.endswith("/v3/oauth2/tokens")
         assert kwargs["json"] == {
             "username": "burner", "password": "password", "grant_type": "password",
         }
+        assert kwargs["auth"] == ("client-id", "client-key")
         return Response(200, {"result": {
             "access_token": {"access_token": "access.jwt", "expires_at": "2099-01-01T00:00:00Z"},
             "refresh_token": {"refresh_token": "refresh.jwt"},
@@ -121,6 +125,39 @@ def test_password_login_returns_refresh_token(monkeypatch):
     assert result["token"] == "access.jwt"
     assert result["username"] == "burner"
     assert result["refresh_token"] == "refresh.jwt"
+
+
+def test_password_login_falls_back_without_client_auth(monkeypatch):
+    monkeypatch.setattr(tapis.config, "TAPIS_CLIENT_ID", None)
+    monkeypatch.setattr(tapis.config, "TAPIS_CLIENT_KEY", None)
+
+    def post(url, **kwargs):
+        assert "auth" not in kwargs
+        return Response(200, {"result": {
+            "access_token": {"access_token": "access.jwt"},
+        }})
+
+    monkeypatch.setattr("requests.post", post)
+    result = tapis.login_with_tokens("burner", "password")
+
+    assert result["token"] == "access.jwt"
+    assert result["refresh_token"] is None
+
+
+@pytest.mark.parametrize(
+    ("client_id", "client_key"),
+    [("client-id", None), (None, "client-key")],
+)
+def test_password_login_rejects_partial_client_configuration(monkeypatch, client_id, client_key):
+    monkeypatch.setattr(tapis.config, "TAPIS_CLIENT_ID", client_id)
+    monkeypatch.setattr(tapis.config, "TAPIS_CLIENT_KEY", client_key)
+
+    def post(*args, **kwargs):
+        raise AssertionError("partial client configuration must fail before network")
+
+    monkeypatch.setattr("requests.post", post)
+    with pytest.raises(tapis.OAuthNotConfigured, match="configuration is incomplete"):
+        tapis.login_with_tokens("burner", "password")
 
 
 def test_revoke_uses_verified_contract_and_redacts_token(monkeypatch):

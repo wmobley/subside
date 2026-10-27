@@ -602,6 +602,25 @@ deployment are out of scope for this design review.
   externally approved validation step; no live write was performed by this code
   change.
 
+### 2026-10-27 - Authenticate password grants with the registered OAuth client
+
+- **Decision:** When both `TAPIS_CLIENT_ID` and `TAPIS_CLIENT_KEY` are configured,
+  password-grant login sends them as HTTP Basic authentication so Tapis can
+  return a refresh token. If neither is configured, preserve the legacy
+  password-grant fallback. If only one is configured, fail before the network
+  request.
+- **Reason:** A live Portals token-endpoint probe returned an access token and a
+  refresh token only when the registered client credentials were supplied. The
+  previous helper omitted Basic authentication, so the API could authenticate
+  the user but could not persist a refresh token for the broker.
+- **Security constraint:** Client credentials, passwords, access tokens, and
+  refresh tokens remain absent from diagnostics. The refresh diagnostic reports
+  only configuration state, HTTP/result categories, token-presence booleans,
+  and whether rotation occurred.
+- **Impact on implementation:** `api/services/tapis.py`,
+  `api/scripts/test_refresh.py`, and the focused token lifecycle tests now
+  cover the configured, fallback, and partial-configuration cases.
+
 ## User feedback / decisions
 
 - 2026-10-21: User asked what can be tested and implemented, then approved the
