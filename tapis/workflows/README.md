@@ -153,6 +153,45 @@ definitions. The OAuth login endpoint must be used at least once for each user
 so the API can persist that user's refresh token. Direct workflow invocations
 without broker arguments retain their existing static-token behavior.
 
+### Automated development-queue smoke test
+
+The repository workflow `.github/workflows/tapis-development-smoke.yml` runs
+the full H2I image directly through Tapis Jobs on `ls6`'s `development` queue.
+It runs daily and can also be started with **Actions -> Tapis development
+queue smoke test -> Run workflow**. The check polls to a terminal state,
+prints the Tapis job UUID and sanitized failure details, and deletes its unique
+`cloud.data` staging directory after a polled run. GitHub's normal failed-run
+notifications provide the alerting signal.
+
+The workflow requires these repository secrets:
+
+- `TAPIS_ID` and `TAPIS_PASSWORD` — a Portals user that can submit the H2I app
+- `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` — Earthdata download credentials
+- `SUBSIDE_DEFAULT_ALLOCATION` — the TACC allocation to charge
+
+Because the H2I app definition now excludes `.netrc` from archives, an owner
+must re-register the updated app definition once after deployment:
+
+```bash
+python tapis/workflows/register.py --apps-only --no-retag
+```
+
+That command changes the live Tapis app definition; perform it only with the
+usual owner approval.
+
+Run the same queue test locally with credentials in the environment:
+
+```bash
+python tapis/workflows/smoke_test.py --direct-jobs --pipeline h2i \
+  --queue development --max-minutes 60 \
+  --allocation "$SUBSIDE_DEFAULT_ALLOCATION" \
+  --staging-system cloud.data --staging-path "home/$TAPIS_USERNAME/subside-local-smoke" \
+  --with-netrc --poll-interval 20 --timeout 9000
+```
+
+This is an image/queue health check. It is separate from the Subside API
+workflow test that exercises server-side token refresh and recovery.
+
 ## Caveats / TODO
 
 - **Pipeline YAML schema** — the format here is a best-effort match for Tapis Workflows V3 as documented at <https://tapis.readthedocs.io/en/latest/technical/workflows.html>. Verify each field against the live tenant; some templated `{{ tasks.X.outputs.archive }}` and `{{ args.X }}` placeholders may need adjusting.

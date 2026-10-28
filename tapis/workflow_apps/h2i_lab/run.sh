@@ -43,6 +43,9 @@ echo "Compute threads: OMP/OPENBLAS/MKL=${THREADS}, GDAL_NUM_THREADS=ALL_CPUS" >
 if [ -f ".netrc" ]; then
     cp ".netrc" "${HOME}/.netrc"
     chmod 600 "${HOME}/.netrc"
+    # The input is only needed during the process. Remove both copies before
+    # Tapis archives the job directory and before the container exits.
+    trap 'rm -f ".netrc" "${HOME}/.netrc"' EXIT HUP INT TERM
 fi
 
 mkdir -p "${OUTPUT_DIR}"

@@ -29,6 +29,11 @@ Usage::
     python workflows/smoke_test.py --direct-jobs --pipeline h2i \
         --allocation MyAllocation --staging-system cloud.data --with-netrc
 
+    # Exercise the LS6 development queue with a bounded walltime:
+    python workflows/smoke_test.py --direct-jobs --pipeline h2i \
+        --queue development --max-minutes 60 --allocation MyAllocation \
+        --staging-system cloud.data --with-netrc
+
     # Both pipelines:
     python workflows/smoke_test.py --pipeline both --allocation MyAllocation
 
@@ -52,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -134,6 +140,29 @@ def _status_of(obj: Any) -> str:
     return str(val or "unknown").lower()
 
 
+def _redact_text(value: Any) -> str:
+    """Remove known credentials and credential-shaped values from diagnostics."""
+    text = str(value or "")
+    for name in ("TAPIS_PASSWORD", "TAPIS_JWT", "EARTHDATA_PASSWORD"):
+        secret = os.environ.get(name, "")
+        if secret:
+            text = text.replace(secret, "***")
+    for name in ("TAPIS_USERNAME", "EARTHDATA_USERNAME"):
+        secret = os.environ.get(name, "")
+        if secret:
+            text = text.replace(secret, "***")
+    text = re.sub(
+        r"(?i)(machine\s+urs\.earthdata\.nasa\.gov\s+login\s+)\S+(\s+password\s+)\S+",
+        r"\1***\2***",
+        text,
+    )
+    text = re.sub(r"(?i)(authorization\s*[:=]\s*(?:bearer\s+)?)\S+", r"\1***", text)
+    text = re.sub(r"(?i)(\b(?:token|password|passwd|secret)\s*[:=]\s*)\S+", r"\1***", text)
+    # JWTs are credentials even when they did not come from the current process environment.
+    text = re.sub(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "***JWT***", text)
+    return text
+
+
 def _probe(client) -> int:
     """List the user's storage systems + the contents of each system root.
 
@@ -192,7 +221,14 @@ def _stage_inputs(
         return aoi_uri, netrc_uri
 
     import io
-    import os
+
+    if args.with_netrc and not (
+        os.environ.get("EARTHDATA_USERNAME") and os.environ.get("EARTHDATA_PASSWORD")
+    ):
+        raise SystemExit(
+            "--with-netrc set but EARTHDATA_USERNAME / EARTHDATA_PASSWORD "
+            "are not both in the environment."
+        )
 
     print(f"[stage]   mkdir  tapis://{args.staging_system}/{base}")
     try:
@@ -216,11 +252,6 @@ def _stage_inputs(
     if args.with_netrc:
         user = os.environ.get("EARTHDATA_USERNAME")
         pw = os.environ.get("EARTHDATA_PASSWORD")
-        if not (user and pw):
-            raise SystemExit(
-                "--with-netrc set but EARTHDATA_USERNAME / EARTHDATA_PASSWORD "
-                "are not both in the environment."
-            )
         netrc = f"machine urs.earthdata.nasa.gov login {user} password {pw}\n"
         print(f"[stage]   upload .netrc -> {netrc_uri}")
         client.files.insert(
@@ -447,7 +478,18 @@ def _workflow_job_def(pipeline_key: str, args: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _direct_job_body(pipeline_key: str, run_args: dict[str, dict], allocation: str) -> dict[str, Any]:
+def _direct_job_body(
+    pipeline_key: str,
+    run_args: dict[str, dict],
+    allocation: str,
+    *,
+    queue: str | None = None,
+    max_minutes: int | None = None,
+    job_name: str | None = None,
+) -> dict[str, Any]:
+    """Build a direct Jobs request, optionally overriding queue and walltime."""
+    if max_minutes is not None and max_minutes <= 0:
+        raise ValueError("max_minutes must be a positive integer")
     pipeline = _load_pipeline(pipeline_key)
     run_task = next(task for task in pipeline["tasks"] if task["id"] == "run")
     ctx = {"args": _unwrap_args(run_args)}
@@ -455,7 +497,14 @@ def _direct_job_body(pipeline_key: str, run_args: dict[str, dict], allocation: s
         job_def = _resolve(run_task["tapis_job_def"], ctx)
     else:
         job_def = _workflow_job_def(pipeline_key, ctx["args"])
-    return _build_direct_job_body(job_def, allocation)
+    body = _build_direct_job_body(job_def, allocation)
+    if queue:
+        body["execSystemLogicalQueue"] = queue
+    if max_minutes is not None:
+        body["maxMinutes"] = max_minutes
+    if job_name:
+        body["name"] = job_name
+    return body
 
 
 def _has_template(value: Any) -> bool:
@@ -476,8 +525,76 @@ def _hosted_workflow_supported(pipeline_key: str) -> bool:
 
 
 def _submit_direct_job(client, body: dict[str, Any]) -> str | None:
-    result = client.jobs.submitJob(**body)
-    return _field(result, "uuid")
+    """Submit a job, adopting an exact-name match if the response is ambiguous."""
+    existing = _find_direct_job(client, body["name"], body["appId"])
+    if existing:
+        print(f"[job]     adopting existing exact-name job {existing}")
+        return existing
+    try:
+        result = client.jobs.submitJob(**body)
+    except Exception:
+        existing = _find_direct_job(client, body["name"], body["appId"])
+        if existing:
+            print(f"[job]     adopted exact-name job after ambiguous submit: {existing}")
+            return existing
+        raise
+    return _field(result, "uuid") or _find_direct_job(client, body["name"], body["appId"])
+
+
+def _find_direct_job(client, name: str, app_id: str) -> str | None:
+    """Find one exact-name job owned by this client; reject duplicate matches."""
+    import requests
+
+    token = _client_token(client) or os.environ.get("TAPIS_JWT", "")
+    if not token:
+        return None
+    response = requests.get(
+        f"{register.DEFAULT_BASE_URL.rstrip('/')}/v3/jobs/search",
+        headers={"X-Tapis-Token": token},
+        params={"name.eq": name, "appId.eq": app_id, "limit": 10},
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"job search failed with HTTP {response.status_code}")
+    payload = response.json() or {}
+    result = payload.get("result") or []
+    if isinstance(result, dict):
+        result = result.get("jobs") or result.get("items") or []
+    matches = [item for item in result if isinstance(item, dict)]
+    if len(matches) > 1:
+        raise RuntimeError(f"multiple jobs matched exact name {name!r}; refusing duplicate submission")
+    return matches[0].get("uuid") if matches else None
+
+
+def _cleanup_staging(client, args: argparse.Namespace) -> None:
+    """Delete the run-specific staging directory after a polled test."""
+    path = args.staging_path.rstrip("/")
+    print(f"[cleanup] delete tapis://{args.staging_system}/{path}")
+    client.files.delete(systemId=args.staging_system, path=path)
+
+
+def _cancel_direct_job(client, job_uuid: str) -> bool:
+    """Request cancellation and wait briefly for a terminal confirmation."""
+    try:
+        client.jobs.cancelJob(jobUuid=job_uuid)
+        print(f"  [cancel] requested for timed-out job {job_uuid}")
+    except Exception as exc:
+        print(f"  [cancel] FAILED: {type(exc).__name__}: {_redact_text(exc)}")
+        return False
+
+    for _ in range(6):
+        time.sleep(5)
+        try:
+            job = client.jobs.getJob(jobUuid=job_uuid)
+        except Exception as exc:
+            print(f"  [cancel] confirmation failed: {type(exc).__name__}: {_redact_text(exc)}")
+            return False
+        status = _status_of(job)
+        if status in SUCCESS_STATES or status in FAILURE_STATES:
+            print(f"  [cancel] terminal confirmation: {status}")
+            return True
+    print("  [cancel] not terminal after 30s; retaining staging for reconciliation")
+    return False
 
 
 def _poll_direct_job(client, job_uuid: str, args: argparse.Namespace) -> str:
@@ -500,10 +617,11 @@ def _poll_direct_job(client, job_uuid: str, args: argparse.Namespace) -> str:
                 last_message = _field(job, "lastMessage")
                 if last_message:
                     print("  lastMessage:")
-                    print("    " + str(last_message).strip().replace("\n", "\n    "))
+                    print("    " + _redact_text(last_message).strip().replace("\n", "\n    "))
             return status
         if time.monotonic() > deadline:
             print(f"  [timeout] still '{status}' after {args.timeout}s; giving up polling")
+            args.remote_cleanup_safe = _cancel_direct_job(client, job_uuid)
             return f"timeout:{status}"
         time.sleep(args.poll_interval)
 
@@ -558,16 +676,16 @@ def _dump_failures(client, group_id: str, pipeline_id: str, run_uuid: str) -> No
         logs = _field(run, "logs")
         if logs:
             print("[run.logs]")
-            print("  " + str(logs).strip().replace("\n", "\n  "))
+            print("  " + _redact_text(logs).strip().replace("\n", "\n  "))
     except Exception as exc:
-        print(f"  (could not fetch run logs: {type(exc).__name__}: {str(exc)[:120]})")
+        print(f"  (could not fetch run logs: {type(exc).__name__}: {_redact_text(exc)[:120]})")
 
     try:
         execs = client.workflows.listTaskExecutions(
             group_id=group_id, pipeline_id=pipeline_id, pipeline_run_uuid=run_uuid
         ) or []
     except Exception as exc:
-        print(f"  (could not list task executions: {type(exc).__name__}: {str(exc)[:120]})")
+        print(f"  (could not list task executions: {type(exc).__name__}: {_redact_text(exc)[:120]})")
         return
 
     for e in execs:
@@ -582,7 +700,7 @@ def _dump_failures(client, group_id: str, pipeline_id: str, run_uuid: str) -> No
                 text = str(val).strip()
                 tail = text if len(text) <= 2000 else "...(truncated)...\n" + text[-2000:]
                 print(f"  {fld}:")
-                print("    " + tail.replace("\n", "\n    "))
+                print("    " + _redact_text(tail).replace("\n", "\n    "))
 
 
 def _poll(client, group_id: str, pipeline_id: str, run_uuid: str, args: argparse.Namespace) -> str:
@@ -629,6 +747,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--direct-jobs", action="store_true",
                         help="Submit each pipeline's monolithic run task directly through "
                              "Tapis Jobs instead of triggering the Workflows pipeline.")
+    parser.add_argument("--queue", default=None,
+                        help="Direct Jobs execution queue override (for example: development).")
+    parser.add_argument("--max-minutes", type=int, default=None,
+                        help="Direct Jobs walltime override in minutes. Must be positive.")
+    parser.add_argument("--job-name", default=None,
+                        help="Direct Jobs name override; use a unique value for retries/CI.")
     parser.add_argument("--allocation", default=None,
                         help="TACC allocation to charge. Required for a live run "
                              "(env: TACC_ALLOCATION / SUBSIDE_DEFAULT_ALLOCATION).")
@@ -661,6 +785,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="Dump task last_message/stderr/stdout + run logs for an "
                              "existing run uuid and exit. Use with --pipeline to pick which.")
     args = parser.parse_args(argv)
+
+    if (args.queue or args.max_minutes is not None) and not args.direct_jobs:
+        raise SystemExit("--queue and --max-minutes require --direct-jobs.")
+    if args.max_minutes is not None and args.max_minutes <= 0:
+        raise SystemExit("--max-minutes must be a positive integer.")
+    # A failed status poll or ambiguous submission may leave a remote job
+    # running. In those cases the exact staging directory must be retained for
+    # reconciliation instead of being deleted while the job can still read it.
+    args.remote_cleanup_safe = True
 
     import os
 
@@ -725,80 +858,114 @@ def main(argv: list[str] | None = None) -> int:
         # other systems / quota-friendly filesystems.
         args.staging_path = f"home/{client.username}/subside-smoke"
 
-    aoi_uri, netrc_uri = _stage_inputs(client, args)
-
     results: dict[str, str] = {}
-    for key in selected:
-        pipeline_id = PIPELINES[key]
-        run_args = _build_args(key, aoi_uri, netrc_uri, args.allocation or "<allocation>")
-        if not args.direct_jobs and not args.dry_run:
-            _add_workflow_auth_args(run_args, client)
-        print(f"\n=== {pipeline_id}{' direct job' if args.direct_jobs else ''} ===")
-        print("args:", json.dumps(_redact_run_args(run_args), indent=2))
+    exit_code = 1
+    try:
+        aoi_uri, netrc_uri = _stage_inputs(client, args)
 
-        if args.direct_jobs:
-            job_body = _direct_job_body(key, run_args, args.allocation or "<allocation>")
-            shown_body = json.loads(json.dumps(job_body))
-            for file_input in shown_body.get("fileInputs", []):
-                if file_input.get("name") == "earthdata-netrc":
-                    file_input["sourceUrl"] = "***"
-            print("job:", json.dumps(shown_body, indent=2))
+        for key in selected:
+            pipeline_id = PIPELINES[key]
+            run_args = _build_args(key, aoi_uri, netrc_uri, args.allocation or "<allocation>")
+            if not args.direct_jobs and not args.dry_run:
+                _add_workflow_auth_args(run_args, client)
+            print(f"\n=== {pipeline_id}{' direct job' if args.direct_jobs else ''} ===")
+            print("args:", json.dumps(_redact_run_args(run_args), indent=2))
+
+            if args.direct_jobs:
+                job_body = _direct_job_body(
+                    key,
+                    run_args,
+                    args.allocation or "<allocation>",
+                    queue=args.queue,
+                    max_minutes=args.max_minutes,
+                    job_name=args.job_name,
+                )
+                shown_body = json.loads(json.dumps(job_body))
+                for file_input in shown_body.get("fileInputs", []):
+                    if file_input.get("name") == "earthdata-netrc":
+                        file_input["sourceUrl"] = "***"
+                print("job:", json.dumps(shown_body, indent=2))
+                if args.dry_run:
+                    results[pipeline_id] = "dry-run"
+                    continue
+
+                print(f"[submit]  jobs.submitJob app={job_body['appId']} version={job_body['appVersion']}")
+                args.remote_cleanup_safe = False
+                try:
+                    job_uuid = _submit_direct_job(client, job_body)
+                except Exception:
+                    print("[cleanup] retained staging because job ownership is unresolved")
+                    raise
+                if not job_uuid:
+                    print("[error]   could not resolve a job uuid; check the tenant UI.")
+                    results[pipeline_id] = "submit-failed"
+                    continue
+                args.remote_cleanup_safe = True
+                print(f"[job]     uuid={job_uuid}")
+
+                if args.no_poll:
+                    results[pipeline_id] = f"submitted:{job_uuid}"
+                    continue
+                try:
+                    results[pipeline_id] = _poll_direct_job(client, job_uuid, args)
+                except Exception:
+                    args.remote_cleanup_safe = False
+                    print("[cleanup] retained staging because job status is unresolved")
+                    raise
+                continue
+
             if args.dry_run:
                 results[pipeline_id] = "dry-run"
                 continue
 
-            print(f"[submit]  jobs.submitJob app={job_body['appId']} version={job_body['appVersion']}")
-            job_uuid = _submit_direct_job(client, job_body)
-            if not job_uuid:
-                print("[error]   could not resolve a job uuid; check the tenant UI.")
-                results[pipeline_id] = "submit-failed"
+            if not _hosted_workflow_supported(key):
+                print(
+                    "[error]   hosted Workflows cannot run this dynamic pipeline definition: "
+                    "the run task's tapis_job_def still contains local {{ args.* }} templates, "
+                    "and the Workflows engine passes those literals through to Tapis Jobs. "
+                    "Use --direct-jobs for this smoke test, or replace the hosted task with "
+                    "a static job definition."
+                )
+                results[pipeline_id] = "unsupported-hosted-template"
                 continue
-            print(f"[job]     uuid={job_uuid}")
+
+            print(f"[trigger] POST /v3/workflows/groups/{args.group}/pipelines/{pipeline_id}/run")
+            run_uuid = _trigger(client, args.group, pipeline_id, run_args)
+            if not run_uuid:
+                print("[error]   could not resolve a run uuid; check the tenant UI.")
+                results[pipeline_id] = "trigger-failed"
+                continue
+            print(f"[run]     uuid={run_uuid}")
 
             if args.no_poll:
-                results[pipeline_id] = f"submitted:{job_uuid}"
+                results[pipeline_id] = f"submitted:{run_uuid}"
                 continue
-            results[pipeline_id] = _poll_direct_job(client, job_uuid, args)
-            continue
+            results[pipeline_id] = _poll(client, args.group, pipeline_id, run_uuid, args)
 
-        if args.dry_run:
-            results[pipeline_id] = "dry-run"
-            continue
-
-        if not _hosted_workflow_supported(key):
-            print(
-                "[error]   hosted Workflows cannot run this dynamic pipeline definition: "
-                "the run task's tapis_job_def still contains local {{ args.* }} templates, "
-                "and the Workflows engine passes those literals through to Tapis Jobs. "
-                "Use --direct-jobs for this smoke test, or replace the hosted task with "
-                "a static job definition."
-            )
-            results[pipeline_id] = "unsupported-hosted-template"
-            continue
-
-        print(f"[trigger] POST /v3/workflows/groups/{args.group}/pipelines/{pipeline_id}/run")
-        run_uuid = _trigger(client, args.group, pipeline_id, run_args)
-        if not run_uuid:
-            print("[error]   could not resolve a run uuid; check the tenant UI.")
-            results[pipeline_id] = "trigger-failed"
-            continue
-        print(f"[run]     uuid={run_uuid}")
-
-        if args.no_poll:
-            results[pipeline_id] = f"submitted:{run_uuid}"
-            continue
-        results[pipeline_id] = _poll(client, args.group, pipeline_id, run_uuid, args)
-
-    # --- Summary + exit code -------------------------------------------------
-    print("\n===== SMOKE TEST SUMMARY =====")
-    ok = True
-    for pid, status in results.items():
-        bare = status.split(":", 1)[0]
-        mark = "OK " if bare in SUCCESS_STATES or bare in ("dry-run", "submitted") else "XX "
-        if mark == "XX ":
-            ok = False
-        print(f"  {mark} {pid}: {status}")
-    return 0 if ok else 1
+        # --- Summary + exit code ---------------------------------------------
+        print("\n===== SMOKE TEST SUMMARY =====")
+        ok = True
+        for pid, status in results.items():
+            bare = status.split(":", 1)[0]
+            mark = "OK " if bare in SUCCESS_STATES or bare in ("dry-run", "submitted") else "XX "
+            if mark == "XX ":
+                ok = False
+            print(f"  {mark} {pid}: {status}")
+        exit_code = 0 if ok else 1
+    finally:
+        if not args.dry_run and not args.no_poll and args.remote_cleanup_safe:
+            try:
+                _cleanup_staging(client, args)
+                print("[cleanup] complete")
+            except Exception as exc:
+                print(f"[cleanup] FAILED: {type(exc).__name__}: {_redact_text(exc)[:200]}")
+                exit_code = 1
+        elif not args.dry_run and not args.no_poll:
+            print("[cleanup] retained staging because the remote job may still be active")
+            exit_code = 1
+        elif not args.dry_run and args.no_poll:
+            print(f"[cleanup] retained tapis://{args.staging_system}/{args.staging_path.rstrip('/')} because --no-poll leaves the submitted run active")
+    return exit_code
 
 
 if __name__ == "__main__":

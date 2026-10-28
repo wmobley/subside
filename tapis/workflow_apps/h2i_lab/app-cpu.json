@@ -177,7 +177,7 @@
       ],
       "archiveFilter": {
         "includes": [],
-        "excludes": [],
+        "excludes": [".netrc"],
         "includeLaunchFiles": true
       }
     },

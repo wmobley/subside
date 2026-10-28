@@ -1,0 +1,82 @@
+name: Tapis development queue smoke test
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 14 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tapis-development-smoke
+  cancel-in-progress: false
+
+jobs:
+  h2i-development:
+    if: github.ref == 'refs/heads/main'
+    name: Full H2I image on ls6/development
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      TAPIS_BASE_URL: https://portals.tapis.io
+      TAPIS_USERNAME: ${{ secrets.TAPIS_ID }}
+      TAPIS_PASSWORD: ${{ secrets.TAPIS_PASSWORD }}
+      EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
+      EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
+      SUBSIDE_DEFAULT_ALLOCATION: ${{ secrets.SUBSIDE_DEFAULT_ALLOCATION }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install smoke-test dependencies
+        run: python -m pip install --quiet tapipy pyyaml
+
+      - name: Run full H2I image on development queue
+        shell: bash
+        run: |
+          set -o pipefail
+          staging_path="home/${TAPIS_USERNAME}/subside-github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          job_name="subside-h2i-github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          set +e
+          python tapis/workflows/smoke_test.py \
+            --direct-jobs \
+            --pipeline h2i \
+            --queue development \
+            --max-minutes 60 \
+            --job-name "${job_name}" \
+            --allocation "${SUBSIDE_DEFAULT_ALLOCATION}" \
+            --staging-system cloud.data \
+            --staging-path "${staging_path}" \
+            --with-netrc \
+            --poll-interval 20 \
+            --timeout 9000 2>&1 | tee smoke-test.log
+          status=${PIPESTATUS[0]}
+          set -e
+
+          result="failed"
+          if [ "${status}" -eq 0 ]; then
+            result="passed"
+          fi
+          {
+            echo "## Tapis development queue smoke test"
+            echo ""
+            echo "- Queue: \`development\`"
+            echo "- Result: \`${result}\`"
+            echo ""
+            echo "Last 120 log lines:"
+            echo '```text'
+            tail -n 120 smoke-test.log
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          exit "${status}"
