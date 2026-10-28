@@ -128,7 +128,8 @@ or `pip install` the geospatial extras listed in `requirements.txt`.
 | `SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY` | Fernet key used to encrypt stored run JWTs; required when enabled. |
 | `SUBSIDE_RUN_TOKEN_STORE_PATH` | Protected persistent SQLite path. |
 | `SUBSIDE_RUN_TOKEN_VOLUME_ID` | Deployment-side Tapis Pod volume used for the lease store. |
-| `SUBSIDE_RUN_TOKEN_TTL_BUFFER_SECONDS` | Cleanup/polling buffer added to requested walltime; default 900. |
+| `SUBSIDE_RUN_TOKEN_TTL_BUFFER_SECONDS` | Cleanup/polling buffer added to the queue budget plus requested walltime; default 900. |
+| `SUBSIDE_RUN_TOKEN_QUEUE_BUDGET_SECONDS` | Maximum scheduler queue allowance included in the initial token TTL and hard deadline; default 86400 (24 hours). |
 | `SUBSIDE_RUN_TOKEN_TTL_MIN_SECONDS` / `MAX_SECONDS` | Server-side TTL bounds; defaults 900 / 172800. |
 | `SUBSIDE_RUN_TOKEN_TARGET_PREFIX` | Prefix for the server-generated token target id. |
 | `SUBSIDE_TOKEN_BROKER_URL` | Public API base URL used by hosted tasks for server-side run-token rotation. |
@@ -137,3 +138,7 @@ or `pip install` the geospatial extras listed in `requirements.txt`.
 | `SUBSIDE_RUN_RECOVERY_PUBLISH` | Automatically invoke `subside-publish` after confirmed compute/archive success; default `true`. |
 | `SUBSIDE_RUN_RECOVERY_GRACE_SECONDS` | Jobs API outage grace after requested walltime; default 1200. |
 | `SUBSIDE_RUN_RECOVERY_CLEANUP_STALE_SECONDS` | Time before a crashed revoke claim can be reclaimed; default 300. |
+
+The configured maximum token TTL must be at least the queue budget plus the
+largest allowed job walltime plus the TTL buffer. Requests that do not fit
+that bound are rejected before staging or token minting.

@@ -190,13 +190,70 @@ def test_store_encrypts_raw_token_and_tracks_cleanup(configured_store):
     assert lease and lease.token == raw
 
 
-def test_ttl_is_walltime_plus_buffer_and_clamped(monkeypatch):
+def test_ttl_includes_queue_budget_and_buffer(monkeypatch):
+    monkeypatch.setattr(config, "RUN_TOKEN_QUEUE_BUDGET_SECONDS", 120)
     monkeypatch.setattr(config, "RUN_TOKEN_TTL_BUFFER_SECONDS", 60)
     monkeypatch.setattr(config, "RUN_TOKEN_TTL_MIN_SECONDS", 300)
     monkeypatch.setattr(config, "RUN_TOKEN_TTL_MAX_SECONDS", 1000)
     assert manager._run_token_ttl(1) == 300
-    assert manager._run_token_ttl(10) == 660
-    assert manager._run_token_ttl(100) == 1000
+    assert manager._run_token_ttl(10) == 780
+
+
+def test_ttl_rejects_queue_and_walltime_that_exceed_max(monkeypatch):
+    monkeypatch.setattr(config, "RUN_TOKEN_QUEUE_BUDGET_SECONDS", 600)
+    monkeypatch.setattr(config, "RUN_TOKEN_TTL_BUFFER_SECONDS", 60)
+    monkeypatch.setattr(config, "RUN_TOKEN_TTL_MAX_SECONDS", 1000)
+
+    with pytest.raises(manager.RunTokenConfigurationError, match="exceeds"):
+        manager._run_token_ttl(10)
+
+
+def test_ttl_accepts_exact_maximum(monkeypatch):
+    monkeypatch.setattr(config, "RUN_TOKEN_QUEUE_BUDGET_SECONDS", 600)
+    monkeypatch.setattr(config, "RUN_TOKEN_TTL_BUFFER_SECONDS", 60)
+    monkeypatch.setattr(config, "RUN_TOKEN_TTL_MAX_SECONDS", 1260)
+
+    assert manager._run_token_ttl(10) == 1260
+
+
+def test_submit_rejects_insufficient_max_ttl_before_staging_or_mint(configured_store, monkeypatch):
+    monkeypatch.setattr(config, "DEFAULT_ALLOCATION", "alloc")
+    monkeypatch.setattr(config, "RUN_TOKEN_QUEUE_BUDGET_SECONDS", 600)
+    monkeypatch.setattr(config, "RUN_TOKEN_TTL_BUFFER_SECONDS", 60)
+    monkeypatch.setattr(config, "RUN_TOKEN_TTL_MAX_SECONDS", 1000)
+    monkeypatch.setattr(manager, "_stage", lambda *args: pytest.fail("staging must not start"))
+    monkeypatch.setattr(tapis, "mint_run_token", lambda *args: pytest.fail("mint must not start"))
+    req = RunRequest(
+        start_date="2024-01-01", end_date="2024-02-01",
+        aoi_geojson={"type": "Polygon", "coordinates": []},
+    )
+
+    with pytest.raises(manager.RunTokenConfigurationError, match="exceeds"):
+        manager.submit_run(Client(), req)
+
+
+def test_negative_queue_budget_is_rejected(configured_store, monkeypatch):
+    monkeypatch.setattr(config, "RUN_TOKEN_QUEUE_BUDGET_SECONDS", -1)
+
+    with pytest.raises(token_store.TokenStoreConfigurationError, match="QUEUE_BUDGET"):
+        token_store.validate_configuration()
+
+
+def test_hard_deadline_includes_queue_budget_and_recovery_grace(monkeypatch):
+    from datetime import datetime, timezone
+
+    fixed_now = datetime(2026, 10, 28, 12, 0, tzinfo=timezone.utc)
+
+    class Clock:
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr(manager, "datetime", Clock)
+    monkeypatch.setattr(config, "RUN_TOKEN_QUEUE_BUDGET_SECONDS", 3600)
+    monkeypatch.setattr(config, "RUN_RECOVERY_GRACE_SECONDS", 1200)
+
+    assert manager._hard_deadline(30) == "2026-10-28T13:50:00+00:00"
 
 
 def test_cleanup_revoke_is_atomic_and_removes_ciphertext(configured_store, monkeypatch):

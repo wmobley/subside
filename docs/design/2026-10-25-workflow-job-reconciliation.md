@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementing
+Implemented
 
 ## Objective
 
@@ -76,9 +76,12 @@ with the expected OOM outcome. An active, unknown, or multiply-matched attempt
 
 Transient Jobs API failures (`5xx`, gateway timeout, rate limit, and connection
 errors) are retried with backoff until the requested compute walltime plus a
-bounded grace period. The default is 20 minutes beyond a maximum 24-hour
-compute request, remaining below the current 25-hour Workflows function limit.
-The effective deadline is persisted with the lease and is always finite.
+bounded scheduler-queue allowance plus a bounded grace period. The queue
+allowance is operator-configurable, finite, and included in both the initial
+per-run token TTL and the persisted hard deadline. The effective deadline is
+persisted with the lease and is always finite. If the requested queue,
+walltime, and token buffer exceed the configured maximum token TTL, submission
+fails closed instead of silently issuing a token that expires too early.
 
 Authentication errors, confirmed not-found responses, and terminal compute
 states remain fail-fast. A polling timeout is recorded as uncertain; it is not
@@ -186,7 +189,7 @@ existing rows remain valid and use legacy reconciliation rules.
 
 ```text
 POST /runs
-  -> durable lease + exact job names + hard deadline
+  -> durable lease + exact job names + queue-aware hard deadline
   -> workflow args
   -> run task submits inner Tapis Job with stable name
   -> run task polls with bounded transient retry
@@ -290,6 +293,10 @@ every new environment variable and the production dependency pinning gate.
 3. Confirm the expected manifest filenames against the registered H2I and WERC
    publish definitions before sandbox execution.
 
+4. Confirm the production value for the scheduler queue allowance. The initial
+   implementation default is 24 hours; operators may lower or raise it only
+   alongside the configured maximum per-run token TTL.
+
 ## Decisions
 
 ### 2026-10-26 — Cover scheduler queue time in the run-token contract
@@ -308,6 +315,14 @@ every new environment variable and the production dependency pinning gate.
 - **Alternatives rejected:** A longer fixed TTL is only a bounded mitigation. Passing the OAuth refresh token into hosted tasks increases credential exposure. A broad service/admin credential would weaken per-user authorization and attribution.
 - **User feedback:** The user explicitly clarified that automatic refresh, not merely a longer-lived token, is the required fix.
 - **Impact on implementation:** Add encrypted per-user refresh-token persistence, token rotation helpers, a lease-bound internal broker endpoint, broker arguments and renewal handling in H2I/WERC/publish tasks, rotation/revocation tests, and deployment configuration for the API's reachable broker URL.
+
+### 2026-10-28 — Make the lease deadline queue-aware
+
+- **Decision:** Keep a finite hard deadline, anchored at run-token mint/lease creation, as scheduler queue allowance + requested compute walltime + recovery grace. Calculate the initial run-token TTL from scheduler queue allowance + requested compute walltime + token buffer. Add `SUBSIDE_RUN_TOKEN_QUEUE_BUDGET_SECONDS` as an operator-controlled bound and reject a request when the required initial TTL exceeds `SUBSIDE_RUN_TOKEN_TTL_MAX_SECONDS`.
+- **Reason:** The live test's inner job waited approximately 13 hours before starting and then finished successfully. The broker returned 503 because the old submission-based deadline was only 12 hours plus grace, so a valid queued job was treated as past its hard deadline.
+- **Alternatives rejected:** Removing the deadline would leave refreshable run credentials active indefinitely. A fixed increase to the existing grace period would not express queue capacity or protect against stuck jobs. Starting the deadline only after compute begins is more precise but requires a new authenticated lease-state callback from the hosted task; the bounded queue allowance is the smallest safe change now.
+- **User feedback:** On 2026-10-28 the user asked whether a deadline is needed when job lengths vary and approved implementing the queue-aware design.
+- **Impact on implementation:** Update configuration forwarding and documentation, change TTL/deadline arithmetic, fail closed on a max-TTL mismatch, and add regression tests for queue delay and maximum-bound rejection.
 
 ### 2026-10-25 - Correlate inner jobs with the existing lease id
 
@@ -353,15 +368,16 @@ every new environment variable and the production dependency pinning gate.
 - The user explicitly requested no SSH-based testing; validation uses local
   repository code and authenticated Tapis APIs only when separately approved.
 - The user requested a durable fix rather than a one-off retry increase.
+- On 2026-10-28: User approved implementing a finite, queue-aware deadline after the live run showed a successful inner job but a broker 503 after queue delay.
 
 Implementation completed with additive lease-store migration, exact-name job
 adoption, bounded workflow polling, API/startup reconciliation, automatic
 `subside-publish` orchestration, cleanup gating, additive status fields, UI
-`recovering` handling, and focused tests. No live Tapis registration,
-deployment, CKAN write, or STAC write was performed in this implementation
-pass.
+`recovering` handling, queue-aware token TTL/deadline arithmetic, fail-closed
+TTL validation, and focused tests. No live Tapis registration, deployment,
+CKAN write, or STAC write was performed in this implementation pass.
 
 - 2026-10-25: User asked to make the fix durable after confirming the underlying
   HPC job succeeded despite the failed workflow status.
-- Pending: review of the proposed correlation, reconciliation, and polling
-  scope before code changes.
+- 2026-10-28: The queue-aware deadline implementation was reviewed, tested, and
+  recorded as the follow-up correction for scheduler delay.

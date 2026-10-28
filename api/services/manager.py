@@ -171,9 +171,15 @@ def _job_name_prefix(pipeline_key: str, lease_id: str) -> str:
     return f"subside-{pipeline_key}-opera-{lease_id}"
 
 
+def _run_token_window_seconds(max_minutes: int) -> int:
+    """Queue plus compute window shared by TTL and hard-deadline arithmetic."""
+    return config.RUN_TOKEN_QUEUE_BUDGET_SECONDS + max(1, int(max_minutes)) * 60
+
+
 def _hard_deadline(max_minutes: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(
-        minutes=max_minutes, seconds=config.RUN_RECOVERY_GRACE_SECONDS
+        seconds=_run_token_window_seconds(max_minutes)
+        + config.RUN_RECOVERY_GRACE_SECONDS,
     )).isoformat()
 
 
@@ -249,14 +255,16 @@ def _stage(client, username: str, run_id: str, req: RunRequest) -> dict:
 
 
 def _run_token_ttl(max_minutes: int) -> int:
-    # Keep access-token lifetime independent from recovery grace. Long-running
-    # workflows renew through the OAuth broker; the hard deadline remains the
-    # separate upper bound for recovery.
-    requested = max(1, int(max_minutes)) * 60 + config.RUN_TOKEN_TTL_BUFFER_SECONDS
-    return max(
-        config.RUN_TOKEN_TTL_MIN_SECONDS,
-        min(config.RUN_TOKEN_TTL_MAX_SECONDS, requested),
-    )
+    # The initial token must cover scheduler queue time plus the requested
+    # compute walltime. After that, the broker can rotate it while the lease is
+    # still inside its finite hard deadline.
+    requested = _run_token_window_seconds(max_minutes) + config.RUN_TOKEN_TTL_BUFFER_SECONDS
+    if requested > config.RUN_TOKEN_TTL_MAX_SECONDS:
+        raise RunTokenConfigurationError(
+            "Required run-token TTL exceeds SUBSIDE_RUN_TOKEN_TTL_MAX_SECONDS; "
+            "increase the maximum or reduce the queue/walltime budget."
+        )
+    return max(config.RUN_TOKEN_TTL_MIN_SECONDS, requested)
 
 
 def _delete_staging(client, path: str | None) -> None:
@@ -470,19 +478,20 @@ def submit_run(client, req: RunRequest) -> dict:
     staged = None
     pipeline_id = _pipeline_id(req.pipeline)
     job_name_prefix = _job_name_prefix(req.pipeline, short_id)
+    max_minutes = _resolve_walltime(req)
+    run_token_ttl = _run_token_ttl(max_minutes)
     try:
         staged = _stage(client, username, short_id, req)
     except Exception:
         _delete_staging(client, STAGING_PREFIX.format(username=username) + f"/{short_id}")
         raise
     run_name = f"subside-api-{pipeline_id}-{req.start_date}-{req.end_date}-{short_id}"
-    max_minutes = _resolve_walltime(req)
     run_queue = _pick_run_queue(req)
     target_site_id = f"{config.RUN_TOKEN_TARGET_PREFIX}-{short_id}"
     broker_credential = secrets.token_urlsafe(32)
     try:
         minted = tapis_service.mint_run_token(
-            token, real_username, target_site_id, _run_token_ttl(max_minutes)
+            token, real_username, target_site_id, run_token_ttl
         )
         run_token = minted["token"]
     except Exception:

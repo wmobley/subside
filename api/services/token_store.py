@@ -58,6 +58,8 @@ def validate_configuration() -> None:
         raise TokenStoreConfigurationError("RUN_TOKEN_TTL_MAX_SECONDS must be >= the minimum.")
     if config.RUN_TOKEN_TTL_BUFFER_SECONDS < 0:
         raise TokenStoreConfigurationError("RUN_TOKEN_TTL_BUFFER_SECONDS cannot be negative.")
+    if config.RUN_TOKEN_QUEUE_BUDGET_SECONDS < 0:
+        raise TokenStoreConfigurationError("RUN_TOKEN_QUEUE_BUDGET_SECONDS cannot be negative.")
     if config.SUBSIDE_TOKEN_BROKER_URL and not (
         config.TAPIS_CLIENT_ID and config.TAPIS_CLIENT_KEY
     ):

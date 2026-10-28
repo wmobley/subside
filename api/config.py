@@ -139,6 +139,9 @@ RUN_TOKEN_STORE_PATH = os.environ.get(
 )
 RUN_TOKEN_ENCRYPTION_KEY = os.environ.get("SUBSIDE_RUN_TOKEN_ENCRYPTION_KEY")
 RUN_TOKEN_TTL_BUFFER_SECONDS = _env_int("SUBSIDE_RUN_TOKEN_TTL_BUFFER_SECONDS", 900)
+# Maximum scheduler wait allowed before the compute job starts. This is part of
+# the lease lifetime because Tapis jobs can remain queued for many hours.
+RUN_TOKEN_QUEUE_BUDGET_SECONDS = _env_int("SUBSIDE_RUN_TOKEN_QUEUE_BUDGET_SECONDS", 86400)
 RUN_TOKEN_TTL_MIN_SECONDS = _env_int("SUBSIDE_RUN_TOKEN_TTL_MIN_SECONDS", 900)
 RUN_TOKEN_TTL_MAX_SECONDS = _env_int("SUBSIDE_RUN_TOKEN_TTL_MAX_SECONDS", 172800)
 RUN_TOKEN_TARGET_PREFIX = os.environ.get("SUBSIDE_RUN_TOKEN_TARGET_PREFIX", "subside-run")
