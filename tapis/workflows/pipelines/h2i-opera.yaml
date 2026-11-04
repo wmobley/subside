@@ -1028,6 +1028,15 @@ tasks:
           svo_role_variables = json.loads(str(val("SVO_ROLE_VARIABLES", "")).strip() or "{}")
       except ValueError:
           svo_role_variables = {}
+      if not isinstance(svo_role_variables, dict):
+          svo_role_variables = {}
+      # Values must be lists of short names; a bare string would otherwise be
+      # joined character by character.
+      svo_role_variables = {
+          str(k): ([v] if isinstance(v, str) else [str(x) for x in (v or [])])
+          for k, v in svo_role_variables.items()}
+      if not svo_role_variables:
+          print("stac-publish: SVO_ROLE_VARIABLES empty; resources will not be typed")
       stac_url = str(val("STAC_URL", "")).strip()
       if not (ckan_token and stac_url):
           ctx.stdout("stac-publish: disabled (CKAN_TOKEN/STAC_URL unset) - skipping.")
