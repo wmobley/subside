@@ -43,9 +43,13 @@ export NUMEXPR_NUM_THREADS="${THREADS}"
 export GDAL_NUM_THREADS=ALL_CPUS
 echo "Compute threads: OMP/OPENBLAS/MKL=${THREADS}, GDAL_NUM_THREADS=ALL_CPUS" >&2
 
+# Stage Earthdata netrc if Tapis supplied one alongside the job inputs.
 if [ -f ".netrc" ]; then
     cp ".netrc" "${HOME}/.netrc"
     chmod 600 "${HOME}/.netrc"
+    # The input is only needed during the process. Remove both copies before
+    # Tapis archives the job directory and before the container exits.
+    trap 'rm -f ".netrc" "${HOME}/.netrc"' EXIT HUP INT TERM
 fi
 
 case "${STAGE}" in
