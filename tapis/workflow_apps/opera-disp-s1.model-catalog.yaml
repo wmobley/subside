@@ -112,7 +112,8 @@ model:
   # ---- Family-level assumptions & limitations (true of all OPERA DISP-S1 work)
   hasAssumption:
     - The AOI (or supplied frame IDs) falls within OPERA DISP-S1 frame coverage.
-    - Valid NASA Earthdata credentials are available (netrc, env vars, or Tapis secret).
+    - A NASA Earthdata login is provided at run time by the platform from the
+      model owner's registered secret (see hasSecret on each configuration).
     - Displacement is reported in the radar line-of-sight (LOS) frame; no
       vertical/horizontal decomposition is performed.
   limitations:
@@ -177,7 +178,9 @@ model:
               normalized run manifest other configurations consume as input.
               No referencing or velocity inversion.
           hasComponentLocation:
-            - tapis://portals/apps/subside-h2i-opera-analysis/0.1.1
+            - https://portals.tapis.io/v3/apps/subside-h2i-opera-analysis/0.1.1
+          tapisAppId: [subside-h2i-opera-analysis]
+          tapisAppVersion: ["0.1.1"]
           hasExecutionCommand:
             - python -m analysis.h2i_lab.cli run --config config/run-config.json --output output
           hasImplementationScriptLocation:
@@ -196,14 +199,15 @@ model:
           hasUsageNotes:
             - Supply an AOI GeoJSON OR explicit FRAME_IDS; if both, FRAME_IDS
               narrows the AOI-derived set.
-            - Prefer a Tapis secret/identity over a staged plaintext .netrc.
+            - Earthdata credentials are provided by the platform (system-provided
+              by the adapter); they are not a catalog input.
 
           hasSoftwareImage:
             - id: opera-h2i-image
               type: [SoftwareImage]
               label: [subside-h2i-opera-analysis container]
               availableInRegistry:
-                - docker://ghcr.io/wmobley/subside-h2i-opera-analysis:sha-07c92cf
+                - docker://ghcr.io/wmobley/subside-h2i-opera-analysis:main
               hasExecutionCommand: [/tapis/run.sh]
               description:
                 - Thin image; conda env (subside-h2i-opera) built from
@@ -226,19 +230,11 @@ model:
               hasDimensionality: [2]
               isOptional: true
               position: [1]
-            - id: h2i-input-netrc
-              type: [DatasetSpecification]
-              label: [Earthdata .netrc credentials]
-              description:
-                - Optional protected .netrc for urs.earthdata.nasa.gov. Prefer a
-                  Tapis secret. (Tapis file input earthdata-netrc -> .netrc.)
-              hasFormat: [text/netrc]
-              isOptional: true
-              position: [2]
 
           hasParameter:
             - id: h2i-param-start-date
               type: [Parameter]
+              tapisEnvKey: START_DATE
               label: [Start date]
               description: [Search-window start date (YYYY-MM-DD).]
               hasDataType: [date]
@@ -246,6 +242,7 @@ model:
               position: [1]
             - id: h2i-param-end-date
               type: [Parameter]
+              tapisEnvKey: END_DATE
               label: [End date]
               description: [Search-window end date (YYYY-MM-DD).]
               hasDataType: [date]
@@ -253,6 +250,7 @@ model:
               position: [2]
             - id: h2i-param-frame-ids
               type: [Parameter]
+              tapisEnvKey: FRAME_IDS
               label: [Frame IDs]
               description: [Optional comma-separated OPERA frame IDs (e.g. 8882,8883). Blank derives from AOI.]
               hasDataType: [string]
@@ -260,6 +258,7 @@ model:
               position: [3]
             - id: h2i-param-num-workers
               type: [Parameter]
+              tapisEnvKey: NUM_WORKERS
               label: [Download workers]
               description: [Number of parallel download workers.]
               hasDataType: [int]
@@ -270,6 +269,7 @@ model:
               position: [4]
             - id: h2i-param-min-overlap
               type: [Parameter]
+              tapisEnvKey: MIN_OVERLAP_PERCENT
               label: [Min overlap percent]
               description: [Minimum AOI/frame overlap (%) for a frame to be included.]
               hasDataType: [float]
@@ -280,6 +280,7 @@ model:
               position: [5]
             - id: h2i-param-results-dir
               type: [Parameter]
+              tapisEnvKey: RESULTS_DIR
               label: [Results subdirectory]
               description: [Subdirectory under output where downloaded products are written.]
               hasDataType: [string]
@@ -287,6 +288,7 @@ model:
               position: [6]
             - id: h2i-param-require-products
               type: [Parameter]
+              tapisEnvKey: REQUIRE_PRODUCTS
               label: [Require products]
               description: [Fail the job if no matching products are found.]
               hasDataType: [boolean]
@@ -295,6 +297,7 @@ model:
               position: [7]
             - id: h2i-param-preview-only
               type: [Parameter]
+              tapisEnvKey: PREVIEW_ONLY
               label: [Preview only]
               description: [Run discovery + preview only, skipping full download and archive.]
               hasDataType: [boolean]
@@ -302,38 +305,59 @@ model:
               hasAcceptedValues: ["true", "false"]
               position: [8]
 
+          # Credential declared as a secret (not a parameter): stored by the model owner in the
+          # svo-adapter secrets store and injected into the job env at submit time.
+          hasSecret:
+            - id: opera-disp-s1-h2i-lab-secret-earthdata
+              name: earthdata
+              description: NASA Earthdata login used by the OPERA download stage; provided by the model owner (SUBSIDE).
+              source: owner_only
+              env: {username: EARTHDATA_USERNAME, password: EARTHDATA_PASSWORD}
+
           hasOutput:
+            - id: h2i-output-displacement-cog
+              type: [DatasetSpecification]
+              label: [Displacement GeoTIFF (COG)]
+              description: [disp_displacement.tif — AOI-cropped OPERA DISP-S1 line-of-sight displacement (first band), Cloud-Optimized GeoTIFF, metres]
+              hasFormat: ["image/tiff;application=geotiff"]
+              hasDimensionality: [2]
+              variablePresentation:
+                standardVariable: land_surface__displacement
+                unit: m
+                longName: line-of-sight land surface displacement
+                shortName: displacement
+              position: [1]
             - id: h2i-output-manifest
               type: [DatasetSpecification]
               label: [Run manifest]
               description: [run-manifest.json — resolved config, AOI bbox, frame IDs, product count/URLs, downloaded files, pixel bbox, display range.]
               hasFormat: [application/json]
-              position: [1]
+              position: [2]
             - id: h2i-output-netcdfs
               type: [DatasetSpecification]
               label: [Cropped DISP-S1 NetCDFs]
               description: [AOI-cropped OPERA L3 DISP-S1 granules (one NetCDF per granule).]
               hasFormat: [application/x-netcdf]
               hasDimensionality: [3]
-              position: [2]
+              position: [3]
             - id: h2i-output-preview-html
               type: [DatasetSpecification]
               label: [Interactive preview map]
               description: [Example_Map.html — interactive displacement map.]
               hasFormat: [text/html]
-              position: [3]
+              position: [4]
             - id: h2i-output-overlay-png
               type: [DatasetSpecification]
               label: [Displacement overlay PNG]
               description: [disp_overlay.png — static quick-look displacement overlay.]
               hasFormat: [image/png]
-              position: [4]
+              position: [5]
             - id: h2i-output-archive-zip
               type: [DatasetSpecification]
               label: [Archive zip]
               description: [OPERA_L3_DISP-S1.zip — bundled results for download/archival.]
               hasFormat: [application/zip]
-              position: [5]
+              position: [6]
 
         # -------------------------------------------------------------------
         # Configuration 2 — WERC: referenced cumulative displacement + velocity
@@ -349,7 +373,9 @@ model:
               reference offset, inverts to per-pixel linear velocity, and
               exports cumulative-displacement and velocity GeoTIFFs (EPSG:4326).
           hasComponentLocation:
-            - tapis://portals/apps/subside-werc-opera-analysis/0.1.1
+            - https://portals.tapis.io/v3/apps/subside-werc-opera-analysis/0.1.1
+          tapisAppId: [subside-werc-opera-analysis]
+          tapisAppVersion: ["0.1.1"]
           hasExecutionCommand:
             - python -m analysis.werc.cli run --config config/run-config.json --output output
           hasImplementationScriptLocation:
@@ -385,7 +411,7 @@ model:
               type: [SoftwareImage]
               label: [subside-werc-opera-analysis container]
               availableInRegistry:
-                - docker://ghcr.io/wmobley/subside-werc-opera-analysis:sha-07c92cf
+                - docker://ghcr.io/wmobley/subside-werc-opera-analysis:main
               hasExecutionCommand: [/tapis/run.sh]
               description:
                 - Thin image; conda env (subside-werc-opera) built from
@@ -426,20 +452,12 @@ model:
               hasDimensionality: [2]
               isOptional: true
               position: [1]
-            - id: werc-input-netrc
-              type: [DatasetSpecification]
-              label: [Earthdata .netrc credentials]
-              description:
-                - Optional protected .netrc for urs.earthdata.nasa.gov. Prefer a
-                  Tapis secret. (Tapis file input earthdata-netrc -> .netrc.)
-              hasFormat: [text/netrc]
-              isOptional: true
-              position: [2]
 
           hasParameter:
             # shared H2I discovery/download parameters
             - id: werc-param-start-date
               type: [Parameter]
+              tapisEnvKey: START_DATE
               label: [Start date]
               description: [Search-window start date (YYYY-MM-DD).]
               hasDataType: [date]
@@ -447,6 +465,7 @@ model:
               position: [1]
             - id: werc-param-end-date
               type: [Parameter]
+              tapisEnvKey: END_DATE
               label: [End date]
               description: [Search-window end date (YYYY-MM-DD).]
               hasDataType: [date]
@@ -454,6 +473,7 @@ model:
               position: [2]
             - id: werc-param-frame-ids
               type: [Parameter]
+              tapisEnvKey: FRAME_IDS
               label: [Frame IDs]
               description: [Optional comma-separated OPERA frame IDs. Blank derives from AOI.]
               hasDataType: [string]
@@ -461,6 +481,7 @@ model:
               position: [3]
             - id: werc-param-num-workers
               type: [Parameter]
+              tapisEnvKey: NUM_WORKERS
               label: [Download workers]
               description: [Number of parallel download workers.]
               hasDataType: [int]
@@ -471,6 +492,7 @@ model:
               position: [4]
             - id: werc-param-min-overlap
               type: [Parameter]
+              tapisEnvKey: MIN_OVERLAP_PERCENT
               label: [Min overlap percent]
               description: [Minimum AOI/frame overlap (%) for a frame to be included.]
               hasDataType: [float]
@@ -481,6 +503,7 @@ model:
               position: [5]
             - id: werc-param-results-dir
               type: [Parameter]
+              tapisEnvKey: RESULTS_DIR
               label: [Results subdirectory]
               description: [Subdirectory under output where downloaded products are written.]
               hasDataType: [string]
@@ -488,6 +511,7 @@ model:
               position: [6]
             - id: werc-param-require-products
               type: [Parameter]
+              tapisEnvKey: REQUIRE_PRODUCTS
               label: [Require products]
               description: [Fail the job if no matching products are found.]
               hasDataType: [boolean]
@@ -497,6 +521,7 @@ model:
             # WERC-specific reference / velocity / export parameters
             - id: werc-param-reference-mode
               type: [Parameter]
+              tapisEnvKey: REFERENCE_MODE
               label: [Reference mode]
               description: [Referencing strategy: auto (anchor-based), or a supplied lat/lon via the single nearest pixel — point (a GNSS-chosen location) or manual (hand-entered).]
               hasDataType: [string]
@@ -505,6 +530,7 @@ model:
               position: [8]
             - id: werc-param-reference-lat
               type: [Parameter]
+              tapisEnvKey: REFERENCE_LAT
               label: [Reference latitude]
               description: [Reference latitude (decimal degrees). Required when reference mode is point or manual.]
               hasDataType: [float]
@@ -515,6 +541,7 @@ model:
               position: [9]
             - id: werc-param-reference-lon
               type: [Parameter]
+              tapisEnvKey: REFERENCE_LON
               label: [Reference longitude]
               description: [Reference longitude (decimal degrees). Required when reference mode is point or manual.]
               hasDataType: [float]
@@ -525,6 +552,7 @@ model:
               position: [10]
             - id: werc-param-anchor-radius-m
               type: [Parameter]
+              tapisEnvKey: ANCHOR_RADIUS_M
               label: [Anchor radius (m)]
               description: [Search radius (m) around the anchor used to select reference pixels (auto mode).]
               hasDataType: [int]
@@ -534,6 +562,7 @@ model:
               position: [11]
             - id: werc-param-n-reference-pixels
               type: [Parameter]
+              tapisEnvKey: N_REFERENCE_PIXELS
               label: [Reference pixel count]
               description: [Number of reference pixels to average for the reference offset.]
               hasDataType: [int]
@@ -542,6 +571,7 @@ model:
               position: [12]
             - id: werc-param-anchor-dir
               type: [Parameter]
+              tapisEnvKey: ANCHOR_DIR
               label: [Anchor directory]
               description: [Directory holding per-frame anchor JSON (auto mode).]
               hasDataType: [string]
@@ -549,6 +579,7 @@ model:
               position: [13]
             - id: werc-param-displacement-geotiff-name
               type: [Parameter]
+              tapisEnvKey: DISPLACEMENT_GEOTIFF_NAME
               label: [Displacement GeoTIFF name]
               description: [Filename for the exported cumulative-displacement GeoTIFF.]
               hasDataType: [string]
@@ -556,32 +587,52 @@ model:
               position: [14]
             - id: werc-param-velocity-geotiff-name
               type: [Parameter]
+              tapisEnvKey: VELOCITY_GEOTIFF_NAME
               label: [Velocity GeoTIFF name]
               description: [Filename for the exported velocity GeoTIFF.]
               hasDataType: [string]
               hasDefaultValue: [opera_disp_s1_velocity.tif]
               position: [15]
 
+          # Credential declared as a secret (not a parameter): stored by the model owner in the
+          # svo-adapter secrets store and injected into the job env at submit time.
+          hasSecret:
+            - id: opera-disp-s1-werc-secret-earthdata
+              name: earthdata
+              description: NASA Earthdata login used by the OPERA download stage; provided by the model owner (SUBSIDE).
+              source: owner_only
+              env: {username: EARTHDATA_USERNAME, password: EARTHDATA_PASSWORD}
+
           hasOutput:
-            - id: werc-output-manifest
-              type: [DatasetSpecification]
-              label: [WERC run manifest]
-              description: [werc-run-manifest.json — resolved config, selected frame, embedded H2I manifest, and per-raster metadata (bounds, CRS, clip/velocity ranges, dates).]
-              hasFormat: [application/json]
-              position: [1]
             - id: werc-output-cumulative-tif
               type: [DatasetSpecification]
               label: [Cumulative displacement GeoTIFF]
               description: [Referenced cumulative LOS displacement (mm) over the window, EPSG:4326.]
               hasFormat: ["image/tiff;application=geotiff"]
               hasDimensionality: [2]
-              position: [2]
+              variablePresentation:
+                standardVariable: land_surface__displacement
+                unit: mm
+                longName: line-of-sight cumulative land surface displacement
+                shortName: cumulative_displacement
+              position: [1]
             - id: werc-output-velocity-tif
               type: [DatasetSpecification]
               label: [Velocity GeoTIFF]
               description: [Per-pixel LOS velocity (mm/year) from the linear fit through the referenced stack, EPSG:4326.]
               hasFormat: ["image/tiff;application=geotiff"]
               hasDimensionality: [2]
+              variablePresentation:
+                standardVariable: land_surface__displacement_rate
+                unit: mm/yr
+                longName: line-of-sight land surface displacement rate
+                shortName: velocity
+              position: [2]
+            - id: werc-output-manifest
+              type: [DatasetSpecification]
+              label: [WERC run manifest]
+              description: [werc-run-manifest.json — resolved config, selected frame, embedded H2I manifest, and per-raster metadata (bounds, CRS, clip/velocity ranges, dates).]
+              hasFormat: [application/json]
               position: [3]
             - id: werc-output-anchors
               type: [DatasetSpecification]
