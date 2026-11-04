@@ -58,6 +58,11 @@ params:
     default: ''
     required: false
     description: STAC Transactions bearer (defaults to the user's Tapis token).
+  svo_role_variables:
+    type: string
+    default: '{"cog": ["land_surface__displacement"], "cumulative": ["land_surface__displacement"], "velocity": ["land_surface__displacement_rate"]}'
+    required: false
+    description: JSON map of asset key (cog/cumulative/velocity) to standard-variable short names, written to the CKAN resource field mint_standard_variables. Empty object disables typing.
 tasks:
 - id: resolve
   type: function
@@ -125,7 +130,24 @@ tasks:
     job_uuid = str(val("JOB_UUID", "")).strip()
     if not job_uuid:
         fail("Missing JOB_UUID workflow input.")
-    t = Tapis(base_url=base_url, jwt=token)
+
+    def _make_client(jwt, attempts=6):
+        # tapipy's constructor calls the Tenants API; a platform restart can
+        # answer that with a transient 404/5xx. Do not die on that one call.
+        delay = 15
+        for attempt in range(1, attempts + 1):
+            try:
+                return Tapis(base_url=base_url, jwt=jwt)
+            except Exception as exc:
+                if attempt == attempts:
+                    fail("Tapis client could not be created after %d attempts: %s"
+                         % (attempts, type(exc).__name__))
+                print("tapis client attempt %d failed (%s); retrying in %ds"
+                      % (attempt, type(exc).__name__, delay))
+                time.sleep(delay)
+                delay = min(delay * 2, 120)
+
+    t = _make_client(token)
 
     def _get_job(job_uuid):
         last_exc = None
@@ -377,6 +399,10 @@ tasks:
       type: string
       value_from:
         args: stac_token
+    SVO_ROLE_VARIABLES:
+      type: string
+      value_from:
+        args: svo_role_variables
     MANIFEST_NAME:
       type: string
       value_from:
@@ -959,6 +985,10 @@ tasks:
 
     archive = str(val("ARCHIVE_URI", "")).rstrip("/")
     ckan_token = str(val("CKAN_TOKEN", "")).strip()
+    try:
+        svo_role_variables = json.loads(str(val("SVO_ROLE_VARIABLES", "")).strip() or "{}")
+    except ValueError:
+        svo_role_variables = {}
     stac_url = str(val("STAC_URL", "")).strip()
     if not (ckan_token and stac_url):
         ctx.stdout("stac-publish: disabled (CKAN_TOKEN/STAC_URL unset) - skipping.")
@@ -999,6 +1029,7 @@ tasks:
                     "subside_asset_role": "data",
                     "subside_asset_title": spec.title or spec.filename,
                     "subside_display_range": json.dumps(spec.display_range) if spec.display_range else None,
+                    "mint_standard_variables": ",".join(svo_role_variables.get(spec.key, [])) or None,
                 }
                 _download(tapis, system, artifact_path, tmpdir / spec.filename)
             except Exception as exc:
