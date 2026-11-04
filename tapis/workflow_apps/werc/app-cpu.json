@@ -154,7 +154,7 @@
         {
           "key": "REFERENCE_MODE",
           "value": "auto",
-          "description": "How to pick the displacement reference: 'auto' (anchor-based), or a supplied reference lat/lon via the nearest pixel — 'point' (GNSS-chosen) or 'manual' (hand-entered).",
+          "description": "How to pick the displacement reference: 'auto' (anchor-based), or a supplied reference lat/lon via the nearest pixel \u2014 'point' (GNSS-chosen) or 'manual' (hand-entered).",
           "inputMode": "INCLUDE_BY_DEFAULT",
           "notes": {
             "label": "Reference mode",
@@ -239,11 +239,25 @@
           "value": "false",
           "description": "Set to 'true' to force run.sh to delete and recreate the conda environment under $WORK before running the analysis. Useful after bumping environment.yaml.",
           "inputMode": "INCLUDE_ON_DEMAND"
+        },
+        {
+          "key": "EARTHDATA_USERNAME",
+          "value": "",
+          "description": "NASA Earthdata login, supplied at submit time by the platform (DYNAMO svo-adapter). Prefer this over a staged .netrc.",
+          "inputMode": "INCLUDE_ON_DEMAND"
+        },
+        {
+          "key": "EARTHDATA_PASSWORD",
+          "value": "",
+          "description": "NASA Earthdata password, supplied at submit time by the platform. Never set a default.",
+          "inputMode": "INCLUDE_ON_DEMAND"
         }
       ],
       "archiveFilter": {
         "includes": [],
-        "excludes": [],
+        "excludes": [
+          ".netrc"
+        ],
         "includeLaunchFiles": true
       }
     },
