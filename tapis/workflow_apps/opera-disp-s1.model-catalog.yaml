@@ -112,7 +112,8 @@ model:
   # ---- Family-level assumptions & limitations (true of all OPERA DISP-S1 work)
   hasAssumption:
     - The AOI (or supplied frame IDs) falls within OPERA DISP-S1 frame coverage.
-    - Valid NASA Earthdata credentials are available (netrc, env vars, or Tapis secret).
+    - A NASA Earthdata login is provided at run time by the platform from the
+      model owner's registered secret (see hasSecret on each configuration).
     - Displacement is reported in the radar line-of-sight (LOS) frame; no
       vertical/horizontal decomposition is performed.
   limitations:
