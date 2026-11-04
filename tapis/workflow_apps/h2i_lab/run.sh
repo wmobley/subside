@@ -39,13 +39,16 @@ export NUMEXPR_NUM_THREADS="${THREADS}"
 export GDAL_NUM_THREADS=ALL_CPUS
 echo "Compute threads: OMP/OPENBLAS/MKL=${THREADS}, GDAL_NUM_THREADS=ALL_CPUS" >&2
 
-# Stage Earthdata netrc if Tapis supplied one alongside the job inputs.
+# Earthdata credentials: either a staged .netrc input or EARTHDATA_USERNAME /
+# EARTHDATA_PASSWORD env vars (the analysis writes its own ~/.netrc from them).
+# Either way the ~/.netrc must not outlive the job: remove the staged copy and,
+# unless the home already had a .netrc before this run, the home copy too.
+_had_home_netrc=0
+[ -e "${HOME}/.netrc" ] && _had_home_netrc=1
+trap 'rm -f ".netrc"; [ "${_had_home_netrc}" = "1" ] || rm -f "${HOME}/.netrc"' EXIT HUP INT TERM
 if [ -f ".netrc" ]; then
     cp ".netrc" "${HOME}/.netrc"
     chmod 600 "${HOME}/.netrc"
-    # The input is only needed during the process. Remove both copies before
-    # Tapis archives the job directory and before the container exits.
-    trap 'rm -f ".netrc" "${HOME}/.netrc"' EXIT HUP INT TERM
 fi
 
 mkdir -p "${OUTPUT_DIR}"
