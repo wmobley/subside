@@ -304,6 +304,15 @@ model:
               hasAcceptedValues: ["true", "false"]
               position: [8]
 
+          # Credential declared as a secret (not a parameter): stored by the model owner in the
+          # svo-adapter secrets store and injected into the job env at submit time.
+          hasSecret:
+            - id: opera-disp-s1-h2i-lab-secret-earthdata
+              name: earthdata
+              description: NASA Earthdata login used by the OPERA download stage; provided by the model owner (SUBSIDE).
+              source: owner_only
+              env: {username: EARTHDATA_USERNAME, password: EARTHDATA_PASSWORD}
+
           hasOutput:
             - id: h2i-output-displacement-cog
               type: [DatasetSpecification]
@@ -583,6 +592,15 @@ model:
               hasDataType: [string]
               hasDefaultValue: [opera_disp_s1_velocity.tif]
               position: [15]
+
+          # Credential declared as a secret (not a parameter): stored by the model owner in the
+          # svo-adapter secrets store and injected into the job env at submit time.
+          hasSecret:
+            - id: opera-disp-s1-werc-secret-earthdata
+              name: earthdata
+              description: NASA Earthdata login used by the OPERA download stage; provided by the model owner (SUBSIDE).
+              source: owner_only
+              env: {username: EARTHDATA_USERNAME, password: EARTHDATA_PASSWORD}
 
           hasOutput:
             - id: werc-output-cumulative-tif
