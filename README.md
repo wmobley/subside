@@ -68,6 +68,20 @@ npm install
 npm run dev          # http://127.0.0.1:5174
 ```
 
+**Runs go through DYNAMO.** With `VITE_RUN_BACKEND=dynamo` (and
+`VITE_DYNAMO_API_BASE=http://localhost:3001/v1`, see [`ui/.env.example`](ui/.env.example))
+the Run panel creates the region, submits, lists and cancels runs through the MINT
+Ensemble Manager instead of the SUBSIDE API, using the same Tapis login token as a
+`Bearer` header. Earthdata credentials are the model owner's secret (never typed in
+the UI) and publication to CKAN/STAC is the run's `publish` flag. The default is
+`legacy` (the SUBSIDE API's own Tapis Workflows pipelines) until the dynamo path is
+verified locally; pre-cutover runs are not listed in dynamo mode. Design:
+`monorepo/docs/design/2026-11-05-subside-runs-through-dynamo.md`.
+
+UI tests: `npm test -- --run` (Vitest). Contract test:
+`src/lib/__tests__/dynamoApi.contract.test.js` checks the SUBSIDE→DYNAMO parameter
+mapping against `tapis/workflow_apps/opera-disp-s1.model-catalog.yaml`.
+
 The Vite dev proxy forwards `/api/subside/*` → the SUBSIDE API on `:8000`,
 `/api/*` → a legacy backend on `:5050`, and `/ckan/*` → the TACC CKAN catalog.
 Stack: React 19, react-leaflet + leaflet.vectorgrid (vector tiles) +
@@ -81,6 +95,11 @@ cp .env.sample .env     # fill in Earthdata + allocation; PostGIS URL optional
 conda activate subside-h2i-opera
 uvicorn api.main:app --reload --port 8000
 ```
+
+The run endpoints (`/runs`, `/runs/{id}`, `/results`, `/file`) are deprecated:
+set `SUBSIDE_LEGACY_RUNS=false` and they return `410 RUNS_MOVED_TO_DYNAMO`
+(default `true`). `/runs/estimate`, availability, forecast, auth and STAC routes
+are unchanged.
 
 The API degrades gracefully: the core (login + runs) works with the minimal
 [`api/requirements.txt`](api/requirements.txt); the PostGIS layer endpoints

@@ -39,6 +39,28 @@ pure pandas calculation so it runs synchronously in the API.
     └── layers / tiles            → PostGIS (+ PostGIS MVT)
 ```
 
+**Runs go through DYNAMO (when `VITE_RUN_BACKEND=dynamo`).** The Run panel calls the
+MINT Ensemble Manager directly (`ui/src/lib/dynamoApi.js`, base `VITE_DYNAMO_API_BASE`),
+with the same Tapis JWT as `Authorization: Bearer`:
+
+```
+  Run panel ─ POST /regions ──────────────► region_id (deterministic id for the drawn AOI)
+            ─ POST /plans/scenario ───────► problem statement + task + thread + bindings + plan + submit
+                (idempotency_key, model id h2i|werc, dates once, parameter_values, publish, max_minutes)
+            ─ GET  /plans/runs ───────────► the SUBSIDE run list (stored status)
+            ─ GET  /plans/runs/{id} ──────► reconciled status + output_handoff.publication
+                (non-terminal rows only; backoff 5 s → 15 s → 60 s, paused while the tab is hidden)
+            ─ POST /plans/runs/{id}/cancel, GET /plans/publishers
+```
+
+The EM statuses map to the SUBSIDE vocabulary in `toSubsideStatus` (cancelled =
+`failed` + `failure_code CANCELLED_BY_USER`). Results use
+`output_handoff.publication.stac_item` once published, else the STAC lookup by the
+run's region bbox + thread dates, else `output_handoff.resource_uri`. The SUBSIDE API
+keeps only availability/frames, forecast, auth, layers/tiles and the STAC proxy for
+this path; its run endpoints are deprecated (§4). Default `legacy` keeps the
+original path below.
+
 Auth model: users sign in via the **Tapis OAuth2 authorization-code (3-legged)
 flow** — "Log in with TACC". The browser redirects to the tenant's hosted
 `/v3/oauth2/authorize` page; Tapis returns to the app's callback with a one-time
@@ -97,11 +119,11 @@ return 503 when absent, so the core API runs with the minimal requirements.
 | `GET /auth/config` | OAuth client_id + authorize/callback URLs (non-secret) | `tapis.oauth_public_config` | — |
 | `POST /auth/token` | Exchange OAuth2 code → token (client secret server-side) | `tapis.exchange_code` | — |
 | `POST /login` | Tapis password grant → token (scripts/dev fallback) | `tapis.py` | — |
-| `POST /runs` | Submit an OPERA pipeline as a Tapis job | `manager.submit_run` | token |
-| `GET /runs` | The caller's run history | `manager.list_runs` | token |
-| `GET /runs/{id}` | Job status (normalized) | `manager.get_status` | token |
-| `GET /runs/{id}/results` | Manifest + artifacts from the archive | `manager.get_results` | token |
-| `GET /runs/{id}/file` | Proxy one archive file (COG/PNG/zip) | `manager.fetch_file` | token |
+| `POST /runs` | **Deprecated** (runs go through DYNAMO): submit an OPERA pipeline as a Tapis job | `manager.submit_run` | token |
+| `GET /runs` | **Deprecated.** The caller's run history | `manager.list_runs` | token |
+| `GET /runs/{id}` | **Deprecated.** Job status (normalized) | `manager.get_status` | token |
+| `GET /runs/{id}/results` | **Deprecated.** Manifest + artifacts from the archive | `manager.get_results` | token |
+| `GET /runs/{id}/file` | **Deprecated.** Proxy one archive file (COG/PNG/zip) | `manager.fetch_file` | token |
 | `POST /forecast` | **Forecast engine** — 0–10 risk + annual projection | `forecast.compute` → `analysis.subsidence` | — |
 | `GET /forecast/template` | Starter scenario for the forecast | `forecast.template` | — |
 | `POST /aoi/frames` | Frames intersecting an AOI | `discovery.find_frames` | — |
@@ -109,6 +131,8 @@ return 503 when absent, so the core API runs with the minimal requirements.
 | `GET /availability` | Viewport-lazy frame availability | `availability.availability_for_bbox` | — |
 | `GET/POST/DELETE /layers...` | PostGIS GeoJSON ingest + registry | `layers.py` | — |
 | `GET /tiles/{layer}/{z}/{x}/{y}.mvt` | Mapbox vector tiles | `layers.mvt_tile` | — |
+
+The five deprecated run routes (`POST /runs`, `GET /runs`, `GET /runs/{id}`, `/results`, `/file`) are marked `deprecated` in OpenAPI and, with `SUBSIDE_LEGACY_RUNS=false` (default `true`), return `410 {"detail": {"code": "RUNS_MOVED_TO_DYNAMO", ...}}`. `POST /runs/estimate` is not affected.
 
 Modules:
 - **`main.py`** — the FastAPI app + routes + the `require_client` token dependency.
