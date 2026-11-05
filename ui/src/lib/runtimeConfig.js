@@ -8,3 +8,18 @@ export function getConfig(key) {
     typeof window !== 'undefined' ? window.__SUBSIDE_CONFIG__?.[key] : undefined
   return runtime ?? import.meta.env?.[key] ?? ''
 }
+
+// Where SUBSIDE runs are submitted/listed: "legacy" = the SUBSIDE API's own Tapis
+// Workflows pipelines (default), "dynamo" = the MINT Ensemble Manager (DYNAMO).
+// A development switch, not a user-facing toggle. Read at call time so runtime
+// config injected after module load (and tests) are honoured.
+export function runBackend() {
+  return String(getConfig('VITE_RUN_BACKEND') || 'legacy').toLowerCase() === 'dynamo'
+    ? 'dynamo'
+    : 'legacy'
+}
+
+// Ensemble Manager base URL incl. version, e.g. http://localhost:3001/v1.
+export function dynamoApiBase() {
+  return String(getConfig('VITE_DYNAMO_API_BASE') || '').replace(/\/$/, '')
+}
