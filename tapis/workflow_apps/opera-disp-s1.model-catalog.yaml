@@ -233,6 +233,7 @@ model:
                 longName: area of interest boundary
                 shortName: aoi
               isOptional: true
+              appInputName: aoi-geojson
               position: [1]
 
           hasParameter:
@@ -459,6 +460,7 @@ model:
                 longName: area of interest boundary
                 shortName: aoi
               isOptional: true
+              appInputName: aoi-geojson
               position: [1]
 
           hasParameter:
