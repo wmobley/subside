@@ -228,6 +228,10 @@ model:
                   input aoi-geojson -> config/aoi.geojson.)
               hasFormat: [GeoJSON]
               hasDimensionality: [2]
+              variablePresentation:
+                standardVariable: area_of_interest__boundary
+                longName: area of interest boundary
+                shortName: aoi
               isOptional: true
               position: [1]
 
@@ -450,6 +454,10 @@ model:
                   input aoi-geojson -> config/aoi.geojson.)
               hasFormat: [GeoJSON]
               hasDimensionality: [2]
+              variablePresentation:
+                standardVariable: area_of_interest__boundary
+                longName: area of interest boundary
+                shortName: aoi
               isOptional: true
               position: [1]
 
