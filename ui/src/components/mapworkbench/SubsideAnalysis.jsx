@@ -21,6 +21,10 @@ import ReactMarkdown from 'react-markdown'
 import {
   bboxToAoiGeoJSON, fetchAvailability, getRunResults, getRunStatus, listRuns, submitRun,
 } from '../../lib/subsideApi'
+import * as dynamo from '../../lib/dynamoApi'
+import { formSections } from '../../lib/dynamoApi'
+import { runBackend } from '../../lib/runtimeConfig'
+import { useDynamoRuns } from '../../lib/useDynamoRuns'
 import { getWorkflowDocs } from '../../lib/content'
 import { cssGradient } from '../../lib/colorRamps'
 import { estimateRuntime } from '../../lib/estimateRuntime'
@@ -112,8 +116,18 @@ export function SubsideAnalysis({
   // Login/logout live in the header; logout() here is the 401 -> force re-login path.
   const { token, logout } = useAuth()
 
-  const [history, setHistory] = useState([])
-  const [historyErr, setHistoryErr] = useState('')
+  // Run backend: "legacy" = SUBSIDE API + Tapis Workflows, "dynamo" = MINT
+  // Ensemble Manager (see lib/dynamoApi.js). Legacy behaviour is untouched.
+  const isDynamo = runBackend() === 'dynamo'
+  const [legacyHistory, setHistory] = useState([])
+  const [legacyHistoryErr, setHistoryErr] = useState('')
+  const dynamoRuns = useDynamoRuns(token, isDynamo, { onAuthError: logout })
+  const history = isDynamo ? dynamoRuns.runs : legacyHistory
+  const historyErr = isDynamo ? dynamoRuns.error : legacyHistoryErr
+  const [publishers, setPublishers] = useState(null) // dynamo: publishChoice(...)
+  const [publishOn, setPublishOn] = useState(true)
+  const submitting_ = useRef(false) // synchronous double-click guard
+  const keyer = useRef(dynamo.createSubmissionKeyer())
 
   const [form, setForm] = useState({
     pipeline: 'h2i',
@@ -122,7 +136,11 @@ export function SubsideAnalysis({
     allocation: '',
     min_overlap_percent: 50,
   })
-  const [run, setRun] = useState(null)
+  const [runSel, setRun] = useState(null)
+  // Dynamo rows carry the reconciled status; overlay the selected row on the selection.
+  const run = isDynamo && runSel
+    ? { ...runSel, ...(dynamoRuns.runs.find((r) => r.runId === runSel.runId) || {}) }
+    : runSel
   const [submitErr, setSubmitErr] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [docOpen, setDocOpen] = useState(false) // workflow documentation modal
@@ -192,7 +210,8 @@ export function SubsideAnalysis({
   // Tell the map (via ModelMap) when we're configuring a velocity run over an AOI:
   // that's when reference-candidate layers (the stable GNSS marks) should surface
   // so the user can pick a reference point. Velocity (`werc`) + an AOI === on.
-  const wantsReference = form.pipeline === 'werc' && Boolean(aoi)
+  const sections = formSections(isDynamo ? 'dynamo' : 'legacy', form.pipeline)
+  const wantsReference = sections.reference && Boolean(aoi)
   useEffect(() => {
     onWantsReferenceChange?.(wantsReference)
   }, [wantsReference, onWantsReferenceChange])
@@ -324,14 +343,14 @@ export function SubsideAnalysis({
 
   // Poll status until terminal.
   useEffect(() => {
-    if (!run?.runId || !token || TERMINAL.has(run.status)) return undefined
+    if (isDynamo || !run?.runId || !token || TERMINAL.has(run.status)) return undefined
     const id = setInterval(() => {
       getRunStatus(token, run.runId)
         .then((st) => setRun((cur) => ({ ...cur, ...st })))
         .catch((err) => setSubmitErr(err.message))
     }, 5000)
     return () => clearInterval(id)
-  }, [run?.runId, run?.status, token])
+  }, [isDynamo, run?.runId, run?.status, token])
 
   // When a run completes, resolve the STAC Item the pipeline published for it,
   // then render result rasters from its public asset hrefs. We get the run's
@@ -344,6 +363,16 @@ export function SubsideAnalysis({
     }
     let cancelled = false
     setResultsErr(''); setStacItem(null); setSelectedLayer(null)
+    if (isDynamo) {
+      resolveDynamoResults(run)
+        .then((res) => {
+          if (cancelled) return
+          setStacItem(res.item)
+          if (res.message) setResultsErr(res.message)
+        })
+        .catch((err) => { if (!cancelled) setResultsErr(err.message) })
+      return () => { cancelled = true }
+    }
     if (!stacEnabled()) {
       setResultsErr('Map visualization needs the STAC API — set VITE_STAC_API_BASE.')
       return undefined
@@ -369,7 +398,35 @@ export function SubsideAnalysis({
       })
       .catch((err) => { if (!cancelled) setResultsErr(err.message) })
     return () => { cancelled = true }
-  }, [token, run?.runId, run?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, run?.runId, run?.status, run?.handoff?.publication?.stac_item]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Dynamo results (spec section 5): after publication the Item is the one
+  // output_handoff.publication.stac_item points at; otherwise look it up by the
+  // run's region bbox + thread dates, and when nothing is in STAC yet point at the
+  // model output location (output_handoff.resource_uri).
+  async function resolveDynamoResults(r) {
+    const pub = r.handoff?.publication
+    if (pub?.stac_item) {
+      try {
+        return { item: await dynamo.fetchStacItem(pub.stac_item) }
+      } catch { /* fall through to the window lookup */ }
+    }
+    let item = null
+    if (stacEnabled()) {
+      const win = await dynamo.resolveRunWindow(token, r, {
+        drawnBbox: aoi, fallbackDates: { start: form.start_date, end: form.end_date },
+      })
+      item = await findRunItem(win)
+    }
+    if (item) return { item }
+    const where = r.handoff?.resource_uri
+    const state = pub?.status === 'failed'
+      ? `Publication failed${pub.error ? `: ${pub.error}` : '.'}`
+      : pub?.status === 'awaiting_owner'
+        ? 'Publication is waiting for the model owner.'
+        : 'Results are not published to the catalog yet.'
+    return { item: null, message: `${state}${where ? ` Model output: ${where}` : ''}` }
+  }
 
   // Fit the map to a selected PNG overlay (COGs fit themselves in StacCogLayer).
   useEffect(() => {
@@ -380,6 +437,7 @@ export function SubsideAnalysis({
   // Pull the durable workflow history whenever we have a token (incl. after refresh).
   function refreshHistory(tok = token) {
     if (!tok) return
+    if (isDynamo) { dynamoRuns.refresh(); return }
     listRuns(tok)
       .then((res) => { setHistory(res.runs || []); setHistoryErr('') })
       .catch((err) => {
@@ -387,7 +445,19 @@ export function SubsideAnalysis({
         if (/token|401|unauthor/i.test(err.message)) logout() // expired -> force re-login
       })
   }
-  useEffect(() => { refreshHistory() }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!isDynamo) refreshHistory() }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Dynamo: the publish control is driven by GET /plans/publishers for the model.
+  useEffect(() => {
+    if (!isDynamo || !token) { setPublishers(null); return undefined }
+    let cancelled = false
+    dynamo.getPublishers(token, dynamo.MODEL_IDS[form.pipeline])
+      .then((res) => { if (!cancelled) setPublishers(dynamo.publishChoice(res)) })
+      .catch((err) => {
+        if (!cancelled) setPublishers({ ok: false, tokens: [], reason: `Publishing options unavailable: ${err.message}` })
+      })
+    return () => { cancelled = true }
+  }, [isDynamo, token, form.pipeline])
 
   // When the session ends (logout or expiry from the header), drop run state.
   useEffect(() => {
@@ -449,7 +519,52 @@ export function SubsideAnalysis({
 
   // Re-attach the status poller to a pipeline run picked from history.
   function attachRun(item) {
-    setRun({ runId: item.runId, status: item.status, tapisStatus: item.tapisStatus, lastMessage: '' })
+    setRun({
+      runId: item.runId, status: item.status, tapisStatus: item.tapisStatus,
+      threadId: item.threadId, lastMessage: '',
+    })
+  }
+
+  // Dynamo submit: region (create-or-find) then one scenario call. The
+  // idempotency key is reused while the submission is identical, so retrying
+  // after a lost response cannot start a second HPC job.
+  async function submitDynamo() {
+    const geojson = aoiGeometry || bboxToAoiGeoJSON(aoi)
+    const regionName = `SUBSIDE AOI ${aoi.map((n) => Number(n).toFixed(3)).join(',')}`
+    const { region_id: regionId } = await dynamo.createRegion(token, { name: regionName, geojson })
+    const params = {
+      pipeline: form.pipeline,
+      regionId,
+      startDate: form.start_date,
+      endDate: form.end_date,
+      minOverlapPercent: Number(form.min_overlap_percent),
+      reference: form.pipeline === 'werc' ? referencePoint : null,
+      publish: publishOn && publishers?.ok ? publishers.tokens : [],
+      maxMinutes: estimate?.walltimeMinutes,
+    }
+    params.idempotencyKey = keyer.current.keyFor(JSON.stringify(params))
+    const res = await dynamo.submitScenario(token, params)
+    keyer.current.reset()
+    dynamo.rememberRunRegion(res.run_id, { bbox: aoi, start: form.start_date, end: form.end_date })
+    const row = {
+      runId: res.run_id, threadId: res.thread_id, pipeline: form.pipeline,
+      status: dynamo.toSubsideStatus(res.status), rawStatus: res.status,
+      created: new Date().toISOString(),
+    }
+    dynamoRuns.upsert(row)
+    setRun({ runId: row.runId, status: row.status, threadId: row.threadId, lastMessage: '' })
+    dynamoRuns.refresh()
+  }
+
+  async function handleCancel() {
+    if (!run?.runId) return
+    setSubmitErr('')
+    try {
+      await dynamo.cancelRun(token, run.runId)
+      dynamoRuns.upsert(await dynamo.getRun(token, run.runId))
+    } catch (err) {
+      setSubmitErr(dynamo.dynamoErrorMessage(err))
+    }
   }
 
   async function handleSubmit() {
@@ -457,9 +572,15 @@ export function SubsideAnalysis({
       setSubmitErr('Pick an area first — draw an area or upload a GeoJSON.')
       return
     }
+    if (submitting_.current) return // double-click guard until the call settles
+    submitting_.current = true
     setSubmitErr('')
     setSubmitting(true)
     try {
+      if (isDynamo) {
+        await submitDynamo()
+        return
+      }
       const body = {
         pipeline: form.pipeline,
         start_date: form.start_date,
@@ -482,8 +603,10 @@ export function SubsideAnalysis({
       setRun({ runId: res.runId, status: res.status, tapisStatus: res.tapisStatus, lastMessage: '' })
       refreshHistory()
     } catch (err) {
-      setSubmitErr(err.message)
+      setSubmitErr(isDynamo ? dynamo.dynamoErrorMessage(err) : err.message)
+      if (isDynamo && dynamo.isAuthError(err)) logout()
     } finally {
+      submitting_.current = false
       setSubmitting(false)
     }
   }
@@ -620,7 +743,7 @@ export function SubsideAnalysis({
                   </div>
                 </div>
               ) : null}
-              {form.pipeline === 'werc' ? (
+              {sections.reference ? (
                 <div className="sap-workflow-card sap-reference-card">
                   <div className="sap-workflow-card-title">Reference point (optional)</div>
                   {!aoi ? (
@@ -704,13 +827,30 @@ export function SubsideAnalysis({
             </div>
           </div>
 
-          <details className="sap-advanced">
-            <summary>Advanced</summary>
-            <label className="sap-field">
-              <span className="sap-label">Allocation</span>
-              <input placeholder="server default" value={form.allocation} onChange={setField('allocation')} />
+          {sections.allocation ? (
+            <details className="sap-advanced">
+              <summary>Advanced</summary>
+              <label className="sap-field">
+                <span className="sap-label">Allocation</span>
+                <input placeholder="server default" value={form.allocation} onChange={setField('allocation')} />
+              </label>
+            </details>
+          ) : null}
+
+          {sections.publish && publishers ? (
+            <label className="sap-field sap-publish">
+              <input
+                type="checkbox"
+                checked={publishers.ok && publishOn}
+                disabled={!publishers.ok}
+                onChange={(e) => setPublishOn(e.target.checked)}
+              />
+              <span className="sap-label">
+                Publish results to the catalog{publishers.ok ? ` (${publishers.tokens.join(' + ')})` : ''}
+              </span>
+              {!publishers.ok ? <span className="sap-hint">{publishers.reason}</span> : null}
             </label>
-          </details>
+          ) : null}
 
           {aoiWarnings.length ? (
             <div className="sap-warn">{aoiWarnings.map((w) => <div key={w}>{w}</div>)}</div>
@@ -728,6 +868,9 @@ export function SubsideAnalysis({
               <div className={`sap-run sap-${run.status}`} role="status" aria-live="polite">
                 {!TERMINAL.has(run.status) ? <span className="sap-spinner" /> : null}
                 <span>{RUN_COPY[run.status] || run.status}</span>
+                {isDynamo && !TERMINAL.has(run.status) ? (
+                  <button type="button" className="sap-link" onClick={handleCancel}>cancel</button>
+                ) : null}
               </div>
             )
           ) : null}
@@ -873,7 +1016,9 @@ export function SubsideAnalysis({
                 <span className="sap-history-name">
                   {(h.pipeline === 'werc' ? 'Velocity' : h.pipeline === 'h2i' ? 'Displacement' : (h.pipeline || h.appId))} · {h.created ? h.created.slice(0, 10) : '—'}
                 </span>
-                <span className="sap-history-status">{h.status}</span>
+                <span className="sap-history-status">
+                  {h.status}{h.handoff?.publication?.status ? ` · ${h.handoff.publication.status}` : ''}
+                </span>
               </button>
             ))}
           </div>
