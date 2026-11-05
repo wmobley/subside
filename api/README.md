@@ -65,6 +65,15 @@ hosted workflows. The broker rotates the bounded per-run token after expiry.
 | `GET  /api/subside/layers/{layer}.geojson` | no | read a layer back as GeoJSON (`?bbox=&limit=`) |
 | `GET  /api/subside/tiles/{layer}/{z}/{x}/{y}.mvt` | no | Mapbox Vector Tile (protobuf); 204 when empty |
 
+> **Runs go through DYNAMO.** The UI now submits, lists and reads runs through the MINT
+> Ensemble Manager (`VITE_RUN_BACKEND=dynamo`). The run endpoints above
+> (`POST /runs`, `GET /runs`, `GET /runs/{runId}`, `/results`, `/file`) are **deprecated**
+> and marked so in OpenAPI. Set `SUBSIDE_LEGACY_RUNS=false` (default `true`) and they
+> return `410` with `{"detail": {"code": "RUNS_MOVED_TO_DYNAMO", "message": ...}}`, ahead
+> of auth and body validation. `POST /runs/estimate`, availability, `aoi/frames`,
+> `products/search`, forecast, auth, layers/tiles and the STAC routes are unchanged.
+> Runs created before the cutover are not listed by DYNAMO.
+
 `runId` is the Tapis Workflows pipeline-run uuid. Submission is **non-blocking** — poll the status
 endpoint; fetch results when `status == "completed"`.
 

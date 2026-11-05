@@ -28,7 +28,7 @@ from .models import (
     LayerLoadRequest, LayerLoadResponse, LayerInfo, LayersResponse,
     LoginRequest, LoginResponse, ProductsSearchRequest, ProductsSearchResponse,
     RunEstimateResponse, RunListItem, RunListResponse, RunRequest, RunResultsResponse,
-    RunStatusResponse, RunSubmitResponse,
+    RunStatusResponse, RunSubmitResponse, RunsMovedResponse,
 )
 
 MVT_MEDIA_TYPE = "application/vnd.mapbox-vector-tile"
@@ -99,6 +99,25 @@ def require_client(x_tapis_token: str = Header(None, alias="X-Tapis-Token")):
         return tapis.client_from_token(x_tapis_token)
     except Exception as exc:
         raise HTTPException(status_code=401, detail=f"Invalid Tapis token: {exc}") from exc
+
+
+def legacy_runs_enabled():
+    """Dependency for the deprecated run routes. Runs now go through DYNAMO (the
+    MINT Ensemble Manager); with SUBSIDE_LEGACY_RUNS=false these return 410."""
+    if not config.SUBSIDE_LEGACY_RUNS:
+        raise HTTPException(status_code=410, detail={
+            "code": "RUNS_MOVED_TO_DYNAMO",
+            "message": "SUBSIDE runs are submitted and read through DYNAMO (the MINT Ensemble "
+                       "Manager: POST /plans/scenario, GET /plans/runs). This endpoint is retired.",
+        })
+
+
+# Applied to every deprecated run route: marks it deprecated in OpenAPI, documents the 410,
+# and runs the flag check before auth and body validation.
+DEPRECATED_RUN_ROUTE = dict(
+    tags=["Runs"], deprecated=True, dependencies=[Depends(legacy_runs_enabled)],
+    responses={410: {"model": RunsMovedResponse, "description": "Runs moved to DYNAMO (SUBSIDE_LEGACY_RUNS=false)."}},
+)
 
 
 @app.get("/api/subside/healthz", tags=["Health"])
@@ -259,6 +278,7 @@ def frame_availability(
 
 
 # --- runs (Tapis Workflows pipelines, as the user) --------------------------
+# DEPRECATED except /runs/estimate: the UI submits through DYNAMO (see SUBSIDE_LEGACY_RUNS).
 @app.post("/api/subside/runs/estimate", response_model=RunEstimateResponse, tags=["Runs"])
 def estimate_run(body: RunRequest):
     """Estimate download/run time and the walltime the job will request, from
@@ -276,7 +296,7 @@ def estimate_run(body: RunRequest):
     return RunEstimateResponse(**result)
 
 
-@app.post("/api/subside/runs", response_model=RunSubmitResponse, tags=["Runs"])
+@app.post("/api/subside/runs", response_model=RunSubmitResponse, **DEPRECATED_RUN_ROUTE)
 def submit_run(body: RunRequest, client=Depends(require_client)):
     try:
         info = manager.submit_run(client, body)
@@ -295,7 +315,7 @@ def submit_run(body: RunRequest, client=Depends(require_client)):
     )
 
 
-@app.get("/api/subside/runs", response_model=RunListResponse, tags=["Runs"])
+@app.get("/api/subside/runs", response_model=RunListResponse, **DEPRECATED_RUN_ROUTE)
 def list_runs(client=Depends(require_client),
               all: bool = Query(False, description="Diagnostics placeholder; the API lists configured SUBSIDE pipelines.")):
     """The caller's Tapis Workflows history for configured SUBSIDE pipelines."""
@@ -306,7 +326,7 @@ def list_runs(client=Depends(require_client),
     return RunListResponse(runs=[RunListItem(**r) for r in runs])
 
 
-@app.get("/api/subside/runs/{run_id}", response_model=RunStatusResponse, tags=["Runs"])
+@app.get("/api/subside/runs/{run_id}", response_model=RunStatusResponse, **DEPRECATED_RUN_ROUTE)
 def run_status(run_id: str, client=Depends(require_client)):
     try:
         st = manager.get_status(client, run_id)
@@ -315,7 +335,7 @@ def run_status(run_id: str, client=Depends(require_client)):
     return RunStatusResponse(runId=run_id, **st)
 
 
-@app.get("/api/subside/runs/{run_id}/results", response_model=RunResultsResponse, tags=["Runs"])
+@app.get("/api/subside/runs/{run_id}/results", response_model=RunResultsResponse, **DEPRECATED_RUN_ROUTE)
 def run_results(run_id: str, client=Depends(require_client)):
     try:
         res = manager.get_results(client, run_id)
@@ -324,7 +344,7 @@ def run_results(run_id: str, client=Depends(require_client)):
     return RunResultsResponse(runId=run_id, **res)
 
 
-@app.get("/api/subside/runs/{run_id}/file", tags=["Runs"])
+@app.get("/api/subside/runs/{run_id}/file", **DEPRECATED_RUN_ROUTE)
 def run_file(run_id: str, path: str = Query(..., description="Archive-relative file path from results artifacts."),
              client=Depends(require_client)):
     """Proxy one pipeline-run archive file (image/COG/zip/manifest)."""

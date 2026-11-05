@@ -152,3 +152,10 @@ RUN_RECOVERY_GRACE_SECONDS = _env_int("SUBSIDE_RUN_RECOVERY_GRACE_SECONDS", 1200
 RUN_RECOVERY_CLEANUP_STALE_SECONDS = _env_int(
     "SUBSIDE_RUN_RECOVERY_CLEANUP_STALE_SECONDS", 300
 )
+
+# Run endpoints (POST/GET /runs, /runs/{id}, /results, /file). The UI now submits
+# and reads runs through DYNAMO (the MINT Ensemble Manager); these routes are
+# deprecated. Default true keeps them working for one release; set
+# SUBSIDE_LEGACY_RUNS=false and they return 410 RUNS_MOVED_TO_DYNAMO.
+# /runs/estimate, availability, forecast, auth and STAC routes are unaffected.
+SUBSIDE_LEGACY_RUNS = _env_bool("SUBSIDE_LEGACY_RUNS", True)
