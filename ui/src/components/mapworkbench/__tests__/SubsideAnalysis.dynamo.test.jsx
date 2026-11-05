@@ -148,18 +148,15 @@ describe('dynamo mode', () => {
     expect(screen.getByText('not a CKAN org member')).toBeInTheDocument()
   })
 
-  it('results: window comes from the thread dates and region, not the legacy results endpoint', async () => {
-    const geom = JSON.stringify({ type: 'Polygon', coordinates: [[[-97.2, 31.4], [-97.0, 31.4], [-97.0, 31.6], [-97.2, 31.6], [-97.2, 31.4]]] })
+  it('results: window comes from the run row region and thread dates, not the legacy results endpoint', async () => {
     routes['GET http://em.test/v1/plans/runs?'] = () => json({
       runs: [{
         run_id: 'ue_9', name: 'WERC', thread_id: 'th9', model_id: 'https://w3id.org/okn/i/mint/opera-disp-s1-werc',
         status: 'completed', created_at: '2024-12-01T00:00:00Z',
+        region: { id: 'aoi-9', name: 'AOI', bbox: BBOX },
+        thread: { start_date: '2023-01-01', end_date: '2023-12-31' },
         output_handoff: { resource_uri: 'tapis://corral/out', publication: { status: 'failed', error: 'CKAN 403' } },
       }],
-    })
-    routes['GET http://em.test/v1/threads/th9'] = () => json({
-      dates: { start_date: '2023-01-01T00:00:00Z', end_date: '2023-12-31T00:00:00Z' },
-      region: { geometries: [geom] },
     })
     await mount()
     fireEvent.click(await screen.findByTitle('WERC'))
@@ -169,7 +166,7 @@ describe('dynamo mode', () => {
     // not published: failure + the model output location are shown
     const results = await screen.findByText(/Publication failed: CKAN 403/)
     expect(results).toHaveTextContent('tapis://corral/out')
-    expect(calls.some((c) => c.url.includes('/api/subside/runs'))).toBe(false)
+    expect(calls.some((c) => c.url.includes('/api/subside/runs') || c.url.includes('/threads/'))).toBe(false)
   })
 
   it('after publication the Item behind output_handoff.publication.stac_item is used', async () => {
@@ -190,7 +187,7 @@ describe('dynamo mode', () => {
     expect(hoisted.findRunItem).not.toHaveBeenCalled()
   })
 
-  it('cancels an active run and shows RUN_NOT_CANCELLABLE messages', async () => {
+  it('offers cancel only for running runs and maps RUN_NOT_CANCELLABLE', async () => {
     routes['GET http://em.test/v1/plans/runs?'] = () => json({
       runs: [{ run_id: 'ue_3', name: 'live', thread_id: 't3', model_id: 'x-h2i', status: 'adapter_running' }],
     })
@@ -200,7 +197,17 @@ describe('dynamo mode', () => {
     )
     await mount()
     fireEvent.click(await screen.findByRole('button', { name: 'cancel' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('no active adapter run')
+    expect(await screen.findByRole('alert')).toHaveTextContent('This run cannot be cancelled yet.')
+  })
+
+  it('does not offer cancel for a queued run', async () => {
+    routes['GET http://em.test/v1/plans/runs?'] = () => json({
+      runs: [{ run_id: 'ue_4', name: 'queued', thread_id: 't4', model_id: 'x-h2i', status: 'planned' }],
+    })
+    routes['GET http://em.test/v1/plans/runs/ue_4'] = () => json({ run_id: 'ue_4', status: 'planned' })
+    await mount()
+    await screen.findByText(/Queued on TACC/i)
+    expect(screen.queryByRole('button', { name: 'cancel' })).toBeNull()
   })
 })
 

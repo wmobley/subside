@@ -52,8 +52,8 @@ export function formSections(backend, pipeline) {
 
 // --- errors ---------------------------------------------------------------------
 
-// EM error bodies are `{ message, code }` (SCENARIO_STEP_FAILED adds `step`
-// and `created`). `code` is what the UI branches on.
+// EM error bodies are `{ message, code, details }` (SCENARIO_STEP_FAILED carries
+// `details: { step, created }`). `code` is what the UI branches on.
 export class DynamoError extends Error {
   constructor(message, { status, code, step, created, body } = {}) {
     super(message)
@@ -72,6 +72,8 @@ export function dynamoErrorMessage(err) {
   if (err?.code === 'SECRET_REQUIRED') {
     return "This model's owner has not provided its Earthdata login."
   }
+  if (err?.code === 'RUN_NOT_CANCELLABLE') return 'This run cannot be cancelled yet.'
+  // DRY_RUN_UNSUPPORTED (422) and the other codes fall through to the EM's message.
   if (err?.code === 'SCENARIO_STEP_FAILED') {
     return `Setting up the run failed at the "${err.step || 'unknown'}" step${err.message ? `: ${err.message}` : '.'}`
   }
@@ -104,8 +106,8 @@ async function dynamoRequest(token, path, { method = 'GET', body } = {}) {
       {
         status: response.status,
         code: p.code || p.error?.code || p.detail?.code,
-        step: p.step,
-        created: p.created,
+        step: p.details?.step ?? p.step,
+        created: p.details?.created ?? p.created,
         body: payload,
       },
     )
@@ -159,6 +161,8 @@ export function normalizeRun(raw = {}) {
     failureCode,
     created: raw.created_at ?? raw.created,
     handoff: raw.output_handoff ?? raw.outputHandoff,
+    region: raw.region,
+    thread: raw.thread,
   }
   if (status !== undefined) row.status = toSubsideStatus(status, failureCode)
   const pipeline = pipelineForModel(row.modelId)
@@ -268,12 +272,6 @@ export function getPublishers(token, modelId) {
   return dynamoRequest(token, `/plans/publishers?model_id=${encodeURIComponent(modelId)}`)
 }
 
-// The thread (dates; region when the EM includes it). Used to rebuild the STAC
-// lookup window for a run reloaded from the list.
-export function getThread(token, threadId) {
-  return dynamoRequest(token, `/threads/${encodeURIComponent(threadId)}`)
-}
-
 // Publish choice from GET /plans/publishers: default every catalog token the
 // caller may publish to; disabled with the adapter's reason otherwise.
 export function publishChoice(response) {
@@ -360,51 +358,18 @@ export function recallRunRegion(runId) {
   } catch { return null }
 }
 
-function bboxFromGeometry(geometry) {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-  const visit = (c) => {
-    if (typeof c[0] === 'number') {
-      minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0])
-      minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1])
-    } else c.forEach(visit)
-  }
-  try { visit(geometry.coordinates) } catch { return null }
-  return minX === Infinity ? null : [minX, minY, maxX, maxY]
-}
-
-// [w, s, e, n] of the thread's region, from its geometries (stored as GeoJSON
-// strings) or its bounding_box. null when the thread read does not carry one.
-export function regionBbox(region) {
-  for (const g of region?.geometries || []) {
-    try {
-      const geometry = typeof g === 'string' ? JSON.parse(g) : (g.geometry ?? g)
-      const bbox = bboxFromGeometry(geometry?.geometry || geometry)
-      if (bbox) return bbox
-    } catch { /* try the next geometry */ }
-  }
-  const b = region?.bounding_box
-  if (b && [b.xmin, b.ymin, b.xmax, b.ymax].every((n) => Number.isFinite(Number(n)))) {
-    return [b.xmin, b.ymin, b.xmax, b.ymax].map(Number)
-  }
-  return null
-}
-
 const day = (d) => (d ? String(d).slice(0, 10) : undefined)
 
-// bbox + date window for the STAC lookup of a run. Dates always come from the
-// run's thread; the bbox from the region the UI drew (cached at submit, or the
-// live drawing), else the thread's region when reloading.
-export async function resolveRunWindow(token, run, { drawnBbox, fallbackDates } = {}) {
+// bbox + date window for the STAC lookup of a run. The EM run row carries
+// `region.bbox` and `thread.start_date/end_date`; those win. Then the per-run
+// cache written at submit, then the live drawing / form dates.
+export function resolveRunWindow(run, { drawnBbox, fallbackDates } = {}) {
   const cached = recallRunRegion(run.runId)
-  let thread = null
-  if (run.threadId) {
-    try { thread = await getThread(token, run.threadId) } catch { /* fall back below */ }
-  }
-  const dates = thread?.dates || {}
+  const bbox = run.region?.bbox
   return {
-    bbox: cached?.bbox || drawnBbox || regionBbox(thread?.region) || null,
-    start: day(dates.start_date) || cached?.start || fallbackDates?.start,
-    end: day(dates.end_date) || cached?.end || fallbackDates?.end,
+    bbox: (Array.isArray(bbox) && bbox.length === 4 ? bbox : null) || cached?.bbox || drawnBbox || null,
+    start: day(run.thread?.start_date) || cached?.start || fallbackDates?.start,
+    end: day(run.thread?.end_date) || cached?.end || fallbackDates?.end,
   }
 }
 

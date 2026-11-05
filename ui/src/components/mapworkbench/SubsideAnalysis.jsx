@@ -413,7 +413,7 @@ export function SubsideAnalysis({
     }
     let item = null
     if (stacEnabled()) {
-      const win = await dynamo.resolveRunWindow(token, r, {
+      const win = dynamo.resolveRunWindow(r, {
         drawnBbox: aoi, fallbackDates: { start: form.start_date, end: form.end_date },
       })
       item = await findRunItem(win)
@@ -549,7 +549,7 @@ export function SubsideAnalysis({
     const row = {
       runId: res.run_id, threadId: res.thread_id, pipeline: form.pipeline,
       status: dynamo.toSubsideStatus(res.status), rawStatus: res.status,
-      created: new Date().toISOString(),
+      created: new Date().toISOString(), region: res.region, thread: res.thread,
     }
     dynamoRuns.upsert(row)
     setRun({ runId: row.runId, status: row.status, threadId: row.threadId, lastMessage: '' })
@@ -868,7 +868,7 @@ export function SubsideAnalysis({
               <div className={`sap-run sap-${run.status}`} role="status" aria-live="polite">
                 {!TERMINAL.has(run.status) ? <span className="sap-spinner" /> : null}
                 <span>{RUN_COPY[run.status] || run.status}</span>
-                {isDynamo && !TERMINAL.has(run.status) ? (
+                {isDynamo && run.status === 'running' ? ( // cancellable only once the adapter child is active
                   <button type="button" className="sap-link" onClick={handleCancel}>cancel</button>
                 ) : null}
               </div>

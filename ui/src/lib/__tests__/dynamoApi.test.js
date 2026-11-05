@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as api from '../dynamoApi'
+import { bboxToAoiGeoJSON } from '../subsideApi'
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
   status, headers: { 'content-type': 'application/json' },
@@ -30,6 +31,24 @@ describe('request shapes', () => {
     expect(init.headers.Authorization).toBe('Bearer tok')
     expect(init.headers['X-Tapis-Token']).toBeUndefined()
     expect(body).toEqual({ name: 'Waco', geojson })
+  })
+
+  it('createRegion posts exactly the FeatureCollection bboxToAoiGeoJSON produces (shared EM fixture)', async () => {
+    fetchMock.mockImplementation(async () => json({ region_id: 'aoi-1', created: true }))
+    const geojson = bboxToAoiGeoJSON([-97.35, 31.4, -96.95, 31.7])
+    expect(geojson).toEqual({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[[-97.35, 31.4], [-96.95, 31.4], [-96.95, 31.7], [-97.35, 31.7], [-97.35, 31.4]]],
+        },
+      }],
+    })
+    await api.createRegion('tok', { name: 'Waco', geojson })
+    expect(lastCall().body.geojson).toEqual(geojson)
   })
 
   it('submitScenario builds the spec body: WERC, dates once, idempotency key', async () => {
@@ -130,12 +149,15 @@ describe('request shapes', () => {
     fetchMock.mockResolvedValue(json({ message: 'dates differ', code: 'DATES_CONFLICT' }, 422))
     expect(api.dynamoErrorMessage(await api.getRun('t', 'x').catch((e) => e))).toBe('dates differ')
     fetchMock.mockResolvedValue(json({ message: 'nothing active', code: 'RUN_NOT_CANCELLABLE' }, 409))
-    expect(api.dynamoErrorMessage(await api.cancelRun('t', 'x').catch((e) => e))).toBe('nothing active')
+    expect(api.dynamoErrorMessage(await api.cancelRun('t', 'x').catch((e) => e))).toBe('This run cannot be cancelled yet.')
+    fetchMock.mockResolvedValue(json({ message: 'dry run needs a post-model adapter', code: 'DRY_RUN_UNSUPPORTED' }, 422))
+    expect(api.dynamoErrorMessage(await api.getRun('t', 'x').catch((e) => e))).toBe('dry run needs a post-model adapter')
     fetchMock.mockResolvedValue(json({ message: 'bad ring', code: 'REGION_INVALID' }, 422))
     expect(api.dynamoErrorMessage(await api.getRun('t', 'x').catch((e) => e))).toBe('bad ring')
-    fetchMock.mockResolvedValue(json({ message: 'boom', code: 'SCENARIO_STEP_FAILED', step: 'thread', created: { task_id: 't' } }, 500))
+    fetchMock.mockResolvedValue(json({ message: 'boom', code: 'SCENARIO_STEP_FAILED', details: { step: 'thread', created: { task_id: 't' } } }, 500))
     const stepErr = await api.getRun('t', 'x').catch((e) => e)
     expect(stepErr.step).toBe('thread')
+    expect(stepErr.created).toEqual({ task_id: 't' })
     expect(api.dynamoErrorMessage(stepErr)).toContain('thread')
     fetchMock.mockResolvedValue(json({ message: 'expired' }, 401))
     expect(api.isAuthError(await api.getRun('t', 'x').catch((e) => e))).toBe(true)
@@ -251,29 +273,33 @@ describe('polling', () => {
 
 describe('resolveRunWindow', () => {
   const bbox = [-97.2, 31.4, -97.0, 31.6]
-  it('takes dates from the thread and the bbox from the cached drawn region', async () => {
-    api.rememberRunRegion('ue_1', { bbox, start: '2020-01-01', end: '2020-02-01' })
-    fetchMock.mockResolvedValue(json({ dates: { start_date: '2024-01-01T00:00:00.000Z', end_date: '2024-12-31T00:00:00.000Z' } }))
-    const win = await api.resolveRunWindow('t', { runId: 'ue_1', threadId: 'th1' }, { drawnBbox: [0, 0, 1, 1] })
-    expect(lastCall().url).toBe('http://em.test/v1/threads/th1')
+  it('normalizeRun maps region and thread from the EM row', () => {
+    const row = api.normalizeRun({
+      run_id: 'ue_1', status: 'completed',
+      region: { id: 'aoi-1', name: 'AOI', bbox }, thread: { start_date: '2024-01-01', end_date: '2024-12-31' },
+    })
+    expect(row.region.bbox).toEqual(bbox)
+    expect(row.thread.end_date).toBe('2024-12-31')
+  })
+
+  it('prefers the run row region.bbox and thread dates over cache and drawing', () => {
+    api.rememberRunRegion('ue_1', { bbox: [9, 9, 9, 9], start: '2020-01-01', end: '2020-02-01' })
+    const win = api.resolveRunWindow(
+      { runId: 'ue_1', region: { bbox }, thread: { start_date: '2024-01-01T00:00:00Z', end_date: '2024-12-31' } },
+      { drawnBbox: [0, 0, 1, 1] },
+    )
     expect(win).toEqual({ bbox, start: '2024-01-01', end: '2024-12-31' })
   })
 
-  it('on reload falls back to the thread region geometry', async () => {
-    const geom = JSON.stringify({ type: 'Polygon', coordinates: [[[-97.2, 31.4], [-97.0, 31.4], [-97.0, 31.6], [-97.2, 31.6], [-97.2, 31.4]]] })
-    fetchMock.mockResolvedValue(json({
-      dates: { start_date: '2024-01-01', end_date: '2024-02-01' },
-      region: { geometries: [geom] },
-    }))
-    const win = await api.resolveRunWindow('t', { runId: 'ue_9', threadId: 'th9' })
-    expect(win).toEqual({ bbox, start: '2024-01-01', end: '2024-02-01' })
+  it('falls back to the per-run cache, then the live drawing and form dates', () => {
+    api.rememberRunRegion('ue_2', { bbox, start: '2023-01-01', end: '2023-02-01' })
+    expect(api.resolveRunWindow({ runId: 'ue_2' }, { drawnBbox: [0, 0, 1, 1] }))
+      .toEqual({ bbox, start: '2023-01-01', end: '2023-02-01' })
+    expect(api.resolveRunWindow({ runId: 'ue_3' }, { drawnBbox: bbox, fallbackDates: { start: '2024-06-01', end: '2024-09-01' } }))
+      .toEqual({ bbox, start: '2024-06-01', end: '2024-09-01' })
   })
 
-  it('uses the drawn bbox and form dates when the thread read fails', async () => {
-    fetchMock.mockResolvedValue(json({ message: 'nope' }, 404))
-    const win = await api.resolveRunWindow('t', { runId: 'ue_x', threadId: 'th' }, {
-      drawnBbox: bbox, fallbackDates: { start: '2024-06-01', end: '2024-09-01' },
-    })
-    expect(win).toEqual({ bbox, start: '2024-06-01', end: '2024-09-01' })
+  it('no longer reads the thread route', () => {
+    expect(api.getThread).toBeUndefined()
   })
 })
