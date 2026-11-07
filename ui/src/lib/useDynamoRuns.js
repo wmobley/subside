@@ -23,17 +23,27 @@ export function useDynamoRuns(token, enabled, { onAuthError } = {}) {
   const pollers = useRef(new Map()) // runId -> stop()
   const authRef = useRef(onAuthError)
   authRef.current = onAuthError
+  // The token a request was sent with. A response for a token that has since
+  // been replaced (a stale session from localStorage answered 401 after a fresh
+  // login stored its token) must not log the fresh session out or overwrite it.
+  const tokenRef = useRef(token)
+  tokenRef.current = token
 
-  const fail = useCallback((err) => {
+  const fail = useCallback((err, usedToken) => {
+    if (usedToken !== undefined && usedToken !== tokenRef.current) return
     setError(err.message)
     if (isAuthError(err)) authRef.current?.()
   }, [])
 
   const refresh = useCallback(() => {
     if (!enabled || !token) return Promise.resolve()
-    return listRuns(token)
-      .then((rows) => { setRuns((cur) => mergeRunList(cur, rows)); setError('') })
-      .catch(fail)
+    const used = token
+    return listRuns(used)
+      .then((rows) => {
+        if (used !== tokenRef.current) return
+        setRuns((cur) => mergeRunList(cur, rows)); setError('')
+      })
+      .catch((err) => fail(err, used))
   }, [enabled, token, fail])
 
   const upsert = useCallback((row) => {
@@ -58,14 +68,16 @@ export function useDynamoRuns(token, enabled, { onAuthError } = {}) {
     }
     for (const id of active) {
       if (pollers.current.has(id)) continue
+      const used = token
       pollers.current.set(id, startPolling(async () => {
         try {
-          const row = await getRun(token, id)
+          const row = await getRun(used, id)
+          if (used !== tokenRef.current) return false
           upsert(row)
           return !isTerminalStatus(row.status)
         } catch (err) {
-          fail(err)
-          return true
+          fail(err, used)
+          return used === tokenRef.current
         }
       }))
     }
