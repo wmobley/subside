@@ -325,6 +325,9 @@ model:
               label: [Displacement GeoTIFF (COG)]
               description: [disp_displacement.tif — AOI-cropped OPERA DISP-S1 line-of-sight displacement (first band), Cloud-Optimized GeoTIFF, metres]
               hasFormat: ["image/tiff;application=geotiff"]
+              # archivedFile: the file (or glob) this output is in the job archive root.
+              # "{param:<id>}" means that parameter's value, resolved at submit.
+              archivedFile: disp_displacement.tif
               hasDimensionality: [2]
               variablePresentation:
                 standardVariable: land_surface__displacement
@@ -337,6 +340,7 @@ model:
               label: [Run manifest]
               description: [run-manifest.json — resolved config, AOI bbox, frame IDs, product count/URLs, downloaded files, pixel bbox, display range.]
               hasFormat: [application/json]
+              archivedFile: run-manifest.json
               position: [2]
             - id: h2i-output-netcdfs
               type: [DatasetSpecification]
@@ -356,12 +360,14 @@ model:
               label: [Displacement overlay PNG]
               description: [disp_overlay.png — static quick-look displacement overlay.]
               hasFormat: [image/png]
+              archivedFile: disp_overlay.png
               position: [5]
             - id: h2i-output-archive-zip
               type: [DatasetSpecification]
               label: [Archive zip]
               description: [OPERA_L3_DISP-S1.zip — bundled results for download/archival.]
               hasFormat: [application/zip]
+              archivedFile: OPERA_L3_DISP-S1.zip
               position: [6]
 
         # -------------------------------------------------------------------
@@ -619,6 +625,7 @@ model:
               label: [Cumulative displacement GeoTIFF]
               description: [Referenced cumulative LOS displacement (mm) over the window, EPSG:4326.]
               hasFormat: ["image/tiff;application=geotiff"]
+              archivedFile: "{param:werc-param-displacement-geotiff-name}"
               hasDimensionality: [2]
               variablePresentation:
                 standardVariable: land_surface__displacement
@@ -631,6 +638,7 @@ model:
               label: [Velocity GeoTIFF]
               description: [Per-pixel LOS velocity (mm/year) from the linear fit through the referenced stack, EPSG:4326.]
               hasFormat: ["image/tiff;application=geotiff"]
+              archivedFile: "{param:werc-param-velocity-geotiff-name}"
               hasDimensionality: [2]
               variablePresentation:
                 standardVariable: land_surface__displacement_rate
