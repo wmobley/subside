@@ -219,6 +219,9 @@ export function buildScenarioBody({
     parameter_values: buildParameterValues(pipeline, formValues),
     publish: publish || [],
   }
+  // SUBSIDE results are shared on the map, and the map fetches rasters from the
+  // catalog without a token, so a published SUBSIDE run is a public dataset.
+  if (body.publish.length) body.parameter_values.public = true
   if (maxMinutes != null) body.max_minutes = Math.round(Number(maxMinutes))
   if (dryRun) body.dry_run = true
   return body

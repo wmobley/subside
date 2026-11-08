@@ -72,6 +72,7 @@ describe('request shapes', () => {
     expect(body.parameter_values).toEqual({
       NUM_WORKERS: 4, MIN_OVERLAP_PERCENT: 60, REFERENCE_MODE: 'point',
       REFERENCE_LAT: 31.5, REFERENCE_LON: -97.1, ANCHOR_RADIUS_M: 5000, N_REFERENCE_PIXELS: 25,
+      public: true, // published SUBSIDE results are public: the map reads rasters without a token
     })
     // dates are not duplicated in parameter_values
     expect(body.parameter_values).not.toHaveProperty('START_DATE')
@@ -95,6 +96,8 @@ describe('request shapes', () => {
     expect(Object.keys(body.parameter_values).sort()).toEqual(['MIN_OVERLAP_PERCENT', 'NUM_WORKERS'])
     expect(JSON.stringify(body).toLowerCase()).not.toContain('earthdata')
     expect(body.publish).toEqual([])
+    // nothing is published, so no publish parameter rides along
+    expect(body.parameter_values).not.toHaveProperty('public')
   })
 
   it('each submission gets its own idempotency key unless one is supplied', async () => {
