@@ -61,20 +61,6 @@ def _need(module: str):
         ) from exc
 
 
-def _jwt_username(token: str) -> str | None:
-    """Best-effort ``tapis/username`` claim from an (unverified) JWT payload."""
-    try:
-        import base64
-        import json
-
-        payload = token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
-        claims = json.loads(base64.urlsafe_b64decode(payload))
-        return claims.get("tapis/username") or (claims.get("sub") or "").split("@")[0] or None
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def _authenticate():
     Tapis = _need("tapipy.tapis").Tapis
     username = os.environ.get("TAPIS_USERNAME")
@@ -82,10 +68,6 @@ def _authenticate():
     jwt = os.environ.get("TAPIS_JWT")
     if jwt:
         client = Tapis(base_url=DEFAULT_BASE_URL, jwt=jwt)
-        # tapipy leaves ``username`` unset for JWT auth; callers use it for
-        # staging-path defaults (``home/<username>/...``), so fill it in.
-        if not getattr(client, "username", None):
-            client.username = username or _jwt_username(jwt)
     elif username and password:
         client = Tapis(base_url=DEFAULT_BASE_URL, username=username, password=password)
         client.get_tokens()
