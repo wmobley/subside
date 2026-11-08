@@ -5,4 +5,5 @@ export const RUN_COPY = {
   running: 'Analyzing your area — this usually takes a few minutes.',
   recovering: 'Recovering the TACC result — your analysis is still being checked.',
   queued: 'Queued on TACC — waiting for a compute slot.',
+  unknown: 'Checking on this run — its status is not available yet.',
 }

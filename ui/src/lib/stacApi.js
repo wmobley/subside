@@ -9,8 +9,18 @@
 import { getConfig } from './runtimeConfig'
 
 const BASE = getConfig('VITE_STAC_API_BASE').replace(/\/$/, '')
-// Default collection = the SUBSIDE subsidence-rates CKAN dataset.
+// Default collection = the SUBSIDE subsidence-rates CKAN dataset. The setting may
+// name several, comma-separated (e.g. "subsidence-rates,subsidence-rates-dev" to
+// show published runs and a dev instance's runs together).
 const COLLECTION = getConfig('VITE_STAC_COLLECTION') || 'subsidence-rates'
+
+// The configured collections as the list a STAC search takes.
+export function collectionList(value = COLLECTION) {
+  const list = (Array.isArray(value) ? value : String(value).split(','))
+    .map((c) => String(c).trim())
+    .filter(Boolean)
+  return list.length ? list : ['subsidence-rates']
+}
 
 export function stacEnabled() {
   return Boolean(BASE)
@@ -22,7 +32,7 @@ export async function searchItems(bounds, { collection = COLLECTION, datetime, l
   if (!BASE) return []
   const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
     .map((n) => Number(n.toFixed(6)))
-  const body = { collections: [collection], bbox, limit }
+  const body = { collections: collectionList(collection), bbox, limit }
   if (datetime) body.datetime = datetime
   const resp = await fetch(`${BASE}/search`, {
     method: 'POST',
@@ -230,7 +240,7 @@ function itemTime(item) {
 export async function findRunItem({ bbox, start, end, collection = COLLECTION } = {}) {
   if (!BASE || !Array.isArray(bbox) || bbox.length !== 4) return null
   const body = {
-    collections: [collection],
+    collections: collectionList(collection),
     bbox: bbox.map((n) => Number(Number(n).toFixed(6))),
     limit: 20,
   }

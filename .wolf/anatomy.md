@@ -793,5 +793,19 @@
 ## ui/src/lib/ (note: the ui/ tree predates this scan and isn't otherwise tracked here — these two are new)
 
 - `pixelSample.js` — Samples the real pixel value at a lat/lon from an already-parsed georaster (StacCogLayer), reprojecting via proj4 when the COG's CRS isn't EPSG:4326 (SUBSIDE's OPERA DISP COGs are UTM). (~350 tok)
+- `dynamoApi.js` — Client for the MINT Ensemble Manager (DYNAMO) when VITE_RUN_BACKEND=dynamo: createRegion/submitScenario/listRuns/getRun/cancelRun/getPublishers, toSubsideStatus, backoff + pause-on-hidden polling, PARAMETER_CONTRACT (checked against the catalog YAML), results-window resolution. (~3500 tok)
+- `useDynamoRuns.js` — React hook: dynamo run list + per-row getRun polling for non-terminal rows (never regresses a reconciled row on list refresh). (~700 tok)
+- `runtimeConfig.js` — getConfig + runBackend() ("legacy" default | "dynamo") and dynamoApiBase(). (~250 tok)
+- `__tests__/dynamoApi.test.js`, `__tests__/dynamoApi.contract.test.js` — Vitest: request shapes, status table, polling, results window; parameter label/type contract vs opera-disp-s1.model-catalog.yaml. (~3500 tok)
 - `layerContext.js` — Shared "what is this quantity / units / sign convention" copy for a displacement or velocity layer, extracted from SubsideAnalysis.jsx so StacResults.jsx's pixel popup reuses the same wording. (~250 tok)
 - `files.py` — Some general file utilities used that can be used by the Cloud SDK. (~1159 tok)
+
+## ui/ (runs through DYNAMO, 2026-11-05)
+
+- `ui/.env.example` — documents VITE_RUN_BACKEND and VITE_DYNAMO_API_BASE. (~150 tok)
+- `ui/src/test/setup.js` — Vitest setup (jest-dom, cleanup, clears __SUBSIDE_CONFIG__ + localStorage). Vitest config lives in ui/vite.config.js `test`; run `npm test -- --run`. (~100 tok)
+- `ui/src/components/mapworkbench/__tests__/SubsideAnalysis.dynamo.test.jsx` — dynamo vs legacy mode of SubsideAnalysis with a real jsdom Leaflet map and a fetch router. (~3000 tok)
+
+## api/
+
+- `api/tests/test_legacy_runs_flag.py` — SUBSIDE_LEGACY_RUNS: 410 RUNS_MOVED_TO_DYNAMO on the 5 deprecated run routes, OpenAPI deprecation, /runs/estimate unaffected. (~700 tok)

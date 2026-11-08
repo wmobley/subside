@@ -91,6 +91,16 @@ class ForecastResponse(BaseModel):
 
 
 # --- runs ------------------------------------------------------------------
+class RunsMovedDetail(BaseModel):
+    """`detail` of the 410 returned by the deprecated run routes when SUBSIDE_LEGACY_RUNS=false."""
+    code: Literal["RUNS_MOVED_TO_DYNAMO"] = "RUNS_MOVED_TO_DYNAMO"
+    message: str
+
+
+class RunsMovedResponse(BaseModel):
+    detail: RunsMovedDetail
+
+
 class RunRequest(BaseModel):
     pipeline: Literal["h2i", "werc"] = "h2i"
     start_date: str

@@ -6,7 +6,7 @@
 # app's build-time defaults (import.meta.env). Keys mirror the VITE_* names.
 set -eu
 
-CONFIG_PATH="/usr/share/nginx/html/runtime-config.js"
+CONFIG_PATH="${RUNTIME_CONFIG_PATH:-/usr/share/nginx/html/runtime-config.js}"
 
 {
   echo 'window.__SUBSIDE_CONFIG__ = window.__SUBSIDE_CONFIG__ || {};'
@@ -18,6 +18,14 @@ CONFIG_PATH="/usr/share/nginx/html/runtime-config.js"
   fi
   if [ -n "${SUBSIDE_STAC_COLLECTION:-}" ]; then
     echo "window.__SUBSIDE_CONFIG__.VITE_STAC_COLLECTION = \"${SUBSIDE_STAC_COLLECTION}\";"
+  fi
+  # Where runs are submitted: "dynamo" (the MINT Ensemble Manager at
+  # SUBSIDE_DYNAMO_API_BASE, version included) or "legacy" (the SUBSIDE API).
+  if [ -n "${SUBSIDE_RUN_BACKEND:-}" ]; then
+    echo "window.__SUBSIDE_CONFIG__.VITE_RUN_BACKEND = \"${SUBSIDE_RUN_BACKEND}\";"
+  fi
+  if [ -n "${SUBSIDE_DYNAMO_API_BASE:-}" ]; then
+    echo "window.__SUBSIDE_CONFIG__.VITE_DYNAMO_API_BASE = \"${SUBSIDE_DYNAMO_API_BASE}\";"
   fi
 } > "$CONFIG_PATH"
 

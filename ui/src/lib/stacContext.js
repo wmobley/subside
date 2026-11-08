@@ -40,10 +40,23 @@ function styleForGeom(geomType, color) {
   return { geomType: 'Point', color, radius: 4, fillColor: color, fillOpacity: 0.8 }
 }
 
+// A context Item registered against the deployed SUBSIDE API carries that
+// host in its href (…/api/subside/tiles/…). The UI serves those tiles from
+// whichever SUBSIDE API it is configured to talk to (VITE_SUBSIDE_API_BASE;
+// empty = same-origin dev proxy), so a local UI is not sent to the production
+// API, which does not allow its origin. Other hosts pass through unchanged.
+export function localizeApiHref(href) {
+  const marker = '/api/subside/'
+  const at = typeof href === 'string' ? href.indexOf(marker) : -1
+  if (at < 0) return href
+  const base = getConfig('VITE_SUBSIDE_API_BASE').replace(/\/$/, '')
+  return base + href.slice(at)
+}
+
 // Normalize one STAC context Item -> the flat layer config the UI renders.
 function fromStacItem(item) {
   const ctx = item?.properties?.['subside:context'] || {}
-  const href = item?.assets?.service?.href || null
+  const href = localizeApiHref(item?.assets?.service?.href || null)
   if (!href || !ctx.service) return null
   return {
     id: item.id,

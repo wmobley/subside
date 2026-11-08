@@ -11,6 +11,7 @@ const https = fs.existsSync(KEY) && fs.existsSync(CERT)
   ? { key: fs.readFileSync(KEY), cert: fs.readFileSync(CERT) }
   : undefined
 const ckanTarget = process.env.VITE_CKAN_BASE || 'https://ckan.tacc.utexas.edu'
+const stacTarget = process.env.SUBSIDE_STAC_PROXY_TARGET || 'https://stacapi.pods.portals.tapis.io/api/v1'
 
 export default defineConfig({
   plugins: [react()],
@@ -30,7 +31,23 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ckan/, ''),
       },
+      // STAC API (results + context layers). The hosted STAC only allows the
+      // deployed UI origins, so local dev reaches it same-origin via this proxy;
+      // set VITE_STAC_API_BASE=/stac in .env.local to use it.
+      '/stac': {
+        target: stacTarget,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/stac/, ''),
+      },
     },
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.js'],
+    include: ['src/**/*.test.{js,jsx}'],
+    // Tests assume the shipped defaults; a developer's .env.local (dynamo mode,
+    // proxied STAC) must not leak into them.
+    env: { VITE_RUN_BACKEND: 'legacy', VITE_DYNAMO_API_BASE: '', VITE_STAC_API_BASE: '', VITE_STAC_COLLECTION: '' },
   },
   build: {
     outDir: 'dist',
