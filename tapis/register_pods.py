@@ -69,6 +69,8 @@ API_ENV_KEYS = [
     "SUBSIDE_CKAN_ORG",
     "SUBSIDE_CKAN_TOKEN",
     "SUBSIDE_MVT_SCHEMA",
+    # "false" makes the API's run routes answer 410 RUNS_MOVED_TO_DYNAMO.
+    "SUBSIDE_LEGACY_RUNS",
     # Service account that auto-provisions users on login (group + CKAN org).
     "SUBSIDE_ADMIN_USERNAME",
     "SUBSIDE_ADMIN_PASSWORD",
@@ -140,6 +142,10 @@ def _ui_env(api_url: str) -> dict[str, str]:
         env["SUBSIDE_STAC_API_BASE"] = stac_base
     if os.environ.get("SUBSIDE_STAC_COLLECTION"):
         env["SUBSIDE_STAC_COLLECTION"] = os.environ["SUBSIDE_STAC_COLLECTION"]
+    # Run backend: forwarded only when set (the UI defaults to the legacy path).
+    for key in ("SUBSIDE_RUN_BACKEND", "SUBSIDE_DYNAMO_API_BASE"):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
     return env
 
 

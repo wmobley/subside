@@ -78,6 +78,15 @@ the UI) and publication to CKAN/STAC is the run's `publish` flag. The default is
 verified locally; pre-cutover runs are not listed in dynamo mode. Design:
 `monorepo/docs/design/2026-11-05-subside-runs-through-dynamo.md`.
 
+On the deployed pods the same switch comes from environment variables that
+`tapis/register_pods.py` forwards to the UI container (written into
+`/runtime-config.js` at start): `SUBSIDE_RUN_BACKEND=dynamo` and
+`SUBSIDE_DYNAMO_API_BASE=<Ensemble Manager URL incl. /v1>`; set
+`SUBSIDE_LEGACY_RUNS=false` on the API pod to make the old run routes answer
+410. The Ensemble Manager must allow the UI pod's origin (a Tapis Pods CORS
+setting an administrator controls). Published SUBSIDE runs are public datasets,
+because the map reads rasters from the catalog without a token.
+
 UI tests: `npm test -- --run` (Vitest). Contract test:
 `src/lib/__tests__/dynamoApi.contract.test.js` checks the SUBSIDE→DYNAMO parameter
 mapping against `tapis/workflow_apps/opera-disp-s1.model-catalog.yaml`.
