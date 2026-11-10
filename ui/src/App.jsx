@@ -5,6 +5,7 @@ import { useAuth } from './lib/authContext'
 import { exchangeAuthCode, takeOAuthState } from './lib/subsideApi'
 import { pageFromHash, hashForPage } from './lib/routes'
 import { PortalPageContent } from './components/pages/PortalPageContent'
+import { AcceptTermsModal } from './components/AcceptTermsModal'
 import { PortalHeader, PortalFooter } from './components/PortalChrome'
 
 // Initial map view (Texas). The Risk Explorer's own layers + analysis panel
@@ -70,6 +71,7 @@ export default function App() {
         mapWorkbenchProps={mapWorkbenchProps}
       />
       <PortalFooter />
+      <AcceptTermsModal suspended={activePage === 'terms'} />
     </div>
   )
 }

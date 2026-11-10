@@ -14,6 +14,8 @@ content/
   partners/       ← one file per Partner Organization card (also feeds the header bar)
   goals/          ← one file per "What we're building" card
   workflows/      ← one file per Risk Explorer analysis ("Learn more about this analysis")
+  disclaimers/    ← legal text: risk-explorer.md and subsidence-prediction.md (in-tool
+                    banners) and terms.md (the Terms of use page, linked from the footer)
 ```
 
 ## How a file is structured
@@ -74,8 +76,8 @@ What this analysis does, what you get, and any caveats — free prose with
 
 - Keep the `---` lines and the `key:` labels — only change what comes after the
   colon, or the body text below.
-- Don't rename the `about.md` file or the `partners/`, `goals/`, and
-  `workflows/` folders. In `workflows/`, keep the filename equal to the pipeline
+- Don't rename the `about.md` file or the `partners/`, `goals/`, `workflows/`,
+  and `disclaimers/` folders (or the three file names in `disclaimers/`). In `workflows/`, keep the filename equal to the pipeline
   id (`h2i.md`, `werc.md`) or that workflow's "Learn more" link won't find it.
 - If something looks broken after an edit, check that both `---` lines are still
   there.

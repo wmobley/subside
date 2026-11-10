@@ -12,6 +12,8 @@ const PARTNERS = import.meta.glob('../../content/partners/*.md', { eager: true, 
 const GOALS = import.meta.glob('../../content/goals/*.md', { eager: true, query: '?raw', import: 'default' })
 const WORKFLOWS = import.meta.glob('../../content/workflows/*.md', { eager: true, query: '?raw', import: 'default' })
 
+const DISCLAIMERS = import.meta.glob('../../content/disclaimers/*.md', { eager: true, query: '?raw', import: 'default' })
+
 // Split a Markdown file into its frontmatter fields and body text.
 function parse(raw) {
   const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
@@ -59,6 +61,18 @@ export function getWorkflowDocs() {
     out[id] = { ...data, body }
   }
   return out
+}
+
+// Legal text, keyed by file stem: `risk-explorer` and `subsidence-prediction`
+// are the in-tool banners, `terms` is the long Terms of use block on About.
+// `welcome` is the first-visit acceptance modal. Returns { title, accept, link, hint, body } (empty strings if the file is missing).
+export function getDisclaimer(id) {
+  for (const [path, raw] of Object.entries(DISCLAIMERS)) {
+    if (path.split('/').pop().replace(/\.md$/, '') !== id) continue
+    const { data, body } = parse(raw)
+    return { title: data.title || '', accept: data.accept || '', link: data.link || '', hint: data.hint || '', body }
+  }
+  return { title: '', body: '' }
 }
 
 // Confirmed TWDB contract number for SUBSIDE. Shown on the About page and the
