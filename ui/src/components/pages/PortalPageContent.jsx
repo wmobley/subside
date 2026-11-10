@@ -5,7 +5,7 @@ import { ForecastTool } from '../ForecastTool'
 import { MapWorkbench } from '../MapWorkbench'
 import { PortalCards } from '../PortalCards'
 import { PortalHero } from '../PortalChrome'
-import { CONTRACT_LABEL, getAbout, getGoals, getPartners } from '../../lib/content'
+import { CONTRACT_LABEL, getAbout, getDisclaimer, getGoals, getPartners } from '../../lib/content'
 import { HOW_IT_WORKS } from '../../lib/config'
 
 function HomePage({ onNavigate }) {
@@ -52,6 +52,21 @@ function MapsPage({ mapWorkbenchProps }) {
     <main className="subside-main">
       <div className="subside-container">
         <MapWorkbench {...mapWorkbenchProps} />
+      </div>
+    </main>
+  )
+}
+
+function TermsPage() {
+  const terms = getDisclaimer('terms')
+
+  return (
+    <main className="subside-main about-page">
+      <div className="subside-container">
+        <div className="page-heading">
+          <h1>{terms.title || 'Terms of use'}</h1>
+        </div>
+        <div className="terms-body"><ReactMarkdown>{terms.body}</ReactMarkdown></div>
       </div>
     </main>
   )
@@ -148,5 +163,6 @@ export function PortalPageContent({
   if (activePage === 'datasets') return <DatasetsPage />
   if (activePage === 'maps') return <MapsPage mapWorkbenchProps={mapWorkbenchProps} />
   if (activePage === 'forecast') return <ForecastTool />
+  if (activePage === 'terms') return <TermsPage />
   return <AboutPage />
 }

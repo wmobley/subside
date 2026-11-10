@@ -10,6 +10,7 @@ export const PAGES = [
   { id: 'forecast', slug: 'forecast' },
   { id: 'datasets', slug: 'data' },
   { id: 'about', slug: 'about' },
+  { id: 'terms', slug: 'terms' },
 ]
 
 const DEFAULT_PAGE = 'home'

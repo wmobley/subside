@@ -1,3 +1,4 @@
+import { DisclaimerBanner } from './DisclaimerBanner'
 import { ModelMap } from './mapworkbench/ModelMap'
 
 // SUBSIDE Risk Explorer: a full-width Leaflet map with the registered vector
@@ -10,6 +11,7 @@ export function MapWorkbench({ mapData, zoom, setZoom }) {
         <div>
           <h2>Risk Explorer</h2>
           <p>Pick an area on the map to see its subsidence risk — observed ground movement now, with a forecast on the Forecast tab. Shaded frames have satellite data available.</p>
+          <DisclaimerBanner id="risk-explorer" />
         </div>
       </div>
 

@@ -141,7 +141,7 @@ export function PortalFooter() {
             <ul className="footer-links">
               <li><a href={hashForPage('about')}>Team</a></li>
               <li><a href={hashForPage('about')}>Contact</a></li>
-              <li><a href={hashForPage('about')}>Terms</a></li>
+              <li><a href={hashForPage('terms')}>Terms of use</a></li>
             </ul>
           </section>
         </div>

@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react'
 
 import { getForecastTemplate, runForecast } from '../lib/subsideApi'
+import { DisclaimerBanner } from './DisclaimerBanner'
 import { RiskGauge } from './mapworkbench/RiskGauge'
 
 const LITHOLOGY = ['Unconsolidated Clastic', 'Consolidated Clastic', 'Carbonate', 'Igneous']
@@ -258,6 +259,7 @@ export function ForecastTool() {
                   <p>Fill in what you know and select <strong>Estimate risk</strong> to see a projected 0–10 subsidence risk and a multi-decade subsidence curve.</p>
                 </div>
               )}
+              <DisclaimerBanner id="subsidence-prediction" />
             </aside>
           </div>
         )}
