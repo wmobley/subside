@@ -2,7 +2,8 @@
 
 ## Status
 
-Implemented
+Superseded — the scheduled GitHub Actions workflow was removed on 2026-11-17
+(see Decisions). The `smoke_test.py` harness remains for manual runs.
 
 ## Objective
 
@@ -166,6 +167,16 @@ an additional webhook can be added later if the team wants Slack or Teams.
   requiring a webhook secret.
 - **Reason:** It is visible to maintainers, has no additional secret or external
   write, and avoids duplicate issue/project bookkeeping.
+
+### 2026-11-17 — Remove the scheduled workflow
+
+- **Decision:** Delete `.github/workflows/tapis-development-smoke.yml`; keep
+  `tapis/workflows/smoke_test.py` for manual use.
+- **Reason:** The repository never had the required secrets (`TAPIS_ID`,
+  `TAPIS_PASSWORD`, `EARTHDATA_*`, `SUBSIDE_DEFAULT_ALLOCATION`), so every
+  scheduled run since at least 2026-11-08 failed in seconds with "A live run
+  needs --allocation". The user chose removal over configuring secrets and
+  spending allocation nightly.
 
 ## User feedback / decisions
 
