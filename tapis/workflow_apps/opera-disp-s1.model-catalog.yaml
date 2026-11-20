@@ -539,7 +539,8 @@ model:
               type: [Parameter]
               tapisEnvKey: REFERENCE_MODE
               label: [Reference mode]
-              description: [Referencing strategy: auto (anchor-based), or a supplied lat/lon via the single nearest pixel — point (a GNSS-chosen location) or manual (hand-entered).]
+              # Quoted: an unquoted "Referencing strategy: ..." inside [ ] parses as a mapping.
+              description: ["Referencing strategy: auto (anchor-based), or a supplied lat/lon via the single nearest pixel — point (a GNSS-chosen location) or manual (hand-entered)."]
               hasDataType: [string]
               hasDefaultValue: [auto]
               hasAcceptedValues: [auto, point, manual]
