@@ -304,9 +304,13 @@ model:
               type: [Parameter]
               tapisEnvKey: PREVIEW_ONLY
               label: [Preview only]
-              description: [Run discovery + preview only, skipping full download and archive.]
+              # Fixed at false: a preview-only run writes no displacement GeoTIFF, so a
+              # DYNAMO run of this configuration would always fail with MODEL_OUTPUT_MISSING.
+              # Kept on the record (read-only to runners) rather than removed.
+              description: ["Run discovery + preview only, skipping full download and archive. Fixed to false here: a preview-only run produces no displacement GeoTIFF, which this configuration's outputs require."]
               hasDataType: [boolean]
               hasDefaultValue: ["false"]
+              hasFixedValue: ["false"]
               hasAcceptedValues: ["true", "false"]
               position: [8]
 
