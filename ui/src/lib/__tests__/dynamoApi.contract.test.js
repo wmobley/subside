@@ -53,3 +53,11 @@ it('H2I has no reference parameters (the UI hides them)', () => {
   const keys = (h2i.hasParameter || []).map((p) => p.tapisEnvKey)
   expect(keys.filter((k) => k.startsWith('REFERENCE_'))).toEqual([])
 })
+
+it('H2I fixes PREVIEW_ONLY to false (a preview run makes no displacement GeoTIFF)', () => {
+  const h2i = findConfiguration(doc, MODEL_IDS.h2i.split('/').pop())
+  const preview = (h2i.hasParameter || []).find((p) => p.tapisEnvKey === 'PREVIEW_ONLY')
+  expect(preview).toBeTruthy()
+  expect(first(preview.hasFixedValue)).toBe('false')
+  expect(first(preview.hasDefaultValue)).toBe('false')
+})
